@@ -143,6 +143,7 @@ const OnOffAdsets = () => {
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",
+                  skip_zrok_interstitial: "true",
                 },
                 body: JSON.stringify(data),
               }
@@ -382,7 +383,7 @@ const OnOffAdsets = () => {
     const eventSource = new EventSource(eventSourceUrl, {
       headers: {
         "ngrok-skip-browser-warning": "true",
-        // skip_zrok_interstitial: "true",
+        skip_zrok_interstitial: "true",
       },
       retry: 1500, // Auto-retry every 1.5s on failure
     });
