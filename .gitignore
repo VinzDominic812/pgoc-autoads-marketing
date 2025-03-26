@@ -1,0 +1,46 @@
+# Ignore .env files
+*.env
+
+# Ignore virtual environment folders
+*.venv/
+venv/
+env/
+
+# Ignore Python virtual environment in automessage-api
+pgoc-autoads-api/*.venv_marketing
+*.myEnv
+pgoc-autoads-api/*celerybeat-schedule
+pgoc-autoads-api/*celerybeat-schedule
+pgoc-autoads-api/*sample.py
+pgoc-autoads-api/*celerybeat-schedule.
+
+
+
+# Ignore Python virtual environment in automessage-api
+mysql_data/
+postgres_data/
+
+# Ignore Python cache and build files
+*.pyc
+*.pyo
+__pycache__/
+*.pdb
+*.db
+
+# Ignore log files
+*.log
+
+# Ignore VSCode settings (if applicable)
+.vscode/
+
+# automessage-webapp specific ignores
+pgoc-adsbot-frontend/node_modules/
+pgoc-adsbot-frontend/build/
+
+
+# Ignore npm debug log
+npm-debug.log*
+
+# Ignore system-specific files
+.DS_Store
+Thumbs.db

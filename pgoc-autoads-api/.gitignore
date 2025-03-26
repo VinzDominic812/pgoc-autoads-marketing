@@ -1,0 +1,23 @@
+# Ignore .env files
+*.env
+
+# Ignore virtual environment folders
+*.venv/
+venv/
+env/
+
+.venv_marketingapi/
+
+
+# Ignore Python cache and build files
+*.pyc
+*.pyo
+__pycache__/
+*.pdb
+*.db
+
+# Ignore log files
+*.log
+
+# Ignore VSCode settings (if applicable)
+.vscode/
