@@ -61,7 +61,7 @@ const CampaignCreationTerminal = ({ messages, setMessages }) => {
                 ))
             ) : (
               <div className="text-xs text-gray-600 italic">
-                ⚡ Select Ad_Account...
+                ⚡ Waiting For Run...
               </div>
             )}
           </div>

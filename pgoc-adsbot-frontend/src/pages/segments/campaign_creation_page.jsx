@@ -677,9 +677,7 @@ const CampaignCreationPage = () => {
         isRunningRef.current = false;
       
         addMessage([
-          "-------------------------------------------------",
           "✅ All verified campaigns have been created successfully!",
-          "-------------------------------------------------",
         ]);
       };
 

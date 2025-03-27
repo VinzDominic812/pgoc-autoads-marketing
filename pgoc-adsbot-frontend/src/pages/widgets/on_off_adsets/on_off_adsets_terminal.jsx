@@ -61,7 +61,7 @@ const CampaignNameTerminal = ({ messages, setMessages }) => {
                 ))
             ) : (
               <div className="text-xs text-gray-600 italic">
-                Waiting for Run...
+                ⚡ Waiting For Run...
               </div>
             )}
           </div>
