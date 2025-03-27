@@ -442,6 +442,7 @@ const OnOffAdsets = () => {
           // ✅ Handle "Campaign updates completed"
           const successMatch = messageText.match(
             /\[(.*?)\] Processing (\S+) Completed/
+            /\[(.*?)\] Processing (\S+) Completed/
           );
           
           if (successMatch) {
