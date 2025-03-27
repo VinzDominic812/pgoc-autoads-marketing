@@ -73,6 +73,7 @@ const CampaignCreationPage = () => {
   const [openDialog, setOpenDialog] =useState(false);
   const handleOpenDialog = () => setOpenDialog(true);
   const handleCloseDialog = () => setOpenDialog(false);
+  const [errorMessages, setErrorMessages] = useState([]);
 
   const [isAi, setIsAi] = useState(false);
 

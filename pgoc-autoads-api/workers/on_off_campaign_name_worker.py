@@ -72,8 +72,8 @@ def update_facebook_status(user_id, ad_account_id, entity_id, new_status, access
 
 @shared_task
 def fetch_campaign_off(user_id, ad_account_id, access_token, matched_schedule):
-    """Efficiently fetch campaigns from Facebook API and update only scheduled ones."""
-
+    """Efficiently fetch campaigns from Facebook API and update only scheduled ones, with verification."""
+    
     operation = "ON" if matched_schedule.get("on_off") == "ON" else "OFF"
     lock_key = f"lock:fetch_campaign_only:{ad_account_id}"
     lock = redis_client.lock(lock_key, timeout=300)
@@ -85,14 +85,12 @@ def fetch_campaign_off(user_id, ad_account_id, access_token, matched_schedule):
     try:
         logging.info(f"SCHEDULE DATA: {matched_schedule}")
 
-        # ✅ Use set for O(1) lookup on large data
         scheduled_campaign_names = {normalize_text(name) for name in matched_schedule.get("campaign_name", [])}
-        on_off_value = matched_schedule.get("on_off", "").upper()  # Ensure it is a string
-        target_status = "ACTIVE" if on_off_value == "ON" else "PAUSED"
+        target_status = "ACTIVE" if operation == "ON" else "PAUSED"
 
-
-        message = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Fetching Campaign Data for {ad_account_id} ({operation})"
-        append_redis_message_campaigns(user_id, message)
+        append_redis_message_campaigns(
+            user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Fetching Campaign Data for {ad_account_id} ({operation})"
+        )
 
         url = f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/campaigns?fields=id,name,status&limit=500"
         campaigns_to_update = []
@@ -115,18 +113,18 @@ def fetch_campaign_off(user_id, ad_account_id, access_token, matched_schedule):
                     else:
                         append_redis_message_campaigns(
                             user_id, 
-                            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠ Campaign {campaign_name} ({campaign_id}) REMAINS {target_status}."
+                            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠ Campaign {campaign_name} ({campaign_id}) IS ALREADY {target_status}."
                         )
 
-            url = response_data.get("paging", {}).get("next")  # ✅ Handle pagination
+            url = response_data.get("paging", {}).get("next")
 
-        # ✅ Ensure "No campaigns needed updates." is appended BEFORE completion
         if not campaigns_to_update:
             append_redis_message_campaigns(
                 user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] No campaigns needed updates."
             )
+            return f"No updates required for Ad Account {ad_account_id} ({operation})."
 
-        # ✅ Batch update campaigns instead of API calls per campaign
+        # ✅ Updating campaign statuses
         for campaign_id, campaign_name in campaigns_to_update:
             success = update_facebook_status(user_id, ad_account_id, campaign_id, target_status, access_token)
 
@@ -137,13 +135,37 @@ def fetch_campaign_off(user_id, ad_account_id, access_token, matched_schedule):
             )
             append_redis_message_campaigns(user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {status_message}")
 
-        #  Append final success message
-        append_redis_message_campaigns(
-            user_id,
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Campaign updates completed for {ad_account_id} ({operation})"
-        )
+        # ✅ Double-check: Verify if campaigns actually updated
+        verification_url = f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/campaigns?fields=id,name,status&limit=500"
+        failed_updates = []
 
-        return f"Campaign updates completed for Ad Account {ad_account_id} ({operation})."
+        while verification_url:
+            verification_data = fetch_facebook_data(verification_url, access_token)
+
+            if "error" in verification_data:
+                raise Exception(verification_data["error"].get("message", "Unknown API error"))
+
+            for campaign in verification_data.get("data", []):
+                campaign_id = campaign["id"]
+                campaign_status = campaign["status"]
+
+                if campaign_id in {cid for cid, _ in campaigns_to_update} and campaign_status != target_status:
+                    failed_updates.append(campaign_id)
+
+            verification_url = verification_data.get("paging", {}).get("next")
+
+        if failed_updates:
+            append_redis_message_campaigns(
+                user_id, 
+                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠ WARNING: Some campaigns did not update successfully: {failed_updates}"
+            )
+        else:
+            append_redis_message_campaigns(
+                user_id, 
+                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ All campaign updates verified successfully!"
+            )
+
+        return f"Campaign updates completed and verified for Ad Account {ad_account_id} ({operation})."
 
     except Exception as e:
         error_message = f"❌ Error fetching campaigns for {ad_account_id} ({operation}): {e}"
