@@ -97,7 +97,7 @@ const OnOffAdsets = () => {
 
   const handleRunAdsets = async () => {
     if (tableAdsetsData.length === 0) {
-      addAdsetsMessage([`[${getCurrentTime()}] ❌ No campaigns to process.`]);
+      notify(`❌ No campaigns to process.`, 'error');
       return;
     }
   
@@ -418,12 +418,18 @@ const OnOffAdsets = () => {
 
           // ✅ Handle "Fetching Campaign Data for {ad_account_id} ({operation})"
           const fetchingMatch = messageText.match(
-            /\[(.*?)\] Fetching Campaign Data for (\S+) \((ON|OFF)\), schedule (.+)/
+            /\[(.*?)\] Fetching Campaign Data for (\S+) schedule (.*)/
           );
 
           if (fetchingMatch) {
+            const timestamp = fetchingMatch[1];
             const adAccountId = fetchingMatch[2];
-            const onOffStatus = fetchingMatch[3];
+
+            const scheduleData = JSON.parse(
+              fetchingMatch[3].replace(/'/g, '"') // Convert single quotes to valid JSON
+            );
+
+            const onOffStatus = scheduleData.on_off;
 
             setTableAdsetsData((prevData) =>
               prevData.map((entry) =>
@@ -437,7 +443,7 @@ const OnOffAdsets = () => {
 
           // ✅ Handle "Campaign updates completed"
           const successMatch = messageText.match(
-            /\[(.*?)\] Campaign updates completed for (\S+) \((ON|OFF)\)/
+            /\[(.*?)\] Processing (\S+) Completed/
           );
 
           if (successMatch) {
