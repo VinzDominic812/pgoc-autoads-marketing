@@ -418,17 +418,13 @@ const OnOffAdsets = () => {
 
           // ✅ Handle "Fetching Campaign Data for {ad_account_id} ({operation})"
           const fetchingMatch = messageText.match(
-            /\[(.*?)\] Fetching Campaign Data for (\S+) schedule (.*)/
+            /\[(.*?)\] Fetching Campaign Data for (\S+) \((ON|OFF)\), schedule (.+)/
           );
 
           if (fetchingMatch) {
-            const timestamp = fetchingMatch[1];
             const adAccountId = fetchingMatch[2];
-            const scheduleData = JSON.parse(
-              fetchingMatch[3].replace(/'/g, '"') // Convert single quotes to valid JSON
-            );
-            const onOffStatus = scheduleData.on_off;
-            
+            const onOffStatus = fetchingMatch[3];
+
             setTableAdsetsData((prevData) =>
               prevData.map((entry) =>
                 entry.ad_account_id === adAccountId &&
@@ -441,22 +437,21 @@ const OnOffAdsets = () => {
 
           // ✅ Handle "Campaign updates completed"
           const successMatch = messageText.match(
-            /\[(.*?)\] Processing (\S+) Completed/
+            /\[(.*?)\] Campaign updates completed for (\S+) \((ON|OFF)\)/
           );
-          
+
           if (successMatch) {
-            const timestamp = successMatch[1];
             const adAccountId = successMatch[2];
-          
+            const onOffStatus = successMatch[3];
+
             setTableAdsetsData((prevData) =>
               prevData.map((entry) =>
-                entry.ad_account_id === adAccountId
-                  ? { ...entry, status: `Success ✅ (${entry.on_off.toUpperCase()})` }
+                entry.ad_account_id === adAccountId &&
+                entry.on_off === onOffStatus
+                  ? { ...entry, status: `Success ✅` }
                   : entry
               )
             );
-          
-            console.log(`✅ Success for Ad Account ${adAccountId} at ${timestamp}`);
           }
 
           // ❌ Handle 401 Unauthorized error
@@ -472,7 +467,7 @@ const OnOffAdsets = () => {
               prevData.map((entry) =>
                 entry.ad_account_id === adAccountId &&
                 entry.on_off === onOffStatus
-                  ? { ...entry, status: `Failed ❌ (${entry.on_off.toUpperCase()})` }
+                  ? { ...entry, status: "Failed ❌" }
                   : entry
               )
             );
