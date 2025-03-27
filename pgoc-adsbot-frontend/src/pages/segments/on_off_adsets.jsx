@@ -373,8 +373,8 @@ const OnOffAdsets = () => {
   };
 
   useEffect(() => {
-    const { id } = getUserData();
-    const eventSourceUrl = `${apiUrl}/api/v1/messageevents-adsets?keys=${id}-key`;
+    const { id: user_id  } = getUserData();
+    const eventSourceUrl = `${apiUrl}/api/v1/messageevents-adsets?keys=${user_id}-key`;
 
     if (eventSourceRef.current) {
       eventSourceRef.current.close(); // Close any existing SSE connection
@@ -406,7 +406,7 @@ const OnOffAdsets = () => {
 
             setTableAdsetsData((prevData) =>
               prevData.map((entry) =>
-                entry.key === `${id}-key`
+                entry.key === `${user_id}-key`
                   ? {
                       ...entry,
                       lastMessage: `${timestamp} - ${messageContent}`,
@@ -439,19 +439,20 @@ const OnOffAdsets = () => {
           const successMatch = messageText.match(
             /\[(.*?)\] Campaign updates completed for (\S+) \((ON|OFF)\)/
           );
-
+          
           if (successMatch) {
+            const timestamp = successMatch[1];
             const adAccountId = successMatch[2];
-            const onOffStatus = successMatch[3];
-
+          
             setTableAdsetsData((prevData) =>
               prevData.map((entry) =>
-                entry.ad_account_id === adAccountId &&
-                entry.on_off === onOffStatus
-                  ? { ...entry, status: `Success ✅` }
+                entry.ad_account_id === adAccountId
+                  ? { ...entry, status: `Success ✅ (${entry.on_off.toUpperCase()})` }
                   : entry
               )
             );
+          
+            console.log(`✅ Success for Ad Account ${adAccountId} at ${timestamp}`);
           }
 
           // ❌ Handle 401 Unauthorized error
