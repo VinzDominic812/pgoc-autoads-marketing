@@ -73,7 +73,6 @@ const CampaignCreationPage = () => {
   const [openDialog, setOpenDialog] =useState(false);
   const handleOpenDialog = () => setOpenDialog(true);
   const handleCloseDialog = () => setOpenDialog(false);
-  const [errorMessages, setErrorMessages] = useState([]);
 
   const [isAi, setIsAi] = useState(false);
 
@@ -267,7 +266,7 @@ const CampaignCreationPage = () => {
             });
 
             setTableData(formattedData);
-            console.log(`formatteddata: ${JSON.stringify(formattedData)}`);
+            console.log("Formatted Data:", JSON.stringify(formattedData, null, 2));
             verifyAdAccounts(formattedData);
           }
         },
@@ -278,6 +277,20 @@ const CampaignCreationPage = () => {
 
     reader.readAsText(file, "UTF-8");
   };
+
+  const ErrorTooltip = ({ message, children }) => (
+    <Tooltip
+      title={
+        <Typography variant="body2" style={{ color: '#fff' }}>
+          {message}
+        </Typography>
+      }
+      arrow
+      placement="top"
+    >
+      {children}
+    </Tooltip>
+  );
 
   const compareCsvWithJson = (csvData, jsonData, setTableData) => {
     console.log("Comparing CSV data with JSON response...");
@@ -316,14 +329,49 @@ const CampaignCreationPage = () => {
         jsonRow.ad_account_status === "Verified" &&
         jsonRow.access_token_status === "Verified" &&
         jsonRow.facebook_page_status === "Verified";
+
+        const errorMessages = [];
+        if (jsonRow.ad_account_status === "Not Verified") {
+          errorMessages.push(jsonRow.ad_account_error);
+        }
+        if (jsonRow.access_token_status === "Not Verified") {
+          errorMessages.push(jsonRow.access_token_error);
+        }
+        if (jsonRow.facebook_page_status === "Not Verified") {
+          errorMessages.push(jsonRow.facebook_page_error);
+        }
   
-      return {
-        ...csvRow,
-        ad_account_status: jsonRow.ad_account_status,
-        access_token_status: jsonRow.access_token_status,
-        facebook_page_status: jsonRow.facebook_page_status,
-        status: allVerified ? "Verified" : "Error",
-      };
+        return {
+          ...csvRow,
+          ad_account_status:
+            jsonRow.ad_account_status === "Not Verified" ? (
+              <CancelIcon style={{ color: "red" }} />
+            ) : (
+              <CheckIcon style={{ color: "green" }} />
+            ),
+
+          access_token_status:
+            jsonRow.access_token_status === "Not Verified" ? (
+              <CancelIcon style={{ color: "red" }} />
+            ) : (
+              <CheckIcon style={{ color: "green" }} />
+            ),
+
+          facebook_page_status:
+            jsonRow.facebook_page_status === "Not Verified" ? (
+              <CancelIcon style={{ color: "red" }} />
+            ) : (
+              <CheckIcon style={{ color: "green" }} />
+            ),
+
+          status: allVerified ? (
+            <CheckIcon style={{ color: "green" }} />
+          ) : (
+            <ErrorTooltip message={errorMessages.join(", \n")}>
+              <CancelIcon style={{ color: "red" }} />
+            </ErrorTooltip>
+          ),
+        };
     });
   
     setTableData(updatedData);
@@ -344,7 +392,7 @@ const CampaignCreationPage = () => {
       );
 
       const result = await response.json();
-      console.log(`RESULT: ${JSON.stringify(result)}`);
+      console.log("RESULT:", JSON.stringify(result, null, 2));
 
       if (response.ok && result.verified_accounts) {
         compareCsvWithJson(
@@ -569,7 +617,7 @@ const CampaignCreationPage = () => {
         ? `${apiUrl}/api/v1/campaign/create-campaigns-ai`
         : `${apiUrl}/api/v1/campaign/create-campaigns`;
 
-        const verifiedCampaigns = tableData.filter(row => row.status === "Verified");
+        //const verifiedCampaigns = tableData.filter(row => row.status === "Verified");
 
         if (verifiedCampaigns.length === 0) {
           notify("No verified campaigns available to run.", "error");
@@ -687,53 +735,6 @@ const CampaignCreationPage = () => {
     Cookies.remove("tableData"); // Remove from cookies
     notify("All data cleared successfully!", "success");
   };
-
-  //Icons for Verified
-  const customRenderers = useMemo(
-    () => ({
-      ad_account_status: (status) =>
-        status === "Verified" ? (
-          <Tooltip title="Ad Account Verified">
-            <CheckIcon style={{ color: "green" }} />
-          </Tooltip>
-        ) : (
-          <Tooltip title={`Ad Account Error: ${status}`}>
-            <CancelIcon style={{ color: "red" }} />
-          </Tooltip>
-        ),
-      access_token_status: (status) =>
-        status === "Verified" ? (
-          <Tooltip title="Access Token Verified">
-            <CheckIcon style={{ color: "green" }} />
-          </Tooltip>
-        ) : (
-          <Tooltip title={`Access Token Error: ${status}`}>
-            <CancelIcon style={{ color: "red" }} />
-          </Tooltip>
-        ),
-      facebook_page_status: (status) =>
-        status === "Verified" ? (
-          <Tooltip title="Facebook Page Verified">
-            <CheckIcon style={{ color: "green" }} />
-          </Tooltip>
-        ) : (
-          <Tooltip title={`Facebook Page Error: ${status}`}>
-            <CancelIcon style={{ color: "red" }} />
-          </Tooltip>
-        ),
-      status: (status) =>
-        status === "Verified" ? (
-          <Tooltip title="All Verified">
-            <CheckIcon style={{ color: "green" }} />
-          </Tooltip>
-        ) : (
-          <Tooltip title="Some Errors Detected">
-            <CancelIcon style={{ color: "red" }} />
-          </Tooltip>
-        ),
-    }),
-    [tableData]
-  );
 
   return (
     <Box
@@ -943,7 +944,6 @@ const CampaignCreationPage = () => {
               marginTop: "8px",
               textAlign: "center",
             }}
-            customRenderers={customRenderers}
             onDataChange={setTableData}
             onSelectedChange={handleSelectedDataChange} // Pass selection handler
             nonEditableHeaders={[
