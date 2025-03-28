@@ -15,6 +15,7 @@ import ScheduledIcon from "@mui/icons-material/AlarmSharp";
 import PowerIcon from "@mui/icons-material/PowerSettingsNewSharp";
 import LogoutIcon from "@mui/icons-material/LogoutRounded";
 import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
+import FlagRoundedIcon from '@mui/icons-material/FlagRounded';
 
 // Pages
 import DashboardPage from "../../segments/dashboardpage";
@@ -24,6 +25,7 @@ import CampaignONOFFPage from "../../segments/campaign_on_off_page";
 import CampaignNameOnlyPage from "../../segments/only_campaign_name";
 import CampaignCreationPage from "../../segments/campaign_creation_page";
 import AdsetsONOFFpage from "../../segments/on_off_adsets"
+import PageNameONOFFpage from "../../segments/on_off_pagename"
 
 // Auth & Data Fetching
 import { getUserData } from "../../../services/user_data"; // Adjust path if needed
@@ -31,7 +33,11 @@ import { useUserData } from "../../../services/fetch-userdata";
 import CreateOnOFFPage from "../../segments/on_off_campaign_name";
 
 const NAVIGATION = [
-  { segment: "home", title: "Dashboard", icon: <DashboardIcon /> },
+  { 
+    segment: "home", 
+    title: "Dashboard", 
+    icon: <DashboardIcon /> 
+  },
   {
     segment: "campaign-creation",
     title: "Campaign Creation",
@@ -42,7 +48,14 @@ const NAVIGATION = [
     title: "ON/OFF Adsets", 
     icon: <GridViewRoundedIcon /> 
   },
-  { segment: "campaign-off", title: "ON/OFF Campaigns", icon: <PowerIcon /> },
+  { segment: "campaign-off", 
+    title: "ON/OFF Campaigns", 
+    icon: <PowerIcon /> 
+  },
+  { segment: "pagename-off", 
+    title: "ON/OFF CampaignsV2", 
+    icon: <FlagRoundedIcon /> 
+  },
   {
     segment: "scheduled-campaign-name",
     title: "Schedule ON/OFF Campaigns ",
@@ -53,8 +66,16 @@ const NAVIGATION = [
     title: "Schedules",
     icon: <ScheduledIcon />,
   },
-  { segment: "reports", title: "Reports", icon: <BarChartIcon /> },
-  { segment: "logout", title: "Logout", icon: <LogoutIcon /> },
+  { 
+    segment: "reports", 
+    title: "Reports", 
+    icon: <BarChartIcon /> 
+  },
+  { 
+    segment: "logout", 
+    title: "Logout", 
+    icon: <LogoutIcon /> 
+  },
 ];
 
 const demoTheme = createTheme({
@@ -134,6 +155,8 @@ const Dashboard = () => {
         return <AdsetsONOFFpage />;
       case "campaign-off":
         return <CreateOnOFFPage userData={userData} />;
+      case "pagename-off":
+        return <PageNameONOFFpage userData={userData}/>;
       case "scheduled-campaign-name":
         return <CampaignNameOnlyPage userData={userData} />;
       case "scheduled-on-and-off":
