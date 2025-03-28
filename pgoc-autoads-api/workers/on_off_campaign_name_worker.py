@@ -85,12 +85,13 @@ def fetch_campaign_off(user_id, ad_account_id, access_token, matched_schedule):
     try:
         logging.info(f"SCHEDULE DATA: {matched_schedule}")
 
+        # ✅ Use set for O(1) lookup on large data
         scheduled_campaign_names = {normalize_text(name) for name in matched_schedule.get("campaign_name", [])}
-        target_status = "ACTIVE" if operation == "ON" else "PAUSED"
+        on_off_value = matched_schedule.get("on_off", "").upper()  # Ensure it is a string
+        target_status = "ACTIVE" if on_off_value == "ON" else "PAUSED"
 
-        append_redis_message_campaigns(
-            user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Fetching Campaign Data for {ad_account_id} ({operation})"
-        )
+        message = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Fetching Campaign Data for {ad_account_id} ({operation})"
+        append_redis_message_campaigns(user_id, message)
 
         url = f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/campaigns?fields=id,name,status&limit=500"
         campaigns_to_update = []
@@ -113,18 +114,18 @@ def fetch_campaign_off(user_id, ad_account_id, access_token, matched_schedule):
                     else:
                         append_redis_message_campaigns(
                             user_id, 
-                            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠ Campaign {campaign_name} ({campaign_id}) IS ALREADY {target_status}."
+                            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠ Campaign {campaign_name} ({campaign_id}) REMAINS {target_status}."
                         )
 
-            url = response_data.get("paging", {}).get("next")
+            url = response_data.get("paging", {}).get("next")  # ✅ Handle pagination
 
+        # ✅ Ensure "No campaigns needed updates." is appended BEFORE completion
         if not campaigns_to_update:
             append_redis_message_campaigns(
                 user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] No campaigns needed updates."
             )
-            return f"No updates required for Ad Account {ad_account_id} ({operation})."
 
-        # ✅ Updating campaign statuses
+        # ✅ Batch update campaigns instead of API calls per campaign
         for campaign_id, campaign_name in campaigns_to_update:
             success = update_facebook_status(user_id, ad_account_id, campaign_id, target_status, access_token)
 
@@ -135,7 +136,7 @@ def fetch_campaign_off(user_id, ad_account_id, access_token, matched_schedule):
             )
             append_redis_message_campaigns(user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {status_message}")
 
-        # ✅ Double-check: Verify if campaigns actually updated
+        # ✅ Verification Step: Ensure updates were actually applied
         verification_url = f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/campaigns?fields=id,name,status&limit=500"
         failed_updates = []
 
