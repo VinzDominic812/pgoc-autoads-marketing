@@ -17,12 +17,9 @@ redis_websocket_off = redis.Redis(host="redisAds", port=6379, db=13, decode_resp
 # Redis connection for Create Campaigns
 redis_websocket_cc = redis.Redis(host="redisAds", port=6379, db=14, decode_responses=True)
 # Redis connection for Create Campaigns
-redis_websocket_as = redis.Redis(
-    host="redisAds",
-    port=6379,
-    db=15,
-    decode_responses=True  # Ensures Redis returns strings
-)
+redis_websocket_as = redis.Redis(host="redisAds",port=6379,db=15,decode_responses=True)
+# Redis connection for Create Campaigns
+redis_websocket_pn = redis.Redis(host="redisAds", port=6379, db=12, decode_responses=True)
 
 # Ensure Redis keyspace notifications are enabled
 redis_websocket.config_set("notify-keyspace-events", "KEA")
@@ -30,6 +27,7 @@ redis_websocket_only.config_set("notify-keyspace-events", "KEA")
 redis_websocket_off.config_set("notify-keyspace-events", "KEA")
 redis_websocket_cc.config_set("notify-keyspace-events", "KEA")
 redis_websocket_as.config_set("notify-keyspace-events", "KEA")
+redis_websocket_pn.config_set("notify-keyspace-events", "KEA")
 
 def send_initial_data(redis_instance, specific_key):
     """Fetch and send the latest Redis key data when client connects."""
@@ -157,3 +155,15 @@ def messageevents_adsets():
     logging.info(f"Client connected to SSE for key: {room} on DB 15")
     
     return Response(send_sse_signal(redis_websocket_as, room, 15), content_type="text/event-stream")
+
+@message_events_blueprint.route("/messageevents-pagename")
+def messageevents_pagename():
+    """SSE endpoint that streams Redis key updates from DB 12."""
+    room = request.args.get("keys")
+
+    if not room:
+        return "Missing 'keys' query parameter", 400
+    
+    logging.info(f"Client connected to SSE for key: {room} on DB 12")
+    
+    return Response(send_sse_signal(redis_websocket_pn, room, 12), content_type="text/event-stream")
