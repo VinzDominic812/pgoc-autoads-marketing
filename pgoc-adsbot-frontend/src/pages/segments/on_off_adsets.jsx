@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Box, Typography } from "@mui/material";
+import { Box, Typography, TextField } from "@mui/material";
 import WidgetCard from "../components/widget_card";
 import DynamicTable from "../components/dynamic_table";
 import notify from "../components/toast.jsx";
@@ -64,6 +64,9 @@ const OnOffAdsets = () => {
   const [messages, setMessages] = useState([]); // Ensure it's an array
   const fileInputRef = useRef(null);
   const eventSourceRef = useRef(null);
+  
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filteredData, setFilteredData] = useState(tableAdsetsData);
 
   // Persist data in cookies whenever state changes
   useEffect(() => {
@@ -73,6 +76,20 @@ const OnOffAdsets = () => {
   useEffect(() => {
     Cookies.set("messages", JSON.stringify(messages), { expires: 1 });
   }, [messages]);
+
+  useEffect(() => {
+    const lowerSearchTerm = searchTerm.toLowerCase();
+
+    const filtered = tableAdsetsData.filter((item) =>
+      Object.values(item).some((val) =>
+        val !== null &&
+        val !== undefined &&
+        String(val).toLowerCase().includes(lowerSearchTerm)
+      )
+    );
+
+    setFilteredData(filtered);
+  }, [searchTerm, tableAdsetsData]);
 
   const addAdsetsMessage = (newMessages) => {
     setMessages((prevMessages) => {
@@ -589,9 +606,20 @@ const OnOffAdsets = () => {
       {/* Second Row (Dynamic Table) */}
       <Box sx={{ flex: 1 }}>
         <WidgetCard title="Main Section" height="90%">
+          {/* Search Bar */}
+          <TextField
+            label="Search any data..."
+            variant="outlined"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            size="small"
+            sx={{ marginBottom: "8px", width: "300px" }}
+          />
+
+          {/* Dynamic Table with Filtered Data */}
           <DynamicTable
             headers={headers}
-            data={tableAdsetsData}
+            data={filteredData}
             rowsPerPage={1000}
             containerStyles={{
               width: "100%",
@@ -600,7 +628,7 @@ const OnOffAdsets = () => {
               textAlign: "center",
             }}
             onDataChange={setTableAdsetsData}
-            onSelectedChange={handleSelectedAdsetsDataChange} // Pass selection handler
+            onSelectedChange={handleSelectedAdsetsDataChange}
             nonEditableHeaders={[
               "ad_account_id",
               "access_token",
