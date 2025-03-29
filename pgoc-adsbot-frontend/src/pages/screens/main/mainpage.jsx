@@ -25,7 +25,7 @@ import CampaignONOFFPage from "../../segments/campaign_on_off_page";
 import CampaignNameOnlyPage from "../../segments/only_campaign_name";
 import CampaignCreationPage from "../../segments/campaign_creation_page";
 import AdsetsONOFFpage from "../../segments/on_off_adsets"
-import PageNameONOFFpage from "../../segments/on_off_pagename"
+import PageNameONOFFpage from "../../segments/on_off_page_name"
 
 // Auth & Data Fetching
 import { getUserData } from "../../../services/user_data"; // Adjust path if needed

@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Box, Typography } from "@mui/material";
-import WidgetCard from "../components/widget_card";
-import DynamicTable from "../components/dynamic_table";
+import WidgetCard from "../components/widget_card.jsx";
+import DynamicTable from "../components/dynamic_table.jsx";
 import notify from "../components/toast.jsx";
-import CustomButton from "../components/buttons";
+import CustomButton from "../components/buttons.jsx";
 import SpaceBg from "../../assets/space-bg.png";
 import Papa from "papaparse";
 import { getUserData } from "../../services/user_data.js";
