@@ -204,6 +204,36 @@ const OnOffAdsets = () => {
     addAdsetsMessage([`[${getCurrentTime()}] 🚀 All Requests Sent`]);
   };
 
+  const verifyAdAccounts = async (adsetsData) => {
+    try {
+      const response = await fetch(
+        `${apiUrl}/api/v1/verify-adsets-accounts/adsets`,
+        {
+          method: "POST",
+          header: {
+            "Content-Type": "application/json",
+            skip_zrok_interstitial: "true",
+          },
+          body: JSON.stringify({ user_id: 1, campaigns: adsetsData }),
+        }
+      );
+
+      const result = await response.json();
+      console.log("RESULT: ", JSON.stringify(result, null, 2))
+
+      if (response.ok && result.verified_accounts) {
+        compareCsvWithJson(
+          adsetsData,
+          result.verified_accounts
+        ); // 🔹 Now updates table data!
+      } else {
+        console.warn("⚠️ No verified accounts returned from API.");
+      }
+    } catch (error) {
+      console.error("Error verifying ad accounts:", error);
+    }
+  };
+
   // Handle CSV File Import
   const handleFileChange = (event) => {
     const file = event.target.files[0];
@@ -281,8 +311,8 @@ const OnOffAdsets = () => {
         }));
   
         console.log("Processed Request Data:", JSON.stringify(requestData, null, 2));
-  
         setTableAdsetsData(uniqueData); // Store processed data in the table
+        verifyAdAccounts(requestData)
         notify("CSV file successfully imported!", "success");
       },
       header: false,
