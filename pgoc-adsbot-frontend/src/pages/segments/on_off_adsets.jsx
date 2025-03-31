@@ -65,8 +65,8 @@ const OnOffAdsets = () => {
   const fileInputRef = useRef(null);
   const eventSourceRef = useRef(null);
   
-  const [searchTerm, setSearchTerm] = useState('');
   const [filteredData, setFilteredData] = useState(tableAdsetsData);
+  const [searchTerm, setSearchTerm] = useState("");
 
   // Persist data in cookies whenever state changes
   useEffect(() => {
@@ -79,15 +79,16 @@ const OnOffAdsets = () => {
 
   useEffect(() => {
     const lowerSearchTerm = searchTerm.toLowerCase();
-
+  
     const filtered = tableAdsetsData.filter((item) =>
-      Object.values(item).some((val) =>
-        val !== null &&
-        val !== undefined &&
-        String(val).toLowerCase().includes(lowerSearchTerm)
+      Object.values(item).some(
+        (val) =>
+          val !== null &&
+          val !== undefined &&
+          String(val).toLowerCase().includes(lowerSearchTerm)
       )
     );
-
+  
     setFilteredData(filtered);
   }, [searchTerm, tableAdsetsData]);
 
@@ -122,7 +123,6 @@ const OnOffAdsets = () => {
     const batchSize = 5;
     const delayMs = 10000; // 10 seconds delay
   
-    // Convert table data to request format
     const requestData = tableAdsetsData.map((entry) => ({
       ad_account_id: entry.ad_account_id,
       user_id: id,
@@ -138,71 +138,61 @@ const OnOffAdsets = () => {
         },
       ],
     }));
-    console.log(requestData);
   
-    // Split data into batches of 5
     for (let i = 0; i < requestData.length; i += batchSize) {
       const batch = requestData.slice(i, i + batchSize);
   
-      await Promise.all(
-        batch.map(async (data, index) => {
-          const { ad_account_id, schedule_data } = data;
-          const on_off = schedule_data[0].on_off; // Extract ON/OFF status
+      for (const data of batch) {
+        const { ad_account_id, schedule_data } = data;
+        const on_off = schedule_data[0].on_off;
+  
+        addAdsetsMessage([
+          `[${getCurrentTime()}] ⏳ Processing Ad Account ${ad_account_id} (${on_off.toUpperCase()})`,
+        ]);
+  
+        try {
+          const response = await fetch(`${apiUrl}/api/v1/off-on-adsets/add-adsets`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              skip_zrok_interstitial: "true",
+            },
+            body: JSON.stringify(data),
+          });
+  
+          if (!response.ok) {
+            throw new Error(`Request failed for Ad Account ${ad_account_id}`);
+          }
+  
+          setTableAdsetsData((prevData) =>
+            prevData.map((entry) =>
+              entry.ad_account_id === ad_account_id && entry.on_off === on_off
+                ? {
+                    ...entry,
+                    status: `Request Sent ✅ (${on_off.toUpperCase()})`,
+                  }
+                : entry
+            )
+          );
   
           addAdsetsMessage([
-            `[${getCurrentTime()}] ⏳ Processing Ad Account ${ad_account_id} (${on_off.toUpperCase()})`,
+            `[${getCurrentTime()}] ✅ Ad Account ${ad_account_id} (${on_off.toUpperCase()}) processed successfully`,
+          ]);
+        } catch (error) {
+          addAdsetsMessage([
+            `[${getCurrentTime()}] ❌ Error processing Ad Account ${ad_account_id} (${on_off.toUpperCase()}): ${error.message}`,
           ]);
   
-          try {
-            const response = await fetch(
-              `${apiUrl}/api/v1/off-on-adsets/add-adsets`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  skip_zrok_interstitial: "true",
-                },
-                body: JSON.stringify(data),
-              }
-            );
+          setTableAdsetsData((prevData) =>
+            prevData.map((entry) =>
+              entry.ad_account_id === ad_account_id && entry.on_off === on_off
+                ? { ...entry, status: `Failed ❌ (${on_off.toUpperCase()})` }
+                : entry
+            )
+          );
+        }
+      }
   
-            if (!response.ok) {
-              throw new Error(`Request failed for Ad Account ${ad_account_id}`);
-            }
-  
-            // ✅ Update status for the successfully processed campaign
-            setTableAdsetsData((prevData) =>
-              prevData.map((entry) =>
-                entry.ad_account_id === ad_account_id && entry.on_off === on_off
-                  ? {
-                      ...entry,
-                      status: `Request Sent ✅ (${on_off.toUpperCase()})`,
-                    }
-                  : entry
-              )
-            );
-  
-            addAdsetsMessage([
-              `[${getCurrentTime()}] ✅ Ad Account ${ad_account_id} (${on_off.toUpperCase()}) processed successfully`,
-            ]);
-          } catch (error) {
-            addAdsetsMessage([
-              `[${getCurrentTime()}] ❌ Error processing Ad Account ${ad_account_id} (${on_off.toUpperCase()}): ${error.message}`,
-            ]);
-  
-            // ❌ Update status for failed campaigns
-            setTableAdsetsData((prevData) =>
-              prevData.map((entry) =>
-                entry.ad_account_id === ad_account_id && entry.on_off === on_off
-                  ? { ...entry, status: `Failed ❌ (${on_off.toUpperCase()})` }
-                  : entry
-              )
-            );
-          }
-        })
-      );
-  
-      // Wait for 10 seconds before the next batch
       if (i + batchSize < requestData.length) {
         addAdsetsMessage([
           `[${getCurrentTime()}] ⏸ Waiting for 10 seconds before processing the next batch...`,
@@ -211,10 +201,8 @@ const OnOffAdsets = () => {
       }
     }
   
-    // Add global completion message at the end
     addAdsetsMessage([`[${getCurrentTime()}] 🚀 All Requests Sent`]);
   };
-  
 
   // Handle CSV File Import
   const handleFileChange = (event) => {
@@ -476,23 +464,48 @@ const OnOffAdsets = () => {
             console.log(`✅ Success for Ad Account ${adAccountId} at ${timestamp}`);
           }
 
-          // ❌ Handle 401 Unauthorized error
-          const unauthorizedMatch = messageText.match(
-            /Error during campaign fetch for Ad Account (\S+) \((ON|OFF)\): 401 Client Error/
+          // ❌ Handle 401 Unauthorized Error with ON/OFF
+        const unauthorizedMatch = messageText.match(
+          /Error during campaign fetch for Ad Account (\S+) \((ON|OFF)\): 401 Client Error/
+        );
+
+        if (unauthorizedMatch) {
+          const adAccountId = unauthorizedMatch[1];
+          const onOffStatus = unauthorizedMatch[2];
+
+          setTableAdsetsData((prevData) =>
+            prevData.map((entry) =>
+              entry.ad_account_id === adAccountId &&
+              entry.on_off === onOffStatus
+                ? { ...entry, status: `Unauthorized ❌ (401 Error - ${onOffStatus})` }
+                : entry
+            )
           );
 
-          if (unauthorizedMatch) {
-            const adAccountId = unauthorizedMatch[1];
-            const onOffStatus = unauthorizedMatch[2];
+          addAdsetsMessage([
+            `[${getCurrentTime()}] ❌ 401 Unauthorized Error for Ad Account ${adAccountId} (${onOffStatus}). Check access token or permissions.`,
+          ]);
+        }
+
+          // ❌ Handle 403 Forbidden Error
+        const forbiddenMatch = messageText.match(
+          /403 Client Error: Forbidden for url: .*?Ad Account (\S+)/
+        );
+
+          if (forbiddenMatch) {
+            const adAccountId = forbiddenMatch[1];
 
             setTableAdsetsData((prevData) =>
               prevData.map((entry) =>
-                entry.ad_account_id === adAccountId &&
-                entry.on_off === onOffStatus
-                  ? { ...entry, status: `Failed ❌ (${entry.on_off.toUpperCase()})` }
+                entry.ad_account_id === adAccountId
+                  ? { ...entry, status: `❌ (403 Error)` }
                   : entry
               )
             );
+
+            addAdsetsMessage([
+              `[${getCurrentTime()}] ❌ 403 Forbidden for Ad Account ${adAccountId}. Check permissions or tokens.`,
+            ]);s
           }
         }
       } catch (error) {
@@ -608,7 +621,7 @@ const OnOffAdsets = () => {
         <WidgetCard title="Main Section" height="90%">
           {/* Search Bar */}
           <TextField
-            label="Search any data..."
+            label="Search For adAccountId"
             variant="outlined"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
