@@ -287,10 +287,7 @@ const OnOffAdsets = () => {
           ],
         }));
 
-        console.log(
-          "Processed Request Data:",
-          JSON.stringify(requestData, null, 2)
-        );
+        console.log("Processed Request Data:",JSON.stringify(requestData, null, 2));
         setTableAdsetsData(uniqueData); // Store processed data in the table
         notify("CSV file successfully imported!", "success");
       },
