@@ -262,7 +262,6 @@ const PageOnOFFPage = () => {
         }));
   
         console.log("Processed Request Data:", JSON.stringify(requestData, null, 2));
-  
         setTablePageNameData(uniqueData); // Store processed data in the table
         notify("CSV file successfully imported!", "success");
       },

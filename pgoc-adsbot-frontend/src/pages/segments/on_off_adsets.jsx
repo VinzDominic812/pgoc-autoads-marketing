@@ -123,7 +123,7 @@ const OnOffAdsets = () => {
 
     const { id } = getUserData();
     const batchSize = 1;
-    const delayMs = 3000; // delay
+    const delayMs = 3000; // 10 seconds delay
 
     const requestData = tableAdsetsData.map((entry) => ({
       ad_account_id: entry.ad_account_id,
@@ -154,7 +154,7 @@ const OnOffAdsets = () => {
 
         try {
           const response = await fetch(
-            `${apiUrl}/api/v1/off-on-adsets/add-adsets`,
+            `${apiUrl}/api/v1/OnOff/adsets`,
             {
               method: "POST",
               headers: {
@@ -202,37 +202,13 @@ const OnOffAdsets = () => {
 
       if (i + batchSize < requestData.length) {
         addAdsetsMessage([
-          `[${getCurrentTime()}] ⏸ Waiting for 3 seconds before processing the next batch...`,
+          `[${getCurrentTime()}] ⏸ Waiting for 10 seconds before processing the next batch...`,
         ]);
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
 
     addAdsetsMessage([`[${getCurrentTime()}] 🚀 All Requests Sent`]);
-  };
-
-  const verifyAdAccounts = async (adsetsData) => {
-    try {
-      const response = await fetch(`${apiUrl}/api/v1/verify/adsets`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          skip_zrok_interstitial: "true",
-        },
-        body: JSON.stringify({ user_id: 1, campaigns: adsetsData }),
-      });
-
-      const result = await response.json();
-      console.log("RESULT: ", JSON.stringify(result, null, 2));
-
-      if (response.ok && result.verified_accounts) {
-        compareCsvWithJson(adsetsData, result.verified_accounts); // 🔹 Now updates table data!
-      } else {
-        console.warn("⚠️ No verified accounts returned from API.");
-      }
-    } catch (error) {
-      console.error("Error verifying ad accounts:", error);
-    }
   };
 
   // Handle CSV File Import
@@ -316,7 +292,6 @@ const OnOffAdsets = () => {
           JSON.stringify(requestData, null, 2)
         );
         setTableAdsetsData(uniqueData); // Store processed data in the table
-        verifyAdAccounts(requestData);
         notify("CSV file successfully imported!", "success");
       },
       header: false,
