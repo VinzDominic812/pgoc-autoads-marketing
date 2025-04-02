@@ -26,7 +26,7 @@ const OnlyScheduleAccountWidget = ({ schedules, onSelectAccount }) => {
   
 
   return (
-    <WidgetCard width="350px">
+    <WidgetCard sx={{ padding: 3, height: "650px", overflow: "hidden" }}>
       <Typography
         variant="h6"
         sx={{
