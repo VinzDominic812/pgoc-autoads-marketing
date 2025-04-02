@@ -48,7 +48,7 @@ const OnOffAdsets = () => {
     "cpp_date_start",
     "cpp_date_end",
     "on_off",
-    "status"
+    "status",
   ];
   // Retrieve persisted state from cookies
   const getPersistedState = (key, defaultValue) => {
@@ -64,13 +64,15 @@ const OnOffAdsets = () => {
   const [messages, setMessages] = useState([]); // Ensure it's an array
   const fileInputRef = useRef(null);
   const eventSourceRef = useRef(null);
-  
+
   const [filteredData, setFilteredData] = useState(tableAdsetsData);
   const [searchTerm, setSearchTerm] = useState("");
 
   // Persist data in cookies whenever state changes
   useEffect(() => {
-    Cookies.set("tableAdsetsData", JSON.stringify(tableAdsetsData), { expires: 1 }); // Expires in 1 day
+    Cookies.set("tableAdsetsData", JSON.stringify(tableAdsetsData), {
+      expires: 1,
+    }); // Expires in 1 day
   }, [tableAdsetsData]);
 
   useEffect(() => {
@@ -79,7 +81,7 @@ const OnOffAdsets = () => {
 
   useEffect(() => {
     const lowerSearchTerm = searchTerm.toLowerCase();
-  
+
     const filtered = tableAdsetsData.filter((item) =>
       Object.values(item).some(
         (val) =>
@@ -88,7 +90,7 @@ const OnOffAdsets = () => {
           String(val).toLowerCase().includes(lowerSearchTerm)
       )
     );
-  
+
     setFilteredData(filtered);
   }, [searchTerm, tableAdsetsData]);
 
@@ -118,11 +120,11 @@ const OnOffAdsets = () => {
       addAdsetsMessage([`[${getCurrentTime()}] ❌ No campaigns to process.`]);
       return;
     }
-  
+
     const { id } = getUserData();
-    const batchSize = 5;
-    const delayMs = 10000; // 10 seconds delay
-  
+    const batchSize = 1;
+    const delayMs = 3000; // delay
+
     const requestData = tableAdsetsData.map((entry) => ({
       ad_account_id: entry.ad_account_id,
       user_id: id,
@@ -138,32 +140,35 @@ const OnOffAdsets = () => {
         },
       ],
     }));
-  
+
     for (let i = 0; i < requestData.length; i += batchSize) {
       const batch = requestData.slice(i, i + batchSize);
-  
+
       for (const data of batch) {
         const { ad_account_id, schedule_data } = data;
         const on_off = schedule_data[0].on_off;
-  
+
         addAdsetsMessage([
           `[${getCurrentTime()}] ⏳ Processing Ad Account ${ad_account_id} (${on_off.toUpperCase()})`,
         ]);
-  
+
         try {
-          const response = await fetch(`${apiUrl}/api/v1/off-on-adsets/add-adsets`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              skip_zrok_interstitial: "true",
-            },
-            body: JSON.stringify(data),
-          });
-  
+          const response = await fetch(
+            `${apiUrl}/api/v1/off-on-adsets/add-adsets`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                skip_zrok_interstitial: "true",
+              },
+              body: JSON.stringify(data),
+            }
+          );
+
           if (!response.ok) {
             throw new Error(`Request failed for Ad Account ${ad_account_id}`);
           }
-  
+
           setTableAdsetsData((prevData) =>
             prevData.map((entry) =>
               entry.ad_account_id === ad_account_id && entry.on_off === on_off
@@ -174,15 +179,17 @@ const OnOffAdsets = () => {
                 : entry
             )
           );
-  
+
           addAdsetsMessage([
             `[${getCurrentTime()}] ✅ Ad Account ${ad_account_id} (${on_off.toUpperCase()}) processed successfully`,
           ]);
         } catch (error) {
           addAdsetsMessage([
-            `[${getCurrentTime()}] ❌ Error processing Ad Account ${ad_account_id} (${on_off.toUpperCase()}): ${error.message}`,
+            `[${getCurrentTime()}] ❌ Error processing Ad Account ${ad_account_id} (${on_off.toUpperCase()}): ${
+              error.message
+            }`,
           ]);
-  
+
           setTableAdsetsData((prevData) =>
             prevData.map((entry) =>
               entry.ad_account_id === ad_account_id && entry.on_off === on_off
@@ -192,40 +199,34 @@ const OnOffAdsets = () => {
           );
         }
       }
-  
+
       if (i + batchSize < requestData.length) {
         addAdsetsMessage([
-          `[${getCurrentTime()}] ⏸ Waiting for 10 seconds before processing the next batch...`,
+          `[${getCurrentTime()}] ⏸ Waiting for 3 seconds before processing the next batch...`,
         ]);
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
-  
+
     addAdsetsMessage([`[${getCurrentTime()}] 🚀 All Requests Sent`]);
   };
 
   const verifyAdAccounts = async (adsetsData) => {
     try {
-      const response = await fetch(
-        `${apiUrl}/api/v1/verify-adsets-accounts/adsets`,
-        {
-          method: "POST",
-          header: {
-            "Content-Type": "application/json",
-            skip_zrok_interstitial: "true",
-          },
-          body: JSON.stringify({ user_id: 1, campaigns: adsetsData }),
-        }
-      );
+      const response = await fetch(`${apiUrl}/api/v1/verify/adsets`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          skip_zrok_interstitial: "true",
+        },
+        body: JSON.stringify({ user_id: 1, campaigns: adsetsData }),
+      });
 
       const result = await response.json();
-      console.log("RESULT: ", JSON.stringify(result, null, 2))
+      console.log("RESULT: ", JSON.stringify(result, null, 2));
 
       if (response.ok && result.verified_accounts) {
-        compareCsvWithJson(
-          adsetsData,
-          result.verified_accounts
-        ); // 🔹 Now updates table data!
+        compareCsvWithJson(adsetsData, result.verified_accounts); // 🔹 Now updates table data!
       } else {
         console.warn("⚠️ No verified accounts returned from API.");
       }
@@ -237,23 +238,23 @@ const OnOffAdsets = () => {
   // Handle CSV File Import
   const handleFileChange = (event) => {
     const file = event.target.files[0];
-  
+
     if (!file) {
       notify("No file selected.", "error");
       return;
     }
-  
+
     const { id: user_id } = getUserData(); // Get user ID
-  
+
     Papa.parse(file, {
       complete: (result) => {
         if (result.data.length < 2) {
           notify("CSV file is empty or invalid.", "error");
           return;
         }
-  
+
         const fileHeaders = result.data[0].map((h) => h.trim().toLowerCase());
-  
+
         if (!validateCSVHeaders(fileHeaders)) {
           notify(
             "Invalid CSV headers. Required: ad_account_id, access_token, campaign_type, what_to_watch, cpp_metric, on_off.",
@@ -261,7 +262,7 @@ const OnOffAdsets = () => {
           );
           return;
         }
-  
+
         const processedData = result.data
           .slice(1)
           .filter((row) => row.some((cell) => cell)) // Remove empty rows
@@ -271,12 +272,12 @@ const OnOffAdsets = () => {
               return acc;
             }, {})
           );
-  
+
         // Detect and remove duplicate ad_account_id values
         const uniqueData = [];
         const seenAdAccounts = new Set();
         const removedDuplicates = [];
-  
+
         processedData.forEach((entry) => {
           if (seenAdAccounts.has(entry.ad_account_id)) {
             removedDuplicates.push(entry.ad_account_id);
@@ -285,14 +286,14 @@ const OnOffAdsets = () => {
             uniqueData.push({ ...entry, status: "Ready" }); // Add default status
           }
         });
-  
+
         if (removedDuplicates.length > 0) {
           notify(
             `Removed duplicate ad_account_ids: ${removedDuplicates.join(", ")}`,
             "error"
           );
         }
-  
+
         // Convert unique data to API request format
         const requestData = uniqueData.map((entry) => ({
           ad_account_id: entry.ad_account_id,
@@ -309,16 +310,19 @@ const OnOffAdsets = () => {
             },
           ],
         }));
-  
-        console.log("Processed Request Data:", JSON.stringify(requestData, null, 2));
+
+        console.log(
+          "Processed Request Data:",
+          JSON.stringify(requestData, null, 2)
+        );
         setTableAdsetsData(uniqueData); // Store processed data in the table
-        verifyAdAccounts(requestData)
+        verifyAdAccounts(requestData);
         notify("CSV file successfully imported!", "success");
       },
       header: false,
       skipEmptyLines: true,
     });
-  
+
     event.target.value = "";
   };
 
@@ -343,7 +347,7 @@ const OnOffAdsets = () => {
         "1",
         "YYYY-MM-DD",
         "YYYY-MM-DD",
-        "ON"
+        "ON",
       ],
     ];
 
@@ -376,7 +380,7 @@ const OnOffAdsets = () => {
       "cpp_metric",
       "cpp_date_start",
       "cpp_date_end",
-      "on_off"
+      "on_off",
     ];
 
     // Convert table data to CSV format
@@ -408,7 +412,7 @@ const OnOffAdsets = () => {
   };
 
   useEffect(() => {
-    const { id: user_id  } = getUserData();
+    const { id: user_id } = getUserData();
     const eventSourceUrl = `${apiUrl}/api/v1/messageevents-adsets?keys=${user_id}-key`;
 
     if (eventSourceRef.current) {
@@ -478,64 +482,72 @@ const OnOffAdsets = () => {
           const successMatch = messageText.match(
             /\[(.*?)\] Processing (\S+) Completed/
           );
-          
+
           if (successMatch) {
             const timestamp = successMatch[1];
             const adAccountId = successMatch[2];
-          
+
             setTableAdsetsData((prevData) =>
               prevData.map((entry) =>
                 entry.ad_account_id === adAccountId
-                  ? { ...entry, status: `Success ✅ (${entry.on_off.toUpperCase()})` }
+                  ? {
+                      ...entry,
+                      status: `Success ✅ (${entry.on_off.toUpperCase()})`,
+                    }
                   : entry
               )
             );
-          
-            console.log(`✅ Success for Ad Account ${adAccountId} at ${timestamp}`);
+
+            console.log(
+              `✅ Success for Ad Account ${adAccountId} at ${timestamp}`
+            );
           }
 
           // ❌ Handle 401 Unauthorized Error with ON/OFF
-        const unauthorizedMatch = messageText.match(
-          /Error during campaign fetch for Ad Account (\S+) \((ON|OFF)\): 401 Client Error/
-        );
-
-        if (unauthorizedMatch) {
-          const adAccountId = unauthorizedMatch[1];
-          const onOffStatus = unauthorizedMatch[2];
-
-          setTableAdsetsData((prevData) =>
-            prevData.map((entry) =>
-              entry.ad_account_id === adAccountId &&
-              entry.on_off === onOffStatus
-                ? { ...entry, status: `Unauthorized ❌ (401 Error - ${onOffStatus})` }
-                : entry
-            )
+          const unauthorizedMatch = messageText.match(
+            /Error during campaign fetch for Ad Account (\S+) \((ON|OFF)\): 401 Client Error/
           );
 
-          addAdsetsMessage([
-            `[${getCurrentTime()}] ❌ 401 Unauthorized Error for Ad Account ${adAccountId} (${onOffStatus}). Check access token or permissions.`,
-          ]);
-        }
+          if (unauthorizedMatch) {
+            const adAccountId = unauthorizedMatch[1];
+            const onOffStatus = unauthorizedMatch[2];
+
+            setTableAdsetsData((prevData) =>
+              prevData.map((entry) =>
+                entry.ad_account_id === adAccountId &&
+                entry.on_off === onOffStatus
+                  ? {
+                      ...entry,
+                      status: `Unauthorized ❌ (${entry.on_off.toUpperCase()})`,
+                    }
+                  : entry
+              )
+            );
+
+            addAdsetsMessage([
+              `[${getCurrentTime()}] ❌ 401 Unauthorized Error for Ad Account ${adAccountId} (${onOffStatus}). Check access token or permissions.`,
+            ]);
+          }
 
           // ❌ Handle 403 Forbidden Error
-        const forbiddenMatch = messageText.match(
-          /403 Client Error: Forbidden for url: .*?Ad Account (\S+)/
-        );
+          const forbiddenMatch = messageText.match(
+            /https:\/\/graph\.facebook\.com\/v\d+\.\d+\/act_(\d+)\/campaigns/
+          );
 
           if (forbiddenMatch) {
-            const adAccountId = forbiddenMatch[1];
+            const adAccountId = forbiddenMatch[1]; // Extracted ad account ID
 
             setTableAdsetsData((prevData) =>
               prevData.map((entry) =>
                 entry.ad_account_id === adAccountId
-                  ? { ...entry, status: `❌ (403 Error)` }
+                  ? { ...entry, status: `Error ❌ (${entry.on_off.toUpperCase()})` }
                   : entry
               )
             );
 
             addAdsetsMessage([
               `[${getCurrentTime()}] ❌ 403 Forbidden for Ad Account ${adAccountId}. Check permissions or tokens.`,
-            ]);s
+            ]);
           }
         }
       } catch (error) {
