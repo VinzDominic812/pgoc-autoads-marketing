@@ -15,6 +15,7 @@ from routes.scheduler_routes import schedule_bp
 from routes.export_region import export_region_bp
 from routes.verify_accounts import verify_ad_accounts_bp
 from routes.verify_adsets_routes import verify_adsets_accounts_bp
+from routes.verify_page_name import verify_page_name_bp
 from routes.campaign_off_only_routes import schedule_campaign_only_bp
 from routes.on_off_campaign_name import campaign_on_off
 from routes.on_off_adsets_route import adsets_on_off
@@ -141,12 +142,13 @@ def create_app():
     app.register_blueprint(fetch_campaign_adsets_ads_creatives_bp, url_prefix='/api/v1/fetch')
     app.register_blueprint(schedule_bp, url_prefix="/api/v1/schedule")
     app.register_blueprint(verify_ad_accounts_bp, url_prefix="/api/v1/verify-ads-account")
-    app.register_blueprint(verify_adsets_accounts_bp, url_prefix="/api/v1/verify-adsets-accounts")
+    app.register_blueprint(verify_adsets_accounts_bp, url_prefix="/api/v1/verify")
+    app.register_blueprint(verify_page_name_bp, url_prefix="/api/v1/verify")
     app.register_blueprint(export_region_bp)
     app.register_blueprint(message_events_blueprint, url_prefix="/api/v1")
-    app.register_blueprint(campaign_on_off, url_prefix="/api/v1/off-on-campaign")
-    app.register_blueprint(adsets_on_off, url_prefix="/api/v1/off-on-adsets")
-    app.register_blueprint(pagename_on_off, url_prefix="/api/v1/off-on-pagename")
+    app.register_blueprint(campaign_on_off, url_prefix="/api/v1/OnOff")
+    app.register_blueprint(adsets_on_off, url_prefix="/api/v1/OnOff")
+    app.register_blueprint(pagename_on_off, url_prefix="/api/v1/OnOff")
     app.register_blueprint(schedule_campaign_only_bp, url_prefix="/api/v1/campaign-only")
 
     return app

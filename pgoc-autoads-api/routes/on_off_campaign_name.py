@@ -4,7 +4,7 @@ from controllers.on_off_campaign_name_controller import add_campaign_off
 
 campaign_on_off = Blueprint("campaign_on_off", __name__)
 
-@campaign_on_off.route("/add-campaigns", methods=["POST"])
+@campaign_on_off.route("/campaigns", methods=["POST"])
 def add_campaign_to_off():
     data = request.json
     return add_campaign_off(data)
