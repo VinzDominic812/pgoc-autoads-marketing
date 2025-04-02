@@ -22,20 +22,29 @@ def get_ad_accounts(fb_user_id, access_token):
 
 def verify_adsets_account(data):
     """Verify ad account and access token with schedule data."""
-    user_id = data.get("user_id")
-    ad_account_id = data.get("ad_account_id")
-    access_token = data.get("access_token")
-    schedule_data = data.get("schedule_data", [])
-    
-    user = User.query.filter_by(id=user_id).first()
-    if not user:
-        return jsonify({"error": "Unauthorized: Not a user of Facebook-Marketing-Automation WebApp"}), 403
-    
-    fb_user_id, token_error = get_facebook_user_id(access_token)
-    if token_error:
-        return jsonify({
-            "user_id": user_id,
-            "verified_accounts": [{
+    verified_accounts = []
+
+    for item in data:
+        user_id = item.get("user_id")
+        ad_account_id = item.get("ad_account_id")
+        access_token = item.get("access_token")
+        schedule_data = item.get("schedule_data")
+
+        # Verify the user
+        user = User.query.filter_by(id=user_id).first()
+        if not user:
+            verified_accounts.append({
+                "user_id": user_id,
+                "ad_account_id": ad_account_id,
+                "error": "Unauthorized: Not a user of Facebook-Marketing-Automation WebApp"
+            })
+            continue
+
+        # Verify the access token
+        fb_user_id, token_error = get_facebook_user_id(access_token)
+        if token_error:
+            verified_accounts.append({
+                "user_id": user_id,
                 "ad_account_id": ad_account_id,
                 "ad_account_status": "Not Verified",
                 "ad_account_error": "Invalid access token",
@@ -43,24 +52,24 @@ def verify_adsets_account(data):
                 "access_token_status": "Not Verified",
                 "access_token_error": token_error,
                 "schedule_data": schedule_data
-            }]
+            })
+            continue
+
+        # Verify the ad account
+        ad_accounts, ad_error = get_ad_accounts(fb_user_id, access_token)
+        ad_account_status = "Verified" if ad_accounts and ad_account_id in ad_accounts else "Not Verified"
+        ad_account_error = None if ad_account_status == "Verified" else "Ad account not associated with this access token"
+
+        # Append verification results
+        verified_accounts.append({
+            "user_id": user_id,
+            "ad_account_id": ad_account_id,
+            "ad_account_status": ad_account_status,
+            "ad_account_error": ad_account_error,
+            "access_token": access_token,
+            "access_token_status": "Verified" if not token_error else "Not Verified",
+            "access_token_error": token_error,
+            "schedule_data": schedule_data
         })
-    
-    ad_accounts, ad_error = get_ad_accounts(fb_user_id, access_token)
-    ad_account_status = "Verified" if ad_accounts and ad_account_id in ad_accounts else "Not Verified"
-    ad_account_error = None if ad_account_status == "Verified" else "Ad account not associated with this access token"
-    
-    verified_accounts = [{
-        "ad_account_id": ad_account_id,
-        "ad_account_status": ad_account_status,
-        "ad_account_error": ad_account_error,
-        "access_token": access_token,
-        "access_token_status": "Verified" if not token_error else "Not Verified",
-        "access_token_error": token_error,
-        "schedule_data": schedule_data
-    }]
-    
-    return jsonify({
-        "user_id": user_id,
-        "verified_accounts": verified_accounts
-    })
+
+    return jsonify({"verified_accounts": verified_accounts})
