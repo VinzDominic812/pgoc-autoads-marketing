@@ -193,7 +193,7 @@ const OnlyScheduleCardData = ({
   };
 
   return (
-    <WidgetCard width={"400px"}>
+    <WidgetCard sx={{ padding: 3, height: "650px", overflow: "hidden" }}>
       {!selectedAccount ? (
         <Box
           sx={{
