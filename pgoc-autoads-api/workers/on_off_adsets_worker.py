@@ -172,6 +172,20 @@ def fetch_adsets(user_id, ad_account_id, access_token, matched_schedule):
 
             for adset in campaign.get("adsets", {}).get("data", []):
                 adset_id = adset["id"]
+                adset_status = adset["status"]  # ✅ Adset Status
+
+                # ✅ Check if Adset is already ON or OFF
+                if adset_status == "ACTIVE":
+                    status_message = f"Adset {adset_id} in Campaign {campaign_id} is ALREADY ON."
+                elif adset_status == "PAUSED":
+                    status_message = f"Adset {adset_id} in Campaign {campaign_id} is ALREADY OFF."
+                else:
+                    status_message = f"Adset {adset_id} in Campaign {campaign_id} has unknown status: {adset_status}."
+
+                append_redis_message_adsets(
+                    user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {status_message}"
+                )
+
                 target_dict[campaign_id]["ADSETS"][adset_id] = {
                     "NAME": adset["name"],
                     "STATUS": adset["status"],
