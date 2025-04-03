@@ -123,7 +123,7 @@ const OnOffAdsets = () => {
 
     const { id } = getUserData();
     const batchSize = 1;
-    const delayMs = 3000; // 10 seconds delay
+    const delayMs = 5000; // 3 seconds delay
 
     const requestData = tableAdsetsData.map((entry) => ({
       ad_account_id: entry.ad_account_id,
@@ -153,17 +153,14 @@ const OnOffAdsets = () => {
         ]);
 
         try {
-          const response = await fetch(
-            `${apiUrl}/api/v1/OnOff/adsets`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                skip_zrok_interstitial: "true",
-              },
-              body: JSON.stringify(data),
-            }
-          );
+          const response = await fetch(`${apiUrl}/api/v1/OnOff/adsets`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              skip_zrok_interstitial: "true",
+            },
+            body: JSON.stringify(data),
+          });
 
           if (!response.ok) {
             throw new Error(`Request failed for Ad Account ${ad_account_id}`);
@@ -202,7 +199,7 @@ const OnOffAdsets = () => {
 
       if (i + batchSize < requestData.length) {
         addAdsetsMessage([
-          `[${getCurrentTime()}] ⏸ Waiting for 10 seconds before processing the next batch...`,
+          `[${getCurrentTime()}] ⏸ Waiting for 5 seconds before processing the next batch...`,
         ]);
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
@@ -287,15 +284,56 @@ const OnOffAdsets = () => {
           ],
         }));
 
-        console.log("Processed Request Data:",JSON.stringify(requestData, null, 2));
+        console.log(
+          "Processed Request Data:",
+          JSON.stringify(requestData, null, 2)
+        );
         setTableAdsetsData(uniqueData); // Store processed data in the table
         notify("CSV file successfully imported!", "success");
+        verifyAdAccounts(requestData, addAdsetsMessage);
       },
       header: false,
       skipEmptyLines: true,
     });
 
     event.target.value = "";
+  };
+
+  const verifyAdAccounts = async (campaignsData) => {
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/verify/adsets`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          skip_zrok_interstitial: "true",
+        },
+        body: JSON.stringify(campaignsData), // 🔹 Send the array directly
+      });
+
+      const result = await response.json();
+      console.log("Verification Result:", JSON.stringify(result, null, 2));
+
+      if (response.ok && result.verified_accounts) {
+        result.verified_accounts.forEach((entry) => {
+          // Only display errors
+          if (entry.ad_account_error) {
+            addAdsetsMessage([
+              `${entry.ad_account_id} : ${entry.ad_account_error}`
+            ]);
+          }
+          if (entry.access_token_error) {
+            addAdsetsMessage([
+              `${entry.ad_account_id}: ${entry.access_token_error}`
+            ]);
+          }
+        });
+      } else {
+        addAdsetsMessage("⚠️ No verified accounts returned from API.");
+      }
+    } catch (error) {
+      console.error("Error verifying ad accounts:", error);
+      addAdsetsMessage("❌ Failed to verify ad accounts. Check your network.");
+    }
   };
 
   // Download CSV Template
@@ -512,7 +550,10 @@ const OnOffAdsets = () => {
             setTableAdsetsData((prevData) =>
               prevData.map((entry) =>
                 entry.ad_account_id === adAccountId
-                  ? { ...entry, status: `Error ❌ (${entry.on_off.toUpperCase()})` }
+                  ? {
+                      ...entry,
+                      status: `Error ❌ (${entry.on_off.toUpperCase()})`,
+                    }
                   : entry
               )
             );
