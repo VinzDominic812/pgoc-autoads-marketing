@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Box, Typography } from "@mui/material";
+import { Box, Typography,Tooltip } from "@mui/material";
 import WidgetCard from "../components/widget_card.jsx";
 import DynamicTable from "../components/dynamic_table.jsx";
 import notify from "../components/toast.jsx";
@@ -14,6 +14,9 @@ import CloudExportIcon from "@mui/icons-material/BackupRounded";
 import RunIcon from "@mui/icons-material/PlayCircle";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DownloadIcon from "@mui/icons-material/FileDownload";
+import CheckIcon from "@mui/icons-material/Check";
+import CancelIcon from "@mui/icons-material/Cancel";
+
 import PageNameTerminal from "../widgets/on_off_pagename/on_off_pagename_terminal.jsx";
 import { EventSource } from "extended-eventsource";
 import Cookies from "js-cookie";
@@ -37,7 +40,9 @@ const apiUrl = import.meta.env.VITE_API_URL;
 const PageOnOFFPage = () => {
   const headers = [
     "ad_account_id",
+    "ad_account_status",
     "access_token",
+    "access_token_status",
     "page_name",
     "on_off",
     "status",
@@ -70,20 +75,24 @@ const PageOnOFFPage = () => {
 
   const addMessage = (newMessages) => {
     setMessages((prevMessages) => {
+      // Ensure newMessages is an array (even if it's a single message)
+      const messagesArray = Array.isArray(newMessages) ? newMessages : [newMessages];
+  
       // Ensure prevMessages is always an array (fallback to empty array)
-      const messagesArray = Array.isArray(prevMessages) ? prevMessages : [];
-
+      const prevMessagesArray = Array.isArray(prevMessages) ? prevMessages : [];
+  
       // Use a Map to store unique messages
       const uniqueMessages = new Map(
-        [...messagesArray, ...newMessages].map((msg) => [
+        [...prevMessagesArray, ...messagesArray].map((msg) => [
           JSON.stringify(msg),
           msg,
         ])
       );
-
+  
       return Array.from(uniqueMessages.values()); // Convert back to array
     });
   };
+  
 
   // Validate CSV Headers
   const validateCSVHeaders = (fileHeaders) =>
@@ -287,7 +296,7 @@ const PageOnOFFPage = () => {
         );
         setTablePageNameData(uniqueData); // Store processed data in the table
         notify("CSV file successfully imported!", "success");
-        verifyAdAccounts(requestData, addMessage);
+        verifyAdAccounts(requestData, uniqueData, addMessage);
       },
       header: false,
       skipEmptyLines: true,
@@ -296,7 +305,94 @@ const PageOnOFFPage = () => {
     event.target.value = "";
   };
 
-  const verifyAdAccounts = async (campaignsData) => {
+  const ErrorTooltip = ({ message, children }) => (
+      <Tooltip
+        title={
+          <Typography variant="body2" style={{ color: '#fff' }}>
+            {message}
+          </Typography>
+        }
+        arrow
+        placement="top"
+      >
+        {children}
+      </Tooltip>
+    );
+
+  const compareCsvWithJson = (csvData, jsonData, setTableData) => {
+    console.log("Comparing CSV data with JSON response...");
+  
+    const updatedData = csvData.map((csvRow) => {
+      const jsonRow = jsonData.find(
+        (json) =>
+          json.ad_account_id === csvRow.ad_account_id &&
+          json.access_token === csvRow.access_token
+      );
+  
+      if (!jsonRow) {
+        addMessage(`❌ No matching account for Ad Account ID: ${csvRow.ad_account_id}`);
+        return {
+          ...csvRow,
+          ad_account_status: "No matching account",
+          access_token_status: "No matching token",
+          status: "Error",
+        };
+      }
+  
+      // Check for errors and add messages
+      if (jsonRow.ad_account_status !== "Verified") {
+        addMessage(`⚠️ Ad Account Error for ${csvRow.ad_account_id}: ${jsonRow.ad_account_error || "Unknown Error"}`);
+      }
+      if (jsonRow.access_token_status !== "Verified") {
+        addMessage(`⚠️ Access Token Error for ${csvRow.ad_account_id}: ${jsonRow.access_token_error || "Unknown Error"}`);
+      }
+  
+      const allVerified =
+        jsonRow.ad_account_status === "Verified" &&
+        jsonRow.access_token_status === "Verified";
+  
+      const errorMessages = [];
+      if (jsonRow.ad_account_status === "Not Verified") {
+        errorMessages.push(jsonRow.ad_account_error);
+      }
+      if (jsonRow.access_token_status === "Not Verified") {
+        errorMessages.push(jsonRow.access_token_error);
+      }
+  
+      return {
+        ...csvRow,
+        ad_account_status:
+          jsonRow.ad_account_status === "Not Verified" ? (
+            <CancelIcon style={{ color: "red" }} />
+          ) : (
+            <CheckIcon style={{ color: "green" }} />
+          ),
+  
+        access_token_status:
+          jsonRow.access_token_status === "Not Verified" ? (
+            <CancelIcon style={{ color: "red" }} />
+          ) : (
+            <CheckIcon style={{ color: "green" }} />
+          ),
+  
+        status: allVerified ? (
+          <CheckIcon style={{ color: "green" }} />
+        ) : (
+          <ErrorTooltip message={errorMessages.join(", \n")}>
+            <CancelIcon style={{ color: "red" }} />
+          </ErrorTooltip>
+        ),
+
+        page_name: csvRow.page_name, // Retain the original page_name from csvRow
+        on_off: csvRow.on_off,       // Retain the original on_off from csvRow
+
+      };
+    });
+  
+    setTablePageNameData(updatedData); // Update the table data
+  };
+
+  const verifyAdAccounts = async (campaignsData, originalCsvData, addMessage) => {
     try {
       const response = await fetch(
           `${apiUrl}/api/v1/verify/pagename`, 
@@ -313,19 +409,24 @@ const PageOnOFFPage = () => {
       console.log("Verification Result:", JSON.stringify(result, null, 2));
 
       if (response.ok && result.verified_accounts) {
-        result.verified_accounts.forEach((entry) => {
-          // Only display errors
-          if (entry.ad_account_error) {
-            addMessage([
-              `${entry.ad_account_id} : ${entry.ad_account_error}`
-            ]);
-          }
-          if (entry.access_token_error) {
-            addMessage([
-              `${entry.ad_account_id}: ${entry.access_token_error}`
-            ]);
-          }
-        });
+        compareCsvWithJson(
+          originalCsvData, 
+          result.verified_accounts, 
+          setTablePageNameData
+        );
+        // result.verified_accounts.forEach((entry) => {
+        //   // Only display errors
+        //   if (entry.ad_account_error) {
+        //     addMessage([
+        //       `${entry.ad_account_id} : ${entry.ad_account_error}`
+        //     ]);
+        //   }
+        //   if (entry.access_token_error) {
+        //     addMessage([
+        //       `${entry.ad_account_id}: ${entry.access_token_error}`
+        //     ]);
+        //   }
+        // });
       } else {
         addMessage("⚠️ No verified accounts returned from API.");
       }
