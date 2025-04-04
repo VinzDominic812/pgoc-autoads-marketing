@@ -123,7 +123,7 @@ const OnOffAdsets = () => {
 
     const { id } = getUserData();
     const batchSize = 1;
-    const delayMs = 5000; // 3 seconds delay
+    const delayMs = 5000; // 5secs delay
 
     const requestData = tableAdsetsData.map((entry) => ({
       ad_account_id: entry.ad_account_id,
