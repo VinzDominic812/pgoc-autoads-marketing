@@ -15,30 +15,26 @@ redis_websocket_as = redis.Redis(
 def add_adset_off(data):
     data = request.get_json()
 
-    if not isinstance(data, list):
-        return jsonify({"error": "Expected a list of data"}), 400
+    ad_account_id = data.get("ad_account_id")
+    user_id = data.get("user_id")
+    access_token = data.get("access_token")
+    schedule_data = data.get("schedule_data")  # This will always have one entry
 
-    # Iterate through each entry in the provided list of data
-    for entry in data:
-        ad_account_id = entry.get("ad_account_id")
-        user_id = entry.get("user_id")
-        access_token = entry.get("access_token")
-        schedule_data = entry.get("schedule_data")  # This will always have one entry per item in the list
+    if not (ad_account_id and user_id and access_token and schedule_data):
+        return jsonify({"error": "Missing required fields"}), 400
 
-        if not (ad_account_id and user_id and access_token and schedule_data):
-            return jsonify({"error": "Missing required fields in one or more entries"}), 400
+    # Create WebSocket Redis key if it doesn’t exist
+    websocket_key = f"{user_id}-key"
+    if not redis_websocket_as.exists(websocket_key):
+        redis_websocket_as.set(websocket_key, json.dumps({"message": ["User-Id Created"]}))
 
-        # Create WebSocket Redis key if it doesn’t exist
-        websocket_key = f"{user_id}-key"
-        if not redis_websocket_as.exists(websocket_key):
-            redis_websocket_as.set(websocket_key, json.dumps({"message": ["User-Id Created"]}))
+    # Since every call has only one schedule, directly process it
+    schedule = schedule_data[0]
 
-        # Process each schedule entry in the list of schedules
-        for schedule in schedule_data:
-            if schedule["on_off"] not in ["ON", "OFF"]:
-                return jsonify({"error": f"Invalid on_off value in entry with ad_account_id {ad_account_id}. Use 'ON' or 'OFF'"}), 400
+    if schedule["on_off"] not in ["ON", "OFF"]:
+        return jsonify({"error": f"Invalid on_off value. Use 'ON' or 'OFF'"}), 400
 
-            # Introduce a delay before calling Celery Task (2-second delay)
-            fetch_adsets.apply_async(args=[user_id, ad_account_id, access_token, schedule], countdown=2)
+    # Introduce a delay before calling Celery Task (2-second delay)
+    fetch_adsets.apply_async(args=[user_id, ad_account_id, access_token, schedule_data[0]], countdown=2)
 
-    return jsonify({"message": "Adset schedules will be processed."}), 201
+    return jsonify({"message": "Adset schedule will be processed."}), 201
