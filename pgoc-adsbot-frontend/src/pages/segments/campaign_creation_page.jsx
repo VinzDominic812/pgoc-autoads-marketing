@@ -188,7 +188,7 @@ const CampaignCreationPage = () => {
           const messageText = data.data.message[0]; // Extract first message
     
           // Always add the message to the message list
-          addAdsetsMessage(data.data.message);
+          addMessage(data.data.message);
     
           // ✅ Match for "Creating Facebook campaign"
           const campaignCreationMatch = messageText.match(
@@ -196,7 +196,7 @@ const CampaignCreationPage = () => {
           );
           if (campaignCreationMatch) {
             const campaignName = campaignCreationMatch[1]; // Extracted campaign name
-            setTableAdsetsData((prevData) =>
+            setTableData((prevData) =>
               prevData.map((entry) =>
                 entry.key === `${user_id}-key`
                   ? {
@@ -218,7 +218,7 @@ const CampaignCreationPage = () => {
             const taskMessage = JSON.parse(taskCreatedMatch[3]); // Parsed task message
     
             // Update table with task creation details
-            setTableAdsetsData((prevData) =>
+            setTableData((prevData) =>
               prevData.map((entry) =>
                 entry.key === `${user_id}-key`
                   ? {
@@ -238,7 +238,7 @@ const CampaignCreationPage = () => {
           if (uploadingVideoMatch) {
             const timestamp = uploadingVideoMatch[1];
             const campaignName = uploadingVideoMatch[2]; // Extracted campaign name
-            setTableAdsetsData((prevData) =>
+            setTableData((prevData) =>
               prevData.map((entry) =>
                 entry.key === `${user_id}-key`
                   ? {
@@ -257,7 +257,7 @@ const CampaignCreationPage = () => {
           if (uploadingImageMatch) {
             const timestamp = uploadingImageMatch[1];
             const campaignName = uploadingImageMatch[2]; // Extracted campaign name
-            setTableAdsetsData((prevData) =>
+            setTableData((prevData) =>
               prevData.map((entry) =>
                 entry.key === `${user_id}-key`
                   ? {
@@ -276,7 +276,7 @@ const CampaignCreationPage = () => {
           if (adCreativeSuccessMatch) {
             const timestamp = adCreativeSuccessMatch[1];
             const campaignName = adCreativeSuccessMatch[2]; // Extracted campaign name
-            setTableAdsetsData((prevData) =>
+            setTableData((prevData) =>
               prevData.map((entry) =>
                 entry.key === `${user_id}-key`
                   ? {
@@ -296,7 +296,7 @@ const CampaignCreationPage = () => {
             const adsetDetails = failedToCreateAdMatch[1]; // Extracted adset details
             const errorDetails = JSON.parse(failedToCreateAdMatch[2]); // Parsed error details
     
-            setTableAdsetsData((prevData) =>
+            setTableData((prevData) =>
               prevData.map((entry) =>
                 entry.key === `${user_id}-key`
                   ? {
@@ -306,7 +306,7 @@ const CampaignCreationPage = () => {
                   : entry
               )
             );
-            addAdsetsMessage([`[${getCurrentTime()}] ❌ Error creating ad for adset ${adsetDetails}: ${errorDetails.error.message}`]);
+            addMessage([`[${getCurrentTime()}] ❌ Error creating ad for adset ${adsetDetails}: ${errorDetails.error.message}`]);
           }
     
           // ❌ Handle 401 Unauthorized Error with ON/OFF
@@ -317,7 +317,7 @@ const CampaignCreationPage = () => {
             const adAccountId = unauthorizedMatch[1];
             const onOffStatus = unauthorizedMatch[2];
     
-            setTableAdsetsData((prevData) =>
+            setTableData((prevData) =>
               prevData.map((entry) =>
                 entry.ad_account_id === adAccountId &&
                 entry.on_off === onOffStatus
@@ -329,7 +329,7 @@ const CampaignCreationPage = () => {
               )
             );
     
-            addAdsetsMessage([
+            addMessage([
               `[${getCurrentTime()}] ❌ 401 Unauthorized Error for Ad Account ${adAccountId} (${onOffStatus}). Check access token or permissions.`,
             ]);
           }
@@ -341,7 +341,7 @@ const CampaignCreationPage = () => {
           if (forbiddenMatch) {
             const adAccountId = forbiddenMatch[1]; // Extracted ad account ID
     
-            setTableAdsetsData((prevData) =>
+            setTableData((prevData) =>
               prevData.map((entry) =>
                 entry.ad_account_id === adAccountId
                   ? {
@@ -352,7 +352,7 @@ const CampaignCreationPage = () => {
               )
             );
     
-            addAdsetsMessage([
+            addMessage([
               `[${getCurrentTime()}] ❌ 403 Forbidden for Ad Account ${adAccountId}. Check permissions or tokens.`,
             ]);
           }
