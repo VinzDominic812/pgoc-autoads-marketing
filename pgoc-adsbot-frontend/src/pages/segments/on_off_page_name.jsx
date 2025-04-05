@@ -677,7 +677,7 @@ const PageOnOFFPage = () => {
 
       {/* Second Row (Dynamic Table) */}
       <Box sx={{ flex: 1 }}>
-        <WidgetCard title="Main Section" height="100%">
+        <WidgetCard title="Main Section" height="83.1%">
           <DynamicTable
             headers={headers}
             data={tablePageNameData}

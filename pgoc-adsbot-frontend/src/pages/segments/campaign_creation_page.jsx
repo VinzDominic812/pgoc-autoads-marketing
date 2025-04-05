@@ -17,7 +17,7 @@ import notify from "../components/toast.jsx";
 import CustomButton from "../components/buttons";
 import SpaceBg from "../../assets/campaign_creation_bg.png";
 import Papa from "papaparse";
-import { getUserData } from "../../services/user_data.js";
+import { getUserData, encryptData, decryptData } from "../../services/user_data.js";
 
 // ICONS
 import SmartToyRoundedIcon from "@mui/icons-material/SmartToyRounded";
@@ -66,10 +66,23 @@ const CampaignCreationPage = () => {
   const [selectedRows, setSelectedRows] = useState(new Map());
   const [selectedData, setSelectedData] = useState([]);
   const [isRunning, setIsRunning] = useState(false);
-  const [messages, setMessages] = useState([]);
   const [isVerified, setIsVerified] = useState(false);
   const [openDialog, setOpenDialog] = useState(false);
   const [isAi, setIsAi] = useState(false);
+
+  // And update the initial messages state loading:
+  const [messages, setMessages] = useState(() => {
+    try {
+      const encryptedMessages = localStorage.getItem("campaignCreationMessages");
+      if (!encryptedMessages) return [];
+      
+      const decryptedMessages = decryptData(encryptedMessages);
+      return decryptedMessages ? JSON.parse(decryptedMessages) : [];
+    } catch (error) {
+      console.error("Error loading messages:", error);
+      return [];
+    }
+  });
 
   const fileInputRef = useRef(null);
   const isRunningRef = useRef(false);
@@ -103,28 +116,64 @@ const CampaignCreationPage = () => {
     "status",
   ];
 
-  // Retrieve persisted state from cookies
   const getPersistedState = (key, defaultValue) => {
-    const savedData = Cookies.get(key);
-    return savedData ? JSON.parse(savedData) : defaultValue;
+    try {
+      const encryptedData = localStorage.getItem(key);
+      if (!encryptedData) return defaultValue;
+      
+      const decryptedData = decryptData(encryptedData);
+      
+      // Ensure we always return an array
+      if (!decryptedData) return defaultValue;
+      
+      // Handle case where decryptedData is already an array
+      if (Array.isArray(decryptedData)) {
+        return decryptedData;
+      }
+      
+      // Handle case where decryptedData is a JSON string
+      if (typeof decryptedData === 'string') {
+        try {
+          const parsed = JSON.parse(decryptedData);
+          return Array.isArray(parsed) ? parsed : defaultValue;
+        } catch {
+          return defaultValue;
+        }
+      }
+      
+      return defaultValue;
+    } catch (error) {
+      console.error(`Error loading ${key}:`, error);
+      return defaultValue;
+    }
   };
-
-  const [tableData, setTableData] = useState(() =>
-    getPersistedState("campaignCreationTableData", [])
-  );
-
-  //stores Table data in a cookie
+  
+  // Initialize state with array fallback
+  const [tableData, setTableData] = useState(() => {
+    const data = getPersistedState("campaignCreationTableData", []);
+    return Array.isArray(data) ? data : [];
+  });
+  
+  // Save to localStorage with array validation
   useEffect(() => {
-    Cookies.set("campaignCreationTableData", JSON.stringify(tableData), {
-      expires: 1,
-    }); // Expires in 1 day
+    try {
+      const dataToStore = Array.isArray(tableData) ? tableData : [];
+      const encryptedData = encryptData(dataToStore);
+      localStorage.setItem("campaignCreationTableData", encryptedData);
+    } catch (error) {
+      console.error("Error saving table data:", error);
+    }
   }, [tableData]);
 
-  //stores messages in a cookie
+  //stores messages in a localstorage
   useEffect(() => {
-    Cookies.set("campainCreationmessages", JSON.stringify(messages), {
-      expires: 1,
-    });
+    try {
+      const encryptedMessages = encryptData(messages);
+      localStorage.setItem("campaignCreationMessages", encryptedMessages);
+    } catch (error) {
+      console.error("Error saving messages:", error);
+      notify("Failed to save messages", "error");
+    }
   }, [messages]);
 
   // Handle selected data change from DynamicTable
@@ -377,9 +426,22 @@ const CampaignCreationPage = () => {
   }, []);
 
   const handleClearAll = () => {
-    setTableData([]); // Clear state
-    Cookies.remove("tableData"); // Remove from cookies
-    notify("All data cleared successfully!", "success");
+    try {
+      setTableData([]); // Clear state
+      
+      // Remove from localStorage (encrypted version)
+      localStorage.removeItem("campaignCreationTableData");
+      
+      // Optional: Clean up legacy cookie if it exists
+      if (Cookies.get("campaignCreationTableData")) {
+        Cookies.remove("campaignCreationTableData");
+      }
+      
+      notify("All data cleared successfully!", "success");
+    } catch (error) {
+      console.error("Error clearing data:", error);
+      notify("Failed to clear data", "error");
+    }
   };
 
   const handleDownloadRegions = async () => {
@@ -1106,11 +1168,11 @@ const CampaignCreationPage = () => {
 
       {/* Second Row (Dynamic Table) */}
       <Box sx={{ flex: 1 }}>
-        <WidgetCard title="Main Section" height="100%" width={"100%"}>
+        <WidgetCard title="Main Section" height="83.1%">
           <DynamicTable
             headers={headers}
             data={tableData}
-            rowsPerPage={5}
+            rowsPerPage={100}
             containerStyles={{
               width: "100%",
               height: "100%",
