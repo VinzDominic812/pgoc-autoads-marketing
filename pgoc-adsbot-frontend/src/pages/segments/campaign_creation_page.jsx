@@ -63,36 +63,7 @@ const getCurrentTime = () => {
 const apiUrl = import.meta.env.VITE_API_URL;
 
 const CampaignCreationPage = () => {
-  const [selectedRows, setSelectedRows] = useState(new Map());
-  const [selectedData, setSelectedData] = useState([]);
-  const [isRunning, setIsRunning] = useState(false);
-  const [isVerified, setIsVerified] = useState(false);
-  const [openDialog, setOpenDialog] = useState(false);
-  const [isAi, setIsAi] = useState(false);
-
-  // And update the initial messages state loading:
-  const [messages, setMessages] = useState(() => {
-    try {
-      const encryptedMessages = localStorage.getItem("campaignCreationMessages");
-      if (!encryptedMessages) return [];
-      
-      const decryptedMessages = decryptData(encryptedMessages);
-      return decryptedMessages ? JSON.parse(decryptedMessages) : [];
-    } catch (error) {
-      console.error("Error loading messages:", error);
-      return [];
-    }
-  });
-
-  const fileInputRef = useRef(null);
-  const isRunningRef = useRef(false);
-  const eventSourceRef = useRef(null);
-  const handleOpenDialog = () => setOpenDialog(true);
-  const handleCloseDialog = () => setOpenDialog(false);
-  const handleToggle = () => {
-    setIsAi((prev) => !prev);
-  };
-
+  
   const headers = [
     "ad_account_id",
     "ad_account_status",
@@ -115,6 +86,48 @@ const CampaignCreationPage = () => {
     "excluded_ph_region",
     "status",
   ];
+
+  const [selectedRows, setSelectedRows] = useState(new Map());
+  const [selectedData, setSelectedData] = useState([]);
+  const [isRunning, setIsRunning] = useState(false);
+  const [isVerified, setIsVerified] = useState(false);
+  const [openDialog, setOpenDialog] = useState(false);
+  const [isAi, setIsAi] = useState(false);
+
+  const [messages, setMessages] = useState(() => {
+    try {
+      const encryptedMessages = localStorage.getItem("campaignCreationMessages");
+      if (!encryptedMessages) return [];
+      
+      const decryptedMessages = decryptData(encryptedMessages);
+      if (!decryptedMessages) return [];
+      
+      // Handle case where decryptedMessages is already parsed
+      if (typeof decryptedMessages === 'object') {
+        return Array.isArray(decryptedMessages) ? decryptedMessages : [];
+      }
+      
+      // Handle case where decryptedMessages is a JSON string
+      try {
+        const parsed = JSON.parse(decryptedMessages);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    } catch (error) {
+      console.error("Error loading messages:", error);
+      return [];
+    }
+  });
+
+  const fileInputRef = useRef(null);
+  const isRunningRef = useRef(false);
+  const eventSourceRef = useRef(null);
+  const handleOpenDialog = () => setOpenDialog(true);
+  const handleCloseDialog = () => setOpenDialog(false);
+  const handleToggle = () => {
+    setIsAi((prev) => !prev);
+  };
 
   const getPersistedState = (key, defaultValue) => {
     try {
@@ -168,11 +181,13 @@ const CampaignCreationPage = () => {
   //stores messages in a localstorage
   useEffect(() => {
     try {
-      const encryptedMessages = encryptData(messages);
-      localStorage.setItem("campaignCreationMessages", encryptedMessages);
+      // Only save if messages is a non-empty array
+      if (Array.isArray(messages)) {
+        const encryptedMessages = encryptData(JSON.stringify(messages));
+        localStorage.setItem("campaignCreationMessages", encryptedMessages);
+      }
     } catch (error) {
       console.error("Error saving messages:", error);
-      notify("Failed to save messages", "error");
     }
   }, [messages]);
 
@@ -183,17 +198,21 @@ const CampaignCreationPage = () => {
 
   const addMessage = (newMessages) => {
     setMessages((prevMessages) => {
+      // Ensure prevMessages is always an array
       const messagesArray = Array.isArray(prevMessages) ? prevMessages : [];
-
-      // Ensure newMessages is a single string, not split into characters
-      const newMessageText = Array.isArray(newMessages)
-        ? newMessages.join(" ")
-        : newMessages;
-
-      // Avoid duplicates while maintaining the order
-      const uniqueMessages = new Set([...messagesArray, newMessageText]);
-
-      return Array.from(uniqueMessages);
+      
+      // Ensure newMessages is an array
+      const newMessagesArray = Array.isArray(newMessages) 
+        ? newMessages 
+        : [String(newMessages)];
+      
+      // Filter out any empty or invalid messages
+      const validNewMessages = newMessagesArray
+        .map(msg => typeof msg === 'string' ? msg : JSON.stringify(msg))
+        .filter(Boolean);
+      
+      // Combine and deduplicate messages
+      return [...messagesArray, ...validNewMessages];
     });
   };
 
