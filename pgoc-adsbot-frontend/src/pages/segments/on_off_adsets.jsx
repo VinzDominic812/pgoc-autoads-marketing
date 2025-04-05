@@ -6,7 +6,7 @@ import notify from "../components/toast.jsx";
 import CustomButton from "../components/buttons";
 import SpaceBg from "../../assets/adset.png";
 import Papa from "papaparse";
-import { getUserData } from "../../services/user_data.js";
+import { getUserData, encryptData, decryptData } from "../../services/user_data.js";
 
 // ICONS
 import ExportIcon from "@mui/icons-material/FileUpload";
@@ -55,432 +55,88 @@ const OnOffAdsets = () => {
     "on_off",
     "status",
   ];
-  // Retrieve persisted state from cookies
-  const getPersistedState = (key, defaultValue) => {
-    const savedAdsetsData = Cookies.get(key);
-    return savedAdsetsData ? JSON.parse(savedAdsetsData) : defaultValue;
-  };
 
-  const [tableAdsetsData, setTableAdsetsData] = useState(() =>
-    getPersistedState("tableAdsetsData", [])
-  );
   const [selectedRows, setSelectedRows] = useState(new Map());
   const [selectedAdsetsData, setSelectedAdsetsData] = useState([]); // Store selected data
   const [messages, setMessages] = useState([]); // Ensure it's an array
   const fileInputRef = useRef(null);
   const eventSourceRef = useRef(null);
 
+  // Retrieve persisted state from cookies
+  const getPersistedState = (key, defaultValue) => {
+    try{
+      const encryptData = localStorage.getItem(key);
+      if (!encryptData) return defaultValue;
+      const decryptedData = decryptData(encryptData);
+      if (!decryptedData) return defaultValue;
+      
+      if (Array.isArray(decryptedData)) {
+        return decryptedData;
+      }
+
+      if (typeof decryptedData === 'string') {
+        try {
+          const parsed = JSON.parse(decryptedData);
+          return Array.isArray(parsed) ? parsed : defaultValue;
+        } catch {
+          return defaultValue;
+        }
+      }
+      return defaultValue;
+    } catch (error) {
+      console.error(`Error loading ${key}:`, error);
+      return defaultValue;
+    }
+  };
+
+  const [tableAdsetsData, setTableAdsetsData] = useState(() =>{
+    const data = getPersistedState("tableAdsetsData", []);
+    return Array.isArray(data) ? data : [];
+  });
+
   const [filteredData, setFilteredData] = useState(tableAdsetsData);
   const [searchTerm, setSearchTerm] = useState("");
 
   // Persist data in cookies whenever state changes
   useEffect(() => {
-    Cookies.set("tableAdsetsData", JSON.stringify(tableAdsetsData), {
-      expires: 1,
-    }); // Expires in 1 day
+    try {
+      const dataToStore = Array.isArray(tableAdsetsData) ? tableAdsetsData : [];
+      const encryptedData = encryptData(dataToStore);
+      localStorage.setItem("tableAdsetsData", encryptedData);
+    } catch (error) {
+      console.error("Error Saving table data:", error);
+    }
   }, [tableAdsetsData]);
 
   useEffect(() => {
-    Cookies.set("messages", JSON.stringify(messages), { expires: 1 });
-  }, [messages]);
-
-  useEffect(() => {
-    const lowerSearchTerm = searchTerm.toLowerCase();
-
-    const filtered = tableAdsetsData.filter((item) =>
-      Object.values(item).some(
-        (val) =>
-          val !== null &&
-          val !== undefined &&
-          String(val).toLowerCase().includes(lowerSearchTerm)
-      )
-    );
-
-    setFilteredData(filtered);
-  }, [searchTerm, tableAdsetsData]);
-
-  const addAdsetsMessage = (newMessages) => {
-    setMessages((prevMessages) => {
-      // Ensure newMessages is an array (even if it's a single message)
-      const messagesArray = Array.isArray(newMessages) ? newMessages : [newMessages];
-      
-      // Ensure prevMessages is always an array (fallback to empty array)
-      const prevMessagesArray = Array.isArray(prevMessages) ? prevMessages : [];
-      
-      // Combine and deduplicate messages
-      return [...prevMessagesArray, ...messagesArray];
-    });
-  };
-
-  // Validate CSV Headers
-  const validateCSVHeaders = (fileHeaders) =>
-    REQUIRED_HEADERS.every((header) => fileHeaders.includes(header));
-
-  const handleRunAdsets = async () => {
-    if (tableAdsetsData.length === 0) {
-      addAdsetsMessage([`[${getCurrentTime()}] ❌ No campaigns to process.`]);
-      return;
-    }
-
-    const { id } = getUserData();
-    const batchSize = 1;
-    const delayMs = 5000; // 5secs delay
-
-    const requestData = tableAdsetsData.map((entry) => ({
-      ad_account_id: entry.ad_account_id,
-      user_id: id,
-      access_token: entry.access_token,
-      schedule_data: [
-        {
-          campaign_type: entry.campaign_type,
-          what_to_watch: entry.what_to_watch,
-          cpp_metric: entry.cpp_metric,
-          cpp_date_start: entry.cpp_date_start,
-          cpp_date_end: entry.cpp_date_end,
-          on_off: entry.on_off,
-        },
-      ],
-    }));
-
-    for (let i = 0; i < requestData.length; i += batchSize) {
-      const batch = requestData.slice(i, i + batchSize);
-
-      for (const data of batch) {
-        const { ad_account_id, schedule_data } = data;
-        const on_off = schedule_data[0].on_off;
-
-        addAdsetsMessage([
-          `[${getCurrentTime()}] ⏳ Processing Ad Account ${ad_account_id} (${on_off.toUpperCase()})`,
-        ]);
-
-        try {
-          const response = await fetch(`${apiUrl}/api/v1/OnOff/adsets`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              skip_zrok_interstitial: "true",
-            },
-            body: JSON.stringify(data),
-          });
-
-          if (!response.ok) {
-            throw new Error(`Request failed for Ad Account ${ad_account_id}`);
-          }
-
-          setTableAdsetsData((prevData) =>
-            prevData.map((entry) =>
-              entry.ad_account_id === ad_account_id && entry.on_off === on_off
-                ? {
-                    ...entry,
-                    status: `Request Sent ✅ (${on_off.toUpperCase()})`,
-                  }
-                : entry
-            )
-          );
-
-          addAdsetsMessage([
-            `[${getCurrentTime()}] ✅ Ad Account ${ad_account_id} (${on_off.toUpperCase()}) processed successfully`,
-          ]);
-        } catch (error) {
-          addAdsetsMessage([
-            `[${getCurrentTime()}] ❌ Error processing Ad Account ${ad_account_id} (${on_off.toUpperCase()}): ${
-              error.message
-            }`,
-          ]);
-
-          setTableAdsetsData((prevData) =>
-            prevData.map((entry) =>
-              entry.ad_account_id === ad_account_id && entry.on_off === on_off
-                ? { ...entry, status: `Failed ❌ (${on_off.toUpperCase()})` }
-                : entry
-            )
-          );
-        }
-      }
-
-      if (i + batchSize < requestData.length) {
-        addAdsetsMessage([
-          `[${getCurrentTime()}] ⏸ Waiting for 5 seconds before processing the next batch...`,
-        ]);
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-      }
-    }
-
-    addAdsetsMessage([`[${getCurrentTime()}] 🚀 All Requests Sent`]);
-  };
-
-  // Handle CSV File Import
-  const handleFileChange = (event) => {
-    const file = event.target.files[0];
-
-    if (!file) {
-      notify("No file selected.", "error");
-      return;
-    }
-
-    const { id: user_id } = getUserData(); // Get user ID
-
-    Papa.parse(file, {
-      complete: (result) => {
-        if (result.data.length < 2) {
-          notify("CSV file is empty or invalid.", "error");
-          return;
-        }
-
-        const fileHeaders = result.data[0].map((h) => h.trim().toLowerCase());
-
-        if (!validateCSVHeaders(fileHeaders)) {
-          notify(
-            "Invalid CSV headers. Required: ad_account_id, access_token, campaign_type, what_to_watch, cpp_metric, on_off.",
-            "error"
-          );
-          return;
-        }
-
-        const processedData = result.data
-          .slice(1)
-          .filter((row) => row.some((cell) => cell)) // Remove empty rows
-          .map((row) =>
-            fileHeaders.reduce((acc, header, index) => {
-              acc[header] = row[index] ? row[index].trim() : "";
-              return acc;
-            }, {})
-          );
-
-        // Detect and remove duplicate ad_account_id values
-        const uniqueData = [];
-        const seenAdAccounts = new Set();
-        const removedDuplicates = [];
-
-        processedData.forEach((entry) => {
-          if (seenAdAccounts.has(entry.ad_account_id)) {
-            removedDuplicates.push(entry.ad_account_id);
-          } else {
-            seenAdAccounts.add(entry.ad_account_id);
-            uniqueData.push({ ...entry, status: "Ready" }); // Add default status
-          }
-        });
-
-        if (removedDuplicates.length > 0) {
-          notify(
-            `Removed duplicate ad_account_ids: ${removedDuplicates.join(", ")}`,
-            "error"
-          );
-        }
-
-        // Convert unique data to API request format
-        const requestData = uniqueData.map((entry) => ({
-          ad_account_id: entry.ad_account_id,
-          user_id,
-          access_token: entry.access_token,
-          schedule_data: [
-            {
-              campaign_type: entry.campaign_type,
-              what_to_watch: entry.what_to_watch,
-              cpp_metric: entry.cpp_metric,
-              cpp_date_start: entry.cpp_date_start,
-              cpp_date_end: entry.cpp_date_end,
-              on_off: entry.on_off,
-            },
-          ],
-        }));
-
-        console.log(
-          "Processed Request Data:",
-          JSON.stringify(requestData, null, 2)
-        );
-        setTableAdsetsData(uniqueData); // Store processed data in the table
-        notify("CSV file successfully imported!", "success");
-        verifyAdAccounts(requestData, uniqueData, addAdsetsMessage);
-      },
-      header: false,
-      skipEmptyLines: true,
-    });
-
-    event.target.value = "";
-  };
-
-  const statusRenderers = {
-    ad_account_status: (value, row) => (
-      <StatusWithIcon status={value} error={row?.ad_account_error} />
-    ),
-    access_token_status: (value, row) => (
-      <StatusWithIcon status={value} error={row?.access_token_error} />
-    ),
-    status: (value, row) => (
-      <StatusWithIcon 
-        status={value} 
-        error={[row?.ad_account_error, row?.access_token_error]
-          .filter(Boolean)
-          .join('\n')} 
-      />
-    )
-  };
-
-  const StatusWithIcon = ({ status, error }) => {
-    if (!status) return null;
-    
-    if (status === "Verified") {
-      return <CheckIcon style={{ color: "green" }} />;
-    }
-    
-    if (status === "Not Verified") {
-      return error ? (
-        <Tooltip title={error}>
-          <CancelIcon style={{ color: "red" }} />
-        </Tooltip>
-      ) : (
-        <CancelIcon style={{ color: "red" }} />
-      );
-    }
-    
-    return <span>{status}</span>;
-  };
-
-  const compareCsvWithJson = (csvData, jsonData, setTableAdsetsData) => {
-    const updatedData = csvData.map((csvRow) => {
-      const jsonRow = jsonData.find(
-        (json) =>
-          json.ad_account_id === csvRow.ad_account_id &&
-          json.access_token === csvRow.access_token
-      );
-  
-      if (!jsonRow) {
-        return {
-          ...csvRow,
-          ad_account_status: "Not Verified",
-          access_token_status: "Not Verified",
-          status: "Not Verified",
-          ad_account_error: "Account not found",
-          access_token_error: "Account not found"
-        };
-      }
-  
-      return {
-        ...csvRow,
-        ad_account_status: jsonRow.ad_account_status,
-        access_token_status: jsonRow.access_token_status,
-        status: jsonRow.ad_account_status === "Verified" && 
-               jsonRow.access_token_status === "Verified" 
-               ? "Verified" : "Not Verified",
-        ad_account_error: jsonRow.ad_account_error || null,
-        access_token_error: jsonRow.access_token_error || null
-      };
-    });
-  
-    setTableAdsetsData(updatedData);
-  };
-
-  const verifyAdAccounts = async (campaignsData, originalCsvData, addAdsetsMessage) => {
     try {
-      const response = await fetch(`${apiUrl}/api/v1/verify/adsets`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          skip_zrok_interstitial: "true",
-        },
-        body: JSON.stringify(campaignsData),
-      });
-  
-      const result = await response.json();
-      console.log("Verification Result:", JSON.stringify(result, null, 2));
-  
-      if (response.ok && result.verified_accounts) {
-        compareCsvWithJson(originalCsvData, result.verified_accounts, setTableAdsetsData);
-        addAdsetsMessage([`[${getCurrentTime()}] Verification completed for ${result.verified_accounts.length} accounts`]);
-      } else {
-        const errorMsg = result.message || "No verified accounts returned from API";
-        addAdsetsMessage([`⚠️ ${errorMsg}`]);
-      }
+      const encryptedMessages = encryptData(messages);
+      localStorage.setItem("adsetsMessages", encryptedMessages);
     } catch (error) {
-      console.error("Error verifying ad accounts:", error);
-      addAdsetsMessage([`❌ Failed to verify ad accounts: ${error.message}`]);
+      console.error("Error saving messages:", error);
+      notify("Failed to save messages", "error");
     }
-  };
-
-  // Download CSV Template
-  const handleDownloadTemplate = () => {
-    const sampleData = [
-      [
-        "ad_account_id",
-        "access_token",
-        "campaign_type",
-        "what_to_watch",
-        "cpp_metric",
-        "cpp_date_start",
-        "cpp_date_end",
-        "on_off",
-      ],
-      [
-        "SAMPLE_AD_ACCOUNT_ID",
-        "SAMPLE_ACCESS_TOKEN",
-        "CAMPAIGN_TYPE",
-        "ADSETS/CAMPAIGNS",
-        "1",
-        "YYYY-MM-DD",
-        "YYYY-MM-DD",
-        "ON",
-      ],
-    ];
-
-    const csvContent =
-      "data:text/csv;charset=utf-8,\uFEFF" +
-      sampleData.map((row) => row.join(",")).join("\n");
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "Campaign_Template.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // Function to export table data to CSV
-  const handleExportData = () => {
-    if (tableAdsetsData.length === 0) {
-      notify("No data to export.", "error");
-      return;
-    }
-
-    // Define CSV headers
-    const csvHeaders = [
-      "ad_account_id",
-      "access_token",
-      "campaign_type",
-      "what_to_watch",
-      "cpp_metric",
-      "cpp_date_start",
-      "cpp_date_end",
-      "on_off",
-    ];
-
-    // Convert table data to CSV format
-    const csvContent =
-      "data:text/csv;charset=utf-8,\uFEFF" + // UTF-8 BOM for proper encoding
-      [csvHeaders.join(",")] // Add headers
-        .concat(
-          tableAdsetsData.map((row) =>
-            csvHeaders.map((header) => `"${row[header] || ""}"`).join(",")
-          )
-        )
-        .join("\n");
-
-    // Create a download link and trigger it
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `Exported_Campaigns_${getCurrentTime()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    notify("Data exported successfully!", "success");
-  };
+  }, [messages]);
 
   // Handle selected data change from DynamicTable
   const handleSelectedAdsetsDataChange = (selectedRows) => {
     setSelectedAdsetsData(selectedRows);
+  };
+
+  const addAdsetsMessage = (newMessages) => {
+    setMessages((prevMessages) => {
+      const messagesArray = Array.isArray(prevMessages) ? prevMessages : [];
+
+      // Ensure newMessages is a single string, not split into characters
+      const newMessageText = Array.isArray(newMessages)
+        ? newMessages.join(" ")
+        : newMessages;
+
+      // Avoid duplicates while maintaining the order
+      const uniqueMessages = new Set([...messagesArray, newMessageText]);
+
+      return Array.from(uniqueMessages);
+    });
   };
 
   useEffect(() => {
@@ -645,9 +301,397 @@ const OnOffAdsets = () => {
   }, []);
 
   const handleClearAll = () => {
-    setTableAdsetsData([]); // Clear state
-    Cookies.remove("tableAdsetsData"); // Remove from cookies
-    notify("All data cleared successfully!", "success");
+    try {
+      setTableAdsetsData([]); 
+      localStorage.removeItem("tableAdsetsData");
+      if (Cookies.get("tableAdsetsData")) {
+        Cookies.remove("tableAdsetsData");
+      }
+      
+      notify("All data cleared successfully!", "success");
+    } catch (error){
+      console.error("Error clearing data:", error);
+      notify("Failed to clear data", "error");
+    }
+  };
+
+  const handleDownloadTemplate = () => {
+    const sampleData = [
+      [
+        "ad_account_id",
+        "access_token",
+        "campaign_type",
+        "what_to_watch",
+        "cpp_metric",
+        "cpp_date_start",
+        "cpp_date_end",
+        "on_off",
+      ],
+      [
+        "SAMPLE_AD_ACCOUNT_ID",
+        "SAMPLE_ACCESS_TOKEN",
+        "CAMPAIGN_TYPE",
+        "ADSETS/CAMPAIGNS",
+        "1",
+        "YYYY-MM-DD",
+        "YYYY-MM-DD",
+        "ON",
+      ],
+    ];
+
+    const csvContent =
+      "data:text/csv;charset=utf-8,\uFEFF" +
+      sampleData.map((row) => row.join(",")).join("\n");
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "Campaign_Template.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Function to export table data to CSV
+  const handleExportData = () => {
+    if (tableAdsetsData.length === 0) {
+      notify("No data to export.", "error");
+      return;
+    }
+
+    // Define CSV headers
+    const csvHeaders = [
+      "ad_account_id",
+      "access_token",
+      "campaign_type",
+      "what_to_watch",
+      "cpp_metric",
+      "cpp_date_start",
+      "cpp_date_end",
+      "on_off",
+    ];
+
+    // Convert table data to CSV format
+    const csvContent =
+      "data:text/csv;charset=utf-8,\uFEFF" + // UTF-8 BOM for proper encoding
+      [csvHeaders.join(",")] // Add headers
+        .concat(
+          tableAdsetsData.map((row) =>
+            csvHeaders.map((header) => `"${row[header] || ""}"`).join(",")
+          )
+        )
+        .join("\n");
+
+    // Create a download link and trigger it
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `Exported_Campaigns_${getCurrentTime()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    notify("Data exported successfully!", "success");
+  };
+
+  const handleFileChange = (event) => {
+    const file = event.target.files[0];
+
+    if (!file) {
+      notify("No file selected.", "error");
+      return;
+    }
+
+    const { id: user_id } = getUserData(); // Get user ID
+
+    Papa.parse(file, {
+      complete: (result) => {
+        if (result.data.length < 2) {
+          notify("CSV file is empty or invalid.", "error");
+          return;
+        }
+
+        const fileHeaders = result.data[0].map((h) => h.trim().toLowerCase());
+
+        if (!validateCSVHeaders(fileHeaders)) {
+          notify(
+            "Invalid CSV headers. Required: ad_account_id, access_token, campaign_type, what_to_watch, cpp_metric, on_off.",
+            "error"
+          );
+          return;
+        }
+
+        const processedData = result.data
+          .slice(1)
+          .filter((row) => row.some((cell) => cell)) // Remove empty rows
+          .map((row) =>
+            fileHeaders.reduce((acc, header, index) => {
+              acc[header] = row[index] ? row[index].trim() : "";
+              return acc;
+            }, {})
+          );
+
+        // Detect and remove duplicate ad_account_id values
+        const uniqueData = [];
+        const seenAdAccounts = new Set();
+        const removedDuplicates = [];
+
+        processedData.forEach((entry) => {
+          if (seenAdAccounts.has(entry.ad_account_id)) {
+            removedDuplicates.push(entry.ad_account_id);
+          } else {
+            seenAdAccounts.add(entry.ad_account_id);
+            uniqueData.push({ ...entry, status: "Ready" }); // Add default status
+          }
+        });
+
+        if (removedDuplicates.length > 0) {
+          notify(
+            `Removed duplicate ad_account_ids: ${removedDuplicates.join(", ")}`,
+            "error"
+          );
+        }
+
+        // Convert unique data to API request format
+        const requestData = uniqueData.map((entry) => ({
+          ad_account_id: entry.ad_account_id,
+          user_id,
+          access_token: entry.access_token,
+          schedule_data: [
+            {
+              campaign_type: entry.campaign_type,
+              what_to_watch: entry.what_to_watch,
+              cpp_metric: entry.cpp_metric,
+              cpp_date_start: entry.cpp_date_start,
+              cpp_date_end: entry.cpp_date_end,
+              on_off: entry.on_off,
+            },
+          ],
+        }));
+
+        console.log(
+          "Processed Request Data:",
+          JSON.stringify(requestData, null, 2)
+        );
+        setTableAdsetsData(uniqueData); // Store processed data in the table
+        notify("CSV file successfully imported!", "success");
+        verifyAdAccounts(requestData, uniqueData, addAdsetsMessage);
+      },
+      header: false,
+      skipEmptyLines: true,
+    });
+
+    event.target.value = "";
+  };
+
+  const statusRenderers = {
+    ad_account_status: (value, row) => (
+      <StatusWithIcon status={value} error={row?.ad_account_error} />
+    ),
+    access_token_status: (value, row) => (
+      <StatusWithIcon status={value} error={row?.access_token_error} />
+    ),
+    status: (value, row) => (
+      <StatusWithIcon 
+        status={value} 
+        error={[row?.ad_account_error, row?.access_token_error]
+          .filter(Boolean)
+          .join('\n')} 
+      />
+    )
+  };
+
+  const handleRunAdsets = async () => {
+    if (tableAdsetsData.length === 0) {
+      addAdsetsMessage([`[${getCurrentTime()}] ❌ No campaigns to process.`]);
+      return;
+    }
+
+    const { id } = getUserData();
+    const batchSize = 1;
+    const delayMs = 5000; // 5secs delay
+
+    const requestData = tableAdsetsData.map((entry) => ({
+      ad_account_id: entry.ad_account_id,
+      user_id: id,
+      access_token: entry.access_token,
+      schedule_data: [
+        {
+          campaign_type: entry.campaign_type,
+          what_to_watch: entry.what_to_watch,
+          cpp_metric: entry.cpp_metric,
+          cpp_date_start: entry.cpp_date_start,
+          cpp_date_end: entry.cpp_date_end,
+          on_off: entry.on_off,
+        },
+      ],
+    }));
+
+    for (let i = 0; i < requestData.length; i += batchSize) {
+      const batch = requestData.slice(i, i + batchSize);
+
+      for (const data of batch) {
+        const { ad_account_id, schedule_data } = data;
+        const on_off = schedule_data[0].on_off;
+
+        addAdsetsMessage([
+          `[${getCurrentTime()}] ⏳ Processing Ad Account ${ad_account_id} (${on_off.toUpperCase()})`,
+        ]);
+
+        try {
+          const response = await fetch(`${apiUrl}/api/v1/OnOff/adsets`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              skip_zrok_interstitial: "true",
+            },
+            body: JSON.stringify(data),
+          });
+
+          if (!response.ok) {
+            throw new Error(`Request failed for Ad Account ${ad_account_id}`);
+          }
+
+          setTableAdsetsData((prevData) =>
+            prevData.map((entry) =>
+              entry.ad_account_id === ad_account_id && entry.on_off === on_off
+                ? {
+                    ...entry,
+                    status: `Request Sent ✅ (${on_off.toUpperCase()})`,
+                  }
+                : entry
+            )
+          );
+
+          addAdsetsMessage([
+            `[${getCurrentTime()}] ✅ Ad Account ${ad_account_id} (${on_off.toUpperCase()}) processed successfully`,
+          ]);
+        } catch (error) {
+          addAdsetsMessage([
+            `[${getCurrentTime()}] ❌ Error processing Ad Account ${ad_account_id} (${on_off.toUpperCase()}): ${
+              error.message
+            }`,
+          ]);
+
+          setTableAdsetsData((prevData) =>
+            prevData.map((entry) =>
+              entry.ad_account_id === ad_account_id && entry.on_off === on_off
+                ? { ...entry, status: `Failed ❌ (${on_off.toUpperCase()})` }
+                : entry
+            )
+          );
+        }
+      }
+
+      if (i + batchSize < requestData.length) {
+        addAdsetsMessage([
+          `[${getCurrentTime()}] ⏸ Waiting for 5 seconds before processing the next batch...`,
+        ]);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+
+    addAdsetsMessage([`[${getCurrentTime()}] 🚀 All Requests Sent`]);
+  };
+
+  useEffect(() => {
+    const lowerSearchTerm = searchTerm.toLowerCase();
+
+    const filtered = tableAdsetsData.filter((item) =>
+      Object.values(item).some(
+        (val) =>
+          val !== null &&
+          val !== undefined &&
+          String(val).toLowerCase().includes(lowerSearchTerm)
+      )
+    );
+
+    setFilteredData(filtered);
+  }, [searchTerm, tableAdsetsData]);
+
+  // Validate CSV Headers
+  const validateCSVHeaders = (fileHeaders) =>
+    REQUIRED_HEADERS.every((header) => fileHeaders.includes(header));
+
+  const StatusWithIcon = ({ status, error }) => {
+    if (!status) return null;
+    
+    if (status === "Verified") {
+      return <CheckIcon style={{ color: "green" }} />;
+    }
+    
+    if (status === "Not Verified") {
+      return error ? (
+        <Tooltip title={error}>
+          <CancelIcon style={{ color: "red" }} />
+        </Tooltip>
+      ) : (
+        <CancelIcon style={{ color: "red" }} />
+      );
+    }
+    
+    return <span>{status}</span>;
+  };
+
+  const compareCsvWithJson = (csvData, jsonData, setTableAdsetsData) => {
+    const updatedData = csvData.map((csvRow) => {
+      const jsonRow = jsonData.find(
+        (json) =>
+          json.ad_account_id === csvRow.ad_account_id &&
+          json.access_token === csvRow.access_token
+      );
+  
+      if (!jsonRow) {
+        return {
+          ...csvRow,
+          ad_account_status: "Not Verified",
+          access_token_status: "Not Verified",
+          status: "Not Verified",
+          ad_account_error: "Account not found",
+          access_token_error: "Account not found"
+        };
+      }
+  
+      return {
+        ...csvRow,
+        ad_account_status: jsonRow.ad_account_status,
+        access_token_status: jsonRow.access_token_status,
+        status: jsonRow.ad_account_status === "Verified" && 
+               jsonRow.access_token_status === "Verified" 
+               ? "Verified" : "Not Verified",
+        ad_account_error: jsonRow.ad_account_error || null,
+        access_token_error: jsonRow.access_token_error || null
+      };
+    });
+  
+    setTableAdsetsData(updatedData);
+  };
+
+  const verifyAdAccounts = async (campaignsData, originalCsvData, addAdsetsMessage) => {
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/verify/adsets`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          skip_zrok_interstitial: "true",
+        },
+        body: JSON.stringify(campaignsData),
+      });
+  
+      const result = await response.json();
+      console.log("Verification Result:", JSON.stringify(result, null, 2));
+  
+      if (response.ok && result.verified_accounts) {
+        compareCsvWithJson(originalCsvData, result.verified_accounts, setTableAdsetsData);
+        addAdsetsMessage([`[${getCurrentTime()}] Verification completed for ${result.verified_accounts.length} accounts`]);
+      } else {
+        const errorMsg = result.message || "No verified accounts returned from API";
+        addAdsetsMessage([`⚠️ ${errorMsg}`]);
+      }
+    } catch (error) {
+      console.error("Error verifying ad accounts:", error);
+      addAdsetsMessage([`❌ Failed to verify ad accounts: ${error.message}`]);
+    }
   };
 
   return (

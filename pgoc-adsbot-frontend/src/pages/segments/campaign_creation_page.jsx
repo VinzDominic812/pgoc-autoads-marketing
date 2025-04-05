@@ -17,7 +17,7 @@ import notify from "../components/toast.jsx";
 import CustomButton from "../components/buttons";
 import SpaceBg from "../../assets/campaign_creation_bg.png";
 import Papa from "papaparse";
-import { getUserData } from "../../services/user_data.js";
+import { getUserData, encryptData, decryptData } from "../../services/user_data.js";
 
 // ICONS
 import SmartToyRoundedIcon from "@mui/icons-material/SmartToyRounded";
@@ -63,23 +63,7 @@ const getCurrentTime = () => {
 const apiUrl = import.meta.env.VITE_API_URL;
 
 const CampaignCreationPage = () => {
-  const [selectedRows, setSelectedRows] = useState(new Map());
-  const [selectedData, setSelectedData] = useState([]);
-  const [isRunning, setIsRunning] = useState(false);
-  const [messages, setMessages] = useState([]);
-  const [isVerified, setIsVerified] = useState(false);
-  const [openDialog, setOpenDialog] = useState(false);
-  const [isAi, setIsAi] = useState(false);
-
-  const fileInputRef = useRef(null);
-  const isRunningRef = useRef(false);
-  const eventSourceRef = useRef(null);
-  const handleOpenDialog = () => setOpenDialog(true);
-  const handleCloseDialog = () => setOpenDialog(false);
-  const handleToggle = () => {
-    setIsAi((prev) => !prev);
-  };
-
+  
   const headers = [
     "ad_account_id",
     "ad_account_status",
@@ -103,28 +87,108 @@ const CampaignCreationPage = () => {
     "status",
   ];
 
-  // Retrieve persisted state from cookies
-  const getPersistedState = (key, defaultValue) => {
-    const savedData = Cookies.get(key);
-    return savedData ? JSON.parse(savedData) : defaultValue;
+  const [selectedRows, setSelectedRows] = useState(new Map());
+  const [selectedData, setSelectedData] = useState([]);
+  const [isRunning, setIsRunning] = useState(false);
+  const [isVerified, setIsVerified] = useState(false);
+  const [openDialog, setOpenDialog] = useState(false);
+  const [isAi, setIsAi] = useState(false);
+
+  const [messages, setMessages] = useState(() => {
+    try {
+      const encryptedMessages = localStorage.getItem("campaignCreationMessages");
+      if (!encryptedMessages) return [];
+      
+      const decryptedMessages = decryptData(encryptedMessages);
+      if (!decryptedMessages) return [];
+      
+      // Handle case where decryptedMessages is already parsed
+      if (typeof decryptedMessages === 'object') {
+        return Array.isArray(decryptedMessages) ? decryptedMessages : [];
+      }
+      
+      // Handle case where decryptedMessages is a JSON string
+      try {
+        const parsed = JSON.parse(decryptedMessages);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    } catch (error) {
+      console.error("Error loading messages:", error);
+      return [];
+    }
+  });
+
+  const fileInputRef = useRef(null);
+  const isRunningRef = useRef(false);
+  const eventSourceRef = useRef(null);
+  const handleOpenDialog = () => setOpenDialog(true);
+  const handleCloseDialog = () => setOpenDialog(false);
+  const handleToggle = () => {
+    setIsAi((prev) => !prev);
   };
 
-  const [tableData, setTableData] = useState(() =>
-    getPersistedState("campaignCreationTableData", [])
-  );
-
-  //stores Table data in a cookie
+  const getPersistedState = (key, defaultValue) => {
+    try {
+      const encryptedData = localStorage.getItem(key);
+      if (!encryptedData) return defaultValue;
+      
+      const decryptedData = decryptData(encryptedData);
+      
+      // Ensure we always return an array
+      if (!decryptedData) return defaultValue;
+      
+      // Handle case where decryptedData is already an array
+      if (Array.isArray(decryptedData)) {
+        return decryptedData;
+      }
+      
+      // Handle case where decryptedData is a JSON string
+      if (typeof decryptedData === 'string') {
+        try {
+          const parsed = JSON.parse(decryptedData);
+          return Array.isArray(parsed) ? parsed : defaultValue;
+        } catch {
+          return defaultValue;
+        }
+      }
+      
+      return defaultValue;
+    } catch (error) {
+      console.error(`Error loading ${key}:`, error);
+      return defaultValue;
+    }
+  };
+  
+  // Initialize state with array fallback
+  const [tableData, setTableData] = useState(() => {
+    const data = getPersistedState("campaignCreationTableData", []);
+    return Array.isArray(data) ? data : [];
+  });
+  
+  // Save to localStorage with array validation
   useEffect(() => {
-    Cookies.set("campaignCreationTableData", JSON.stringify(tableData), {
-      expires: 1,
-    }); // Expires in 1 day
+    try {
+      const dataToStore = Array.isArray(tableData) ? tableData : [];
+      const encryptedData = encryptData(dataToStore);
+      localStorage.setItem("campaignCreationTableData", encryptedData);
+    } catch (error) {
+      console.error("Error saving table data:", error);
+    }
   }, [tableData]);
 
-  //stores messages in a cookie
+  //stores messages in a localstorage
   useEffect(() => {
-    Cookies.set("campainCreationmessages", JSON.stringify(messages), {
-      expires: 1,
-    });
+    try {
+      // Only save if messages is a non-empty array
+      if (Array.isArray(messages)) {
+        const encryptedMessages = encryptData(JSON.stringify(messages));
+        localStorage.setItem("campaignCreationMessages", encryptedMessages);
+      }
+    } catch (error) {
+      console.error("Error saving messages:", error);
+    }
   }, [messages]);
 
   // Handle selected data change from DynamicTable
@@ -134,17 +198,21 @@ const CampaignCreationPage = () => {
 
   const addMessage = (newMessages) => {
     setMessages((prevMessages) => {
+      // Ensure prevMessages is always an array
       const messagesArray = Array.isArray(prevMessages) ? prevMessages : [];
-
-      // Ensure newMessages is a single string, not split into characters
-      const newMessageText = Array.isArray(newMessages)
-        ? newMessages.join(" ")
-        : newMessages;
-
-      // Avoid duplicates while maintaining the order
-      const uniqueMessages = new Set([...messagesArray, newMessageText]);
-
-      return Array.from(uniqueMessages);
+      
+      // Ensure newMessages is an array
+      const newMessagesArray = Array.isArray(newMessages) 
+        ? newMessages 
+        : [String(newMessages)];
+      
+      // Filter out any empty or invalid messages
+      const validNewMessages = newMessagesArray
+        .map(msg => typeof msg === 'string' ? msg : JSON.stringify(msg))
+        .filter(Boolean);
+      
+      // Combine and deduplicate messages
+      return [...messagesArray, ...validNewMessages];
     });
   };
 
@@ -188,7 +256,7 @@ const CampaignCreationPage = () => {
           const messageText = data.data.message[0]; // Extract first message
     
           // Always add the message to the message list
-          addAdsetsMessage(data.data.message);
+          addMessage(data.data.message);
     
           // ✅ Match for "Creating Facebook campaign"
           const campaignCreationMatch = messageText.match(
@@ -196,7 +264,7 @@ const CampaignCreationPage = () => {
           );
           if (campaignCreationMatch) {
             const campaignName = campaignCreationMatch[1]; // Extracted campaign name
-            setTableAdsetsData((prevData) =>
+            setTableData((prevData) =>
               prevData.map((entry) =>
                 entry.key === `${user_id}-key`
                   ? {
@@ -218,7 +286,7 @@ const CampaignCreationPage = () => {
             const taskMessage = JSON.parse(taskCreatedMatch[3]); // Parsed task message
     
             // Update table with task creation details
-            setTableAdsetsData((prevData) =>
+            setTableData((prevData) =>
               prevData.map((entry) =>
                 entry.key === `${user_id}-key`
                   ? {
@@ -238,7 +306,7 @@ const CampaignCreationPage = () => {
           if (uploadingVideoMatch) {
             const timestamp = uploadingVideoMatch[1];
             const campaignName = uploadingVideoMatch[2]; // Extracted campaign name
-            setTableAdsetsData((prevData) =>
+            setTableData((prevData) =>
               prevData.map((entry) =>
                 entry.key === `${user_id}-key`
                   ? {
@@ -257,7 +325,7 @@ const CampaignCreationPage = () => {
           if (uploadingImageMatch) {
             const timestamp = uploadingImageMatch[1];
             const campaignName = uploadingImageMatch[2]; // Extracted campaign name
-            setTableAdsetsData((prevData) =>
+            setTableData((prevData) =>
               prevData.map((entry) =>
                 entry.key === `${user_id}-key`
                   ? {
@@ -276,7 +344,7 @@ const CampaignCreationPage = () => {
           if (adCreativeSuccessMatch) {
             const timestamp = adCreativeSuccessMatch[1];
             const campaignName = adCreativeSuccessMatch[2]; // Extracted campaign name
-            setTableAdsetsData((prevData) =>
+            setTableData((prevData) =>
               prevData.map((entry) =>
                 entry.key === `${user_id}-key`
                   ? {
@@ -296,7 +364,7 @@ const CampaignCreationPage = () => {
             const adsetDetails = failedToCreateAdMatch[1]; // Extracted adset details
             const errorDetails = JSON.parse(failedToCreateAdMatch[2]); // Parsed error details
     
-            setTableAdsetsData((prevData) =>
+            setTableData((prevData) =>
               prevData.map((entry) =>
                 entry.key === `${user_id}-key`
                   ? {
@@ -306,7 +374,7 @@ const CampaignCreationPage = () => {
                   : entry
               )
             );
-            addAdsetsMessage([`[${getCurrentTime()}] ❌ Error creating ad for adset ${adsetDetails}: ${errorDetails.error.message}`]);
+            addMessage([`[${getCurrentTime()}] ❌ Error creating ad for adset ${adsetDetails}: ${errorDetails.error.message}`]);
           }
     
           // ❌ Handle 401 Unauthorized Error with ON/OFF
@@ -317,7 +385,7 @@ const CampaignCreationPage = () => {
             const adAccountId = unauthorizedMatch[1];
             const onOffStatus = unauthorizedMatch[2];
     
-            setTableAdsetsData((prevData) =>
+            setTableData((prevData) =>
               prevData.map((entry) =>
                 entry.ad_account_id === adAccountId &&
                 entry.on_off === onOffStatus
@@ -329,7 +397,7 @@ const CampaignCreationPage = () => {
               )
             );
     
-            addAdsetsMessage([
+            addMessage([
               `[${getCurrentTime()}] ❌ 401 Unauthorized Error for Ad Account ${adAccountId} (${onOffStatus}). Check access token or permissions.`,
             ]);
           }
@@ -341,7 +409,7 @@ const CampaignCreationPage = () => {
           if (forbiddenMatch) {
             const adAccountId = forbiddenMatch[1]; // Extracted ad account ID
     
-            setTableAdsetsData((prevData) =>
+            setTableData((prevData) =>
               prevData.map((entry) =>
                 entry.ad_account_id === adAccountId
                   ? {
@@ -352,7 +420,7 @@ const CampaignCreationPage = () => {
               )
             );
     
-            addAdsetsMessage([
+            addMessage([
               `[${getCurrentTime()}] ❌ 403 Forbidden for Ad Account ${adAccountId}. Check permissions or tokens.`,
             ]);
           }
@@ -377,9 +445,22 @@ const CampaignCreationPage = () => {
   }, []);
 
   const handleClearAll = () => {
-    setTableData([]); // Clear state
-    Cookies.remove("tableData"); // Remove from cookies
-    notify("All data cleared successfully!", "success");
+    try {
+      setTableData([]); // Clear state
+      
+      // Remove from localStorage (encrypted version)
+      localStorage.removeItem("campaignCreationTableData");
+      
+      // Optional: Clean up legacy cookie if it exists
+      if (Cookies.get("campaignCreationTableData")) {
+        Cookies.remove("campaignCreationTableData");
+      }
+      
+      notify("All data cleared successfully!", "success");
+    } catch (error) {
+      console.error("Error clearing data:", error);
+      notify("Failed to clear data", "error");
+    }
   };
 
   const handleDownloadRegions = async () => {
@@ -1106,11 +1187,11 @@ const CampaignCreationPage = () => {
 
       {/* Second Row (Dynamic Table) */}
       <Box sx={{ flex: 1 }}>
-        <WidgetCard title="Main Section" height="100%" width={"100%"}>
+        <WidgetCard title="Main Section" height="83.1%">
           <DynamicTable
             headers={headers}
             data={tableData}
-            rowsPerPage={5}
+            rowsPerPage={100}
             containerStyles={{
               width: "100%",
               height: "100%",
