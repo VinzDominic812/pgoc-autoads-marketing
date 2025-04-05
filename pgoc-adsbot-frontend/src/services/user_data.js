@@ -30,16 +30,25 @@ export const decryptData = (encrypted) => {
 };
 
 export const getUserData = () => {
+  // Check localStorage first, fallback to cookies if not migrated yet
+  const getStoredData = (key) => {
+    return localStorage.getItem(key) || Cookies.get(key);
+  };
+
   return {
-    id: decryptData(localStorage.getItem("xsid_g")),
-    accessToken: decryptData(localStorage.getItem("xsid")),
-    userId: decryptData(localStorage.getItem("usr")),
-    redisKey: decryptData(localStorage.getItem("rsid")),
+    id: decryptData(getStoredData("xsid_g")),
+    accessToken: decryptData(getStoredData("xsid")),
+    userId: decryptData(getStoredData("usr")),
+    redisKey: decryptData(getStoredData("rsid")),
+    username: decryptData(getStoredData("username")), // New: Get username
+    email: decryptData(getStoredData("email")),      // New: Get email
+    status: decryptData(getStoredData("status")),    // New: Get status (active/inactive)
+    profile_image: decryptData(getStoredData("profile_image")) // New: Get profile image (Base64)
   };
 };
 
 export const migrateCookiesToLocalStorage = () => {
-  const keys = ["xsid_g", "xsid", "usr", "rsid"];
+  const keys = ["xsid_g", "xsid", "usr", "rsid", "username", "email", "status", "profile_image"];
   keys.forEach(key => {
     const cookieValue = Cookies.get(key);
     if (cookieValue && !localStorage.getItem(key)) {
