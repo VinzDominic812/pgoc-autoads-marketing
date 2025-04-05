@@ -305,23 +305,44 @@ const PageOnOFFPage = () => {
     event.target.value = "";
   };
 
-  const ErrorTooltip = ({ message, children }) => (
-      <Tooltip
-        title={
-          <Typography variant="body2" style={{ color: '#fff' }}>
-            {message}
-          </Typography>
-        }
-        arrow
-        placement="top"
-      >
-        {children}
-      </Tooltip>
-    );
+  const statusRenderers = {
+    ad_account_status: (value, row) => (
+      <StatusWithIcon status={value} error={row?.ad_account_error} />
+    ),
+    access_token_status: (value, row) => (
+      <StatusWithIcon status={value} error={row?.access_token_error} />
+    ),
+    status: (value, row) => (
+      <StatusWithIcon 
+        status={value} 
+        error={[row?.ad_account_error, row?.access_token_error]
+          .filter(Boolean)
+          .join('\n')} 
+      />
+    )
+  };
 
-  const compareCsvWithJson = (csvData, jsonData, setTableData) => {
-    console.log("Comparing CSV data with JSON response...");
-  
+  const StatusWithIcon = ({ status, error }) => {
+    if (!status) return null;
+    
+    if (status === "Verified") {
+      return <CheckIcon style={{ color: "green" }} />;
+    }
+    
+    if (status === "Not Verified") {
+      return error ? (
+        <Tooltip title={error}>
+          <CancelIcon style={{ color: "red" }} />
+        </Tooltip>
+      ) : (
+        <CancelIcon style={{ color: "red" }} />
+      );
+    }
+    
+    return <span>{status}</span>;
+  };
+
+  const compareCsvWithJson = (csvData, jsonData, setTablePageNameData) => {
     const updatedData = csvData.map((csvRow) => {
       const jsonRow = jsonData.find(
         (json) =>
@@ -330,109 +351,55 @@ const PageOnOFFPage = () => {
       );
   
       if (!jsonRow) {
-        addMessage(`❌ No matching account for Ad Account ID: ${csvRow.ad_account_id}`);
         return {
           ...csvRow,
-          ad_account_status: "No matching account",
-          access_token_status: "No matching token",
-          status: "Error",
+          ad_account_status: "Not Verified",
+          access_token_status: "Not Verified",
+          status: "Not Verified",
+          ad_account_error: "Account not found",
+          access_token_error: "Account not found"
         };
-      }
-  
-      // Check for errors and add messages
-      if (jsonRow.ad_account_status !== "Verified") {
-        addMessage(`⚠️ Ad Account Error for ${csvRow.ad_account_id}: ${jsonRow.ad_account_error || "Unknown Error"}`);
-      }
-      if (jsonRow.access_token_status !== "Verified") {
-        addMessage(`⚠️ Access Token Error for ${csvRow.ad_account_id}: ${jsonRow.access_token_error || "Unknown Error"}`);
-      }
-  
-      const allVerified =
-        jsonRow.ad_account_status === "Verified" &&
-        jsonRow.access_token_status === "Verified";
-  
-      const errorMessages = [];
-      if (jsonRow.ad_account_status === "Not Verified") {
-        errorMessages.push(jsonRow.ad_account_error);
-      }
-      if (jsonRow.access_token_status === "Not Verified") {
-        errorMessages.push(jsonRow.access_token_error);
       }
   
       return {
         ...csvRow,
-        ad_account_status:
-          jsonRow.ad_account_status === "Not Verified" ? (
-            <CancelIcon style={{ color: "red" }} />
-          ) : (
-            <CheckIcon style={{ color: "green" }} />
-          ),
-  
-        access_token_status:
-          jsonRow.access_token_status === "Not Verified" ? (
-            <CancelIcon style={{ color: "red" }} />
-          ) : (
-            <CheckIcon style={{ color: "green" }} />
-          ),
-  
-        status: allVerified ? (
-          <CheckIcon style={{ color: "green" }} />
-        ) : (
-          <ErrorTooltip message={errorMessages.join(", \n")}>
-            <CancelIcon style={{ color: "red" }} />
-          </ErrorTooltip>
-        ),
-
-        page_name: csvRow.page_name, // Retain the original page_name from csvRow
-        on_off: csvRow.on_off,       // Retain the original on_off from csvRow
-
+        ad_account_status: jsonRow.ad_account_status,
+        access_token_status: jsonRow.access_token_status,
+        status: jsonRow.ad_account_status === "Verified" && 
+               jsonRow.access_token_status === "Verified" 
+               ? "Verified" : "Not Verified",
+        ad_account_error: jsonRow.ad_account_error || null,
+        access_token_error: jsonRow.access_token_error || null
       };
     });
   
-    setTablePageNameData(updatedData); // Update the table data
+    setTablePageNameData(updatedData);
   };
 
   const verifyAdAccounts = async (campaignsData, originalCsvData, addMessage) => {
     try {
-      const response = await fetch(
-          `${apiUrl}/api/v1/verify/pagename`, 
-        {
+      const response = await fetch(`${apiUrl}/api/v1/verify/pagename`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           skip_zrok_interstitial: "true",
         },
-        body: JSON.stringify(campaignsData), // 🔹 Send the array directly
+        body: JSON.stringify(campaignsData),
       });
-
+  
       const result = await response.json();
       console.log("Verification Result:", JSON.stringify(result, null, 2));
-
+  
       if (response.ok && result.verified_accounts) {
-        compareCsvWithJson(
-          originalCsvData, 
-          result.verified_accounts, 
-          setTablePageNameData
-        );
-        // result.verified_accounts.forEach((entry) => {
-        //   // Only display errors
-        //   if (entry.ad_account_error) {
-        //     addMessage([
-        //       `${entry.ad_account_id} : ${entry.ad_account_error}`
-        //     ]);
-        //   }
-        //   if (entry.access_token_error) {
-        //     addMessage([
-        //       `${entry.ad_account_id}: ${entry.access_token_error}`
-        //     ]);
-        //   }
-        // });
+        compareCsvWithJson(originalCsvData, result.verified_accounts, setTablePageNameData);
+        addMessage([`[${getCurrentTime()}] Verification completed for ${result.verified_accounts.length} accounts`]);
       } else {
-        addMessage("⚠️ No verified accounts returned from API.");
+        const errorMsg = result.message || "No verified accounts returned from API";
+        addMessage([`⚠️ ${errorMsg}`]);
       }
     } catch (error) {
       console.error("Error verifying ad accounts:", error);
-      addMessage("❌ Failed to verify ad accounts. Check your network.");
+      addMessage([`❌ Failed to verify ad accounts: ${error.message}`]);
     }
   };
 
@@ -721,6 +688,7 @@ const PageOnOFFPage = () => {
               marginTop: "8px",
               textAlign: "center",
             }}
+            customRenderers={statusRenderers}
             onDataChange={setTablePageNameData}
             onSelectedChange={handleSelectedDataChange} // Pass selection handler
             nonEditableHeaders={[

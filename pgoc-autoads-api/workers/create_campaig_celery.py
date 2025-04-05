@@ -180,7 +180,7 @@ def create_full_campaign_task(self, ad_account_id, user_id, access_token, campai
                 else:
                     logging.error(f"Failed to create ad for adset {adset_name}: {ad_response}")
 
-        upsert_campaign_data(user_id, ad_account_id, campaign_id, last_server_messages=f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Campaign Created with AI Interest.", status="Created", adsets_ads_creatives=json_adsets_ads_creatives)
+        upsert_campaign_data(user_id, ad_account_id, campaign_id, last_server_messages=f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] 🤖🎯 Campaign Created with AI Interest.", status="Created", adsets_ads_creatives=json_adsets_ads_creatives)
 
         return {
             "status": "success",
@@ -240,35 +240,35 @@ def create_simple_campaign_task(self, ad_account_id, user_id, access_token, camp
             video_response = requests.post(video_upload_url, headers=headers, json=video_data)
 
             logging.info(f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Video uploaded successfully for {campaign_name}")
-            append_redis_message_create_campaigns(user_id, f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Video uploaded successfully for {campaign_name}")
+            append_redis_message_create_campaigns(user_id, f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] 🎥✅ Video uploaded successfully for {campaign_name}")
 
             if video_response.status_code == 200:
                 video_id = video_response.json().get('id')
             else:
-                error_message = f"[{current_time_manila.strftime('%Y-%m-%d %H:%M:%S')}][{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Failed to upload video for {campaign_name}."
+                error_message = f"[{current_time_manila.strftime('%Y-%m-%d %H:%M:%S')}][{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] 🎥❌ Failed to upload video for {campaign_name}."
                 append_redis_message_create_campaigns(user_id, error_message)
                 upsert_campaign_data(user_id, ad_account_id, campaign_id, last_server_messages=error_message, status="Failed")
                 return {"status": "failed", "error": "Failed to upload video", "details": video_response.json()}
 
         if image_url:
             logging.info(f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Uploading image for campaign: {campaign_name}...")
-            append_redis_message_create_campaigns(user_id, f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Uploading image for {campaign_name}...")
+            append_redis_message_create_campaigns(user_id, f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] ⬆️ Uploading image for {campaign_name}...")
 
             result = add_ad_image(ad_account_id, access_token, image_url, f"[{current_time_manila.strftime('%Y-%m-%d %H:%M:%S')}]{campaign_name}-image")
             if "error" in result:
-                error_message = f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Failed to upload image for {campaign_name}."
+                error_message = f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] ❌ Failed to upload image for {campaign_name}."
                 append_redis_message_create_campaigns(user_id, error_message)
                 upsert_campaign_data(user_id, ad_account_id, campaign_id, last_server_messages=error_message, status="Failed")
                 return {"status": "failed", "error": "Failed to upload image", "details": result}
 
             logging.info(f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Image uploaded successfully for {campaign_name}")
-            append_redis_message_create_campaigns(user_id, f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Image uploaded successfully for {campaign_name}")
+            append_redis_message_create_campaigns(user_id, f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] 📤 Image uploaded successfully for {campaign_name}")
 
             image_url_from_fb = result.get("image_url")
 
         # Create the single ad creative to be reused for all ad sets
         logging.info(f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Creating ad creative for campaign: {campaign_name}...")
-        append_redis_message_create_campaigns(user_id, f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Creating ad creative for {campaign_name}...")
+        append_redis_message_create_campaigns(user_id, f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] 🎨 Creating ad creative for {campaign_name}...")
 
         creative_response = create_ad_creative(
             ad_account_id, access_token, creative_name,
@@ -284,14 +284,14 @@ def create_simple_campaign_task(self, ad_account_id, user_id, access_token, camp
         json_adsets_ads_creatives["creative_id"] = creative_id  # Save creative ID
 
         logging.info(f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Ad creative successfully created for {campaign_name}")
-        append_redis_message_create_campaigns(user_id, f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Ad creative successfully created for {campaign_name}")
+        append_redis_message_create_campaigns(user_id, f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] ✅ Ad creative successfully created for {campaign_name}")
 
         logging.info(f"[{current_time_manila.strftime('%Y-%m-%d %H:%M:%S')}]Creative ID : {creative_id} Campaign: {campaign_name}")
 
         time.sleep(45)
         # Fetch object story ID
         logging.info(f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Fetching object story ID for campaign: {campaign_name}...")
-        append_redis_message_create_campaigns(user_id, f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Fetching object story ID for {campaign_name}...")
+        append_redis_message_create_campaigns(user_id, f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] 🔄 Fetching object story ID for {campaign_name}...")
 
         object_story_id_url = f"https://graph.facebook.com/v20.0/{creative_id}?fields=effective_object_story_id"
 

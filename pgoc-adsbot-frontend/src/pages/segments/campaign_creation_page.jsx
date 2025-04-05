@@ -1,14 +1,15 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import {Box, 
-        Button, 
-        Dialog, 
-        DialogActions, 
-        DialogContent, 
-        DialogTitle, 
-        Typography, 
-        Tooltip,
-        IconButton,
-       } from "@mui/material";
+import {
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Typography,
+  Tooltip,
+  IconButton,
+} from "@mui/material";
 
 import WidgetCard from "../components/widget_card";
 import DynamicTable from "../components/dynamic_table";
@@ -19,7 +20,7 @@ import Papa from "papaparse";
 import { getUserData } from "../../services/user_data.js";
 
 // ICONS
-import SmartToyRoundedIcon from '@mui/icons-material/SmartToyRounded';
+import SmartToyRoundedIcon from "@mui/icons-material/SmartToyRounded";
 import CheckIcon from "@mui/icons-material/Check";
 import CancelIcon from "@mui/icons-material/Cancel";
 import InfoIcon from "@mui/icons-material/Info";
@@ -28,6 +29,7 @@ import CloudExportIcon from "@mui/icons-material/BackupRounded";
 import RunIcon from "@mui/icons-material/PlayCircle";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DownloadIcon from "@mui/icons-material/FileDownload";
+
 import { EventSource } from "extended-eventsource";
 import Cookies from "js-cookie";
 import CampaignCreationTerminal from "../widgets/campaign_creation_widgets/campaign_terminal.jsx";
@@ -61,21 +63,19 @@ const getCurrentTime = () => {
 const apiUrl = import.meta.env.VITE_API_URL;
 
 const CampaignCreationPage = () => {
-
   const [selectedRows, setSelectedRows] = useState(new Map());
-  const [selectedData, setSelectedData] = useState([]); // Store selected data
+  const [selectedData, setSelectedData] = useState([]);
   const [isRunning, setIsRunning] = useState(false);
-  const [messages, setMessages] = useState([]); // Ensure it's an array
+  const [messages, setMessages] = useState([]);
   const [isVerified, setIsVerified] = useState(false);
+  const [openDialog, setOpenDialog] = useState(false);
+  const [isAi, setIsAi] = useState(false);
+
   const fileInputRef = useRef(null);
   const isRunningRef = useRef(false);
   const eventSourceRef = useRef(null);
-  const [openDialog, setOpenDialog] =useState(false);
   const handleOpenDialog = () => setOpenDialog(true);
   const handleCloseDialog = () => setOpenDialog(false);
-
-  const [isAi, setIsAi] = useState(false);
-
   const handleToggle = () => {
     setIsAi((prev) => !prev);
   };
@@ -113,38 +113,40 @@ const CampaignCreationPage = () => {
     getPersistedState("campaignCreationTableData", [])
   );
 
+  //stores Table data in a cookie
+  useEffect(() => {
+    Cookies.set("campaignCreationTableData", JSON.stringify(tableData), {
+      expires: 1,
+    }); // Expires in 1 day
+  }, [tableData]);
+
+  //stores messages in a cookie
+  useEffect(() => {
+    Cookies.set("campainCreationmessages", JSON.stringify(messages), {
+      expires: 1,
+    });
+  }, [messages]);
+
+  // Handle selected data change from DynamicTable
   const handleSelectedDataChange = (selectedRows) => {
     setSelectedData(selectedRows);
   };
 
-  useEffect(() => {
-    if (!tableData || tableData.length === 0) return;
+  const addMessage = (newMessages) => {
+    setMessages((prevMessages) => {
+      const messagesArray = Array.isArray(prevMessages) ? prevMessages : [];
 
-    const allVerified = tableData.every(
-      (row) =>
-        row["ad_account_status"] === "Verified" &&
-        row["access_token_status"] === "Verified" &&
-        row["facebook_page_status"] === "Verified"
-    );
+      // Ensure newMessages is a single string, not split into characters
+      const newMessageText = Array.isArray(newMessages)
+        ? newMessages.join(" ")
+        : newMessages;
 
-    // ✅ Only update state if value changes
-    setIsVerified((prev) => {
-      if (prev !== allVerified) {
-        console.log("📌 Updating isVerified:", allVerified ? "OK" : "Error");
-        return allVerified;
-      }
-      return prev;
+      // Avoid duplicates while maintaining the order
+      const uniqueMessages = new Set([...messagesArray, newMessageText]);
+
+      return Array.from(uniqueMessages);
     });
-  }, [tableData]);
-
-  // Persist data in cookies whenever state changes
-    useEffect(() => {
-      Cookies.set("campaignCreationTableData", JSON.stringify(tableData), { expires: 1 }); // Expires in 1 day
-    }, [tableData]);
-  
-    useEffect(() => {
-      Cookies.set("campainCreationmessages", JSON.stringify(messages), { expires: 1 });
-    }, [messages]);
+  };
 
   //verify user
   useEffect(() => {
@@ -183,23 +185,190 @@ const CampaignCreationPage = () => {
       try {
         const data = JSON.parse(event.data);
         if (data && data.data && data.data.message) {
-          const messageText = data.data.message[0]; // ✅ Extract first message
-
-          // ✅ Always add the message to the message list
-          addMessage(data.data.message);
+          const messageText = data.data.message[0]; // Extract first message
+    
+          // Always add the message to the message list
+          addAdsetsMessage(data.data.message);
+    
+          // ✅ Match for "Creating Facebook campaign"
+          const campaignCreationMatch = messageText.match(
+            /Creating Facebook campaign: (.*?)\./
+          );
+          if (campaignCreationMatch) {
+            const campaignName = campaignCreationMatch[1]; // Extracted campaign name
+            setTableAdsetsData((prevData) =>
+              prevData.map((entry) =>
+                entry.key === `${user_id}-key`
+                  ? {
+                      ...entry,
+                      status: `Creating Campaign: ${campaignName}...`,
+                    }
+                  : entry
+              )
+            );
+          }
+    
+          // ✅ Match for "Task Created" with campaign name
+          const taskCreatedMatch = messageText.match(
+            /Task Created: (.*) - Status: (\S+) - Message: (.*)/
+          );
+          if (taskCreatedMatch) {
+            const taskName = taskCreatedMatch[1]; // Extracted task name
+            const taskStatus = taskCreatedMatch[2]; // Extracted task status
+            const taskMessage = JSON.parse(taskCreatedMatch[3]); // Parsed task message
+    
+            // Update table with task creation details
+            setTableAdsetsData((prevData) =>
+              prevData.map((entry) =>
+                entry.key === `${user_id}-key`
+                  ? {
+                      ...entry,
+                      status: `Task created for ${taskName}: ${taskStatus}`,
+                      taskDetails: taskMessage,
+                    }
+                  : entry
+              )
+            );
+          }
+    
+          // ✅ Match for "Uploading video for campaign"
+          const uploadingVideoMatch = messageText.match(
+            /\[(.*?)\] Uploading video for (.*?)\./
+          );
+          if (uploadingVideoMatch) {
+            const timestamp = uploadingVideoMatch[1];
+            const campaignName = uploadingVideoMatch[2]; // Extracted campaign name
+            setTableAdsetsData((prevData) =>
+              prevData.map((entry) =>
+                entry.key === `${user_id}-key`
+                  ? {
+                      ...entry,
+                      status: `${timestamp} - Uploading video for ${campaignName}...`,
+                    }
+                  : entry
+              )
+            );
+          }
+    
+          // ✅ Match for "Uploading image for campaign"
+          const uploadingImageMatch = messageText.match(
+            /\[(.*?)\] Uploading image for (.*?)\./
+          );
+          if (uploadingImageMatch) {
+            const timestamp = uploadingImageMatch[1];
+            const campaignName = uploadingImageMatch[2]; // Extracted campaign name
+            setTableAdsetsData((prevData) =>
+              prevData.map((entry) =>
+                entry.key === `${user_id}-key`
+                  ? {
+                      ...entry,
+                      status: `${timestamp} - Uploading image for ${campaignName}...`,
+                    }
+                  : entry
+              )
+            );
+          }
+    
+          // ✅ Match for "Ad creative successfully created"
+          const adCreativeSuccessMatch = messageText.match(
+            /\[(.*?)\] Ad creative successfully created for (.*?)\./
+          );
+          if (adCreativeSuccessMatch) {
+            const timestamp = adCreativeSuccessMatch[1];
+            const campaignName = adCreativeSuccessMatch[2]; // Extracted campaign name
+            setTableAdsetsData((prevData) =>
+              prevData.map((entry) =>
+                entry.key === `${user_id}-key`
+                  ? {
+                      ...entry,
+                      status: `${timestamp} - Ad creative created for ${campaignName}`,
+                    }
+                  : entry
+              )
+            );
+          }
+    
+          // ✅ Handle "Failed to create ad for adset" with error details
+          const failedToCreateAdMatch = messageText.match(
+            /Failed to create ad for adset (.*?), details: (.*)/
+          );
+          if (failedToCreateAdMatch) {
+            const adsetDetails = failedToCreateAdMatch[1]; // Extracted adset details
+            const errorDetails = JSON.parse(failedToCreateAdMatch[2]); // Parsed error details
+    
+            setTableAdsetsData((prevData) =>
+              prevData.map((entry) =>
+                entry.key === `${user_id}-key`
+                  ? {
+                      ...entry,
+                      status: `Failed to create ad for ${adsetDetails}: ${errorDetails.error.message}`,
+                    }
+                  : entry
+              )
+            );
+            addAdsetsMessage([`[${getCurrentTime()}] ❌ Error creating ad for adset ${adsetDetails}: ${errorDetails.error.message}`]);
+          }
+    
+          // ❌ Handle 401 Unauthorized Error with ON/OFF
+          const unauthorizedMatch = messageText.match(
+            /Error during campaign fetch for Ad Account (\S+) \((ON|OFF)\): 401 Client Error/
+          );
+          if (unauthorizedMatch) {
+            const adAccountId = unauthorizedMatch[1];
+            const onOffStatus = unauthorizedMatch[2];
+    
+            setTableAdsetsData((prevData) =>
+              prevData.map((entry) =>
+                entry.ad_account_id === adAccountId &&
+                entry.on_off === onOffStatus
+                  ? {
+                      ...entry,
+                      status: `Unauthorized ❌ (${onOffStatus.toUpperCase()})`,
+                    }
+                  : entry
+              )
+            );
+    
+            addAdsetsMessage([
+              `[${getCurrentTime()}] ❌ 401 Unauthorized Error for Ad Account ${adAccountId} (${onOffStatus}). Check access token or permissions.`,
+            ]);
+          }
+    
+          // ❌ Handle 403 Forbidden Error
+          const forbiddenMatch = messageText.match(
+            /https:\/\/graph\.facebook\.com\/v\d+\.\d+\/act_(\d+)\/campaigns/
+          );
+          if (forbiddenMatch) {
+            const adAccountId = forbiddenMatch[1]; // Extracted ad account ID
+    
+            setTableAdsetsData((prevData) =>
+              prevData.map((entry) =>
+                entry.ad_account_id === adAccountId
+                  ? {
+                      ...entry,
+                      status: `Error ❌ (${entry.on_off.toUpperCase()})`,
+                    }
+                  : entry
+              )
+            );
+    
+            addAdsetsMessage([
+              `[${getCurrentTime()}] ❌ 403 Forbidden for Ad Account ${adAccountId}. Check permissions or tokens.`,
+            ]);
+          }
         }
       } catch (error) {
         console.error("Error parsing SSE message:", error);
       }
     };
-
+    
     eventSource.onerror = (error) => {
       console.error("SSE connection error:", error);
       eventSource.close();
     };
-
+  
     eventSourceRef.current = eventSource;
-
+  
     return () => {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
@@ -207,267 +376,12 @@ const CampaignCreationPage = () => {
     };
   }, []);
 
-  const addMessage = (newMessages) => {
-    setMessages((prevMessages) => {
-      const messagesArray = Array.isArray(prevMessages) ? prevMessages : [];
-
-      // Ensure newMessages is a single string, not split into characters
-      const newMessageText = Array.isArray(newMessages)
-        ? newMessages.join(" ")
-        : newMessages;
-
-      // Avoid duplicates while maintaining the order
-      const uniqueMessages = new Set([...messagesArray, newMessageText]);
-
-      return Array.from(uniqueMessages);
-    });
+  const handleClearAll = () => {
+    setTableData([]); // Clear state
+    Cookies.remove("tableData"); // Remove from cookies
+    notify("All data cleared successfully!", "success");
   };
 
-  const handleFileChange = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-
-    reader.onload = (e) => {
-      const fileContent = e.target?.result;
-
-      Papa.parse(fileContent, {
-        complete: (result) => {
-          console.log("Parsed CSV Data:", result.data);
-          const csvData = result.data;
-
-          if (csvData.length > 1) {
-            const headers = csvData[0].map((header) => header.trim()); // Trim headers
-
-            const formattedData = csvData.slice(1).map((row) =>
-              headers.reduce((acc, header, index) => {
-                acc[header] = row[index]?.trim() || ""; // Trim values & handle empty cells
-                return acc;
-              }, {})
-            );
-
-            // Debugging: Check interests_list field before parsing
-            formattedData.forEach((item) => {
-              console.log(
-                "Raw interests_list from CSV:",
-                item["interests_list"]
-              );
-              console.log(
-                "Raw excluded_ph_region from CSV:",
-                item["excluded_ph_region"]
-              );
-              item["interests_list"] = parseInterestsList(
-                item["interests_list"]
-              );
-              item["excluded_ph_region"] = parseExcludedPHRegion(
-                item["excluded_ph_region"]
-              );
-            });
-
-            setTableData(formattedData);
-            console.log("Formatted Data:", JSON.stringify(formattedData, null, 2));
-            verifyAdAccounts(formattedData);
-          }
-        },
-        header: false,
-        skipEmptyLines: true,
-      });
-    };
-
-    reader.readAsText(file, "UTF-8");
-  };
-
-  const ErrorTooltip = ({ message, children }) => (
-    <Tooltip
-      title={
-        <Typography variant="body2" style={{ color: '#fff' }}>
-          {message}
-        </Typography>
-      }
-      arrow
-      placement="top"
-    >
-      {children}
-    </Tooltip>
-  );
-
-  const compareCsvWithJson = (csvData, jsonData, setTableData) => {
-    console.log("Comparing CSV data with JSON response...");
-  
-    const updatedData = csvData.map((csvRow) => {
-      const jsonRow = jsonData.find(
-        (json) =>
-          json.ad_account_id === csvRow.ad_account_id &&
-          json.access_token === csvRow.access_token &&
-          json.facebook_page_id === csvRow.facebook_page_id
-      );
-  
-      if (!jsonRow) {
-        addMessage(`❌ No matching account for Ad Account ID: ${csvRow.ad_account_id}`);
-        return {
-          ...csvRow,
-          ad_account_status: "No matching account",
-          access_token_status: "No matching token",
-          facebook_page_status: "No matching page",
-          status: "Error",
-        };
-      }
-  
-      // Check for errors and add messages
-      if (jsonRow.ad_account_status !== "Verified") {
-        addMessage(`⚠️ Ad Account Error for ${csvRow.ad_account_id}: ${jsonRow.ad_account_error || "Unknown Error"}`);
-      }
-      if (jsonRow.access_token_status !== "Verified") {
-        addMessage(`⚠️ Access Token Error for ${csvRow.ad_account_id}: ${jsonRow.access_token_error || "Unknown Error"}`);
-      }
-      if (jsonRow.facebook_page_status !== "Verified") {
-        addMessage(`⚠️ Facebook Page Error for ${csvRow.facebook_page_id}: ${jsonRow.facebook_page_error || "Unknown Error"}`);
-      }
-  
-      const allVerified =
-        jsonRow.ad_account_status === "Verified" &&
-        jsonRow.access_token_status === "Verified" &&
-        jsonRow.facebook_page_status === "Verified";
-
-        const errorMessages = [];
-        if (jsonRow.ad_account_status === "Not Verified") {
-          errorMessages.push(jsonRow.ad_account_error);
-        }
-        if (jsonRow.access_token_status === "Not Verified") {
-          errorMessages.push(jsonRow.access_token_error);
-        }
-        if (jsonRow.facebook_page_status === "Not Verified") {
-          errorMessages.push(jsonRow.facebook_page_error);
-        }
-  
-        return {
-          ...csvRow,
-          ad_account_status:
-            jsonRow.ad_account_status === "Not Verified" ? (
-              <CancelIcon style={{ color: "red" }} />
-            ) : (
-              <CheckIcon style={{ color: "green" }} />
-            ),
-
-          access_token_status:
-            jsonRow.access_token_status === "Not Verified" ? (
-              <CancelIcon style={{ color: "red" }} />
-            ) : (
-              <CheckIcon style={{ color: "green" }} />
-            ),
-
-          facebook_page_status:
-            jsonRow.facebook_page_status === "Not Verified" ? (
-              <CancelIcon style={{ color: "red" }} />
-            ) : (
-              <CheckIcon style={{ color: "green" }} />
-            ),
-
-          status: allVerified ? (
-            <CheckIcon style={{ color: "green" }} />
-          ) : (
-            <ErrorTooltip message={errorMessages.join(", \n")}>
-              <CancelIcon style={{ color: "red" }} />
-            </ErrorTooltip>
-          ),
-        };
-    });
-  
-    setTableData(updatedData);
-  };  
-
-  const verifyAdAccounts = async (campaignsData) => {
-    try {
-      const response = await fetch(
-        `${apiUrl}/api/v1/verify-ads-account/verify`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            skip_zrok_interstitial: "true",
-          },
-          body: JSON.stringify({ user_id: 1, campaigns: campaignsData }),
-        }
-      );
-
-      const result = await response.json();
-      console.log("RESULT:", JSON.stringify(result, null, 2));
-
-      if (response.ok && result.verified_accounts) {
-        compareCsvWithJson(
-          campaignsData,
-          result.verified_accounts,
-          setTableData
-        ); // 🔹 Now updates table data!
-      } else {
-        console.warn("⚠️ No verified accounts returned from API.");
-      }
-    } catch (error) {
-      console.error("Error verifying ad accounts:", error);
-    }
-  };
-
-  const parseInterestsList = (interestsString) => {
-    if (!interestsString || interestsString.trim() === "") return [[]];
-
-    console.log("📌 Raw interests_list before processing:", interestsString);
-
-    try {
-      // Split by " / " to separate different groups
-      const groups = interestsString
-        .split(" / ")
-        .map((group) => group.trim())
-        .filter((group) => group.length > 0 && group !== "[]");
-
-      // Convert each group into an array of interests
-      const parsedArray = groups.map((group) =>
-        group
-          .split(",")
-          .map((interest) => interest.trim())
-          .filter(Boolean)
-      );
-
-      console.log("✅ Formatted interests_list:", parsedArray);
-      return parsedArray.length ? parsedArray : [[]]; // Ensure it's always a nested array
-    } catch (error) {
-      console.error("❌ Error parsing interests_list:", interestsString, error);
-      return [[]]; // Default to empty nested array on failure
-    }
-  };
-
-  // New function to parse the excluded_ph_region
-  const parseExcludedPHRegion = (regionString) => {
-    if (!regionString || regionString.trim() === "") return [[]];
-
-    console.log("Raw excluded_ph_region before processing:", regionString);
-
-    try {
-      // Split by "/" and handle empty or space-only groups as "[]"
-      const groups = regionString.split("/").map((group) => {
-        const trimmedGroup = group.trim();
-        return trimmedGroup === "" ? "[]" : trimmedGroup;
-      });
-
-      // Process each group separately
-      const parsedArray = groups.map((group) => {
-        // If the group is exactly "[]", return an empty array
-        if (group === "[]") return [];
-
-        // Otherwise, split by commas and trim each region
-        return group.split(",").map((region) => region.trim());
-      });
-
-      console.log("Formatted excluded_ph_region:", parsedArray);
-      return parsedArray;
-    } catch (error) {
-      console.error("Error parsing excluded_ph_region:", regionString, error);
-    }
-
-    return [[]]; // Default to an empty nested array if parsing fails
-  };
-
-  // Function to fetch regions and download them as CSV
   const handleDownloadRegions = async () => {
     try {
       const response = await fetch(
@@ -608,132 +522,389 @@ const CampaignCreationPage = () => {
     notify("Data exported successfully!", "success");
   };
 
-  const handleRunCampaigns = async () => {
+  const handleFileChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      const fileContent = e.target?.result;
+
+      Papa.parse(fileContent, {
+        complete: (result) => {
+          console.log("Parsed CSV Data:", result.data);
+          const csvData = result.data;
+
+          if (csvData.length > 1) {
+            const headers = csvData[0].map((header) => header.trim()); // Trim headers
+
+            const formattedData = csvData.slice(1).map((row) =>
+              headers.reduce((acc, header, index) => {
+                acc[header] = row[index]?.trim() || ""; // Trim values & handle empty cells
+                return acc;
+              }, {})
+            );
+
+            // Debugging: Check interests_list field before parsing
+            formattedData.forEach((item) => {
+              console.log(
+                "Raw interests_list from CSV:",
+                item["interests_list"]
+              );
+              console.log(
+                "Raw excluded_ph_region from CSV:",
+                item["excluded_ph_region"]
+              );
+              item["interests_list"] = parseInterestsList(
+                item["interests_list"]
+              );
+              item["excluded_ph_region"] = parseExcludedPHRegion(
+                item["excluded_ph_region"]
+              );
+            });
+
+            setTableData(formattedData);
+            console.log(`formatted data: ${JSON.stringify(formattedData,null,2)}`);
+            verifyAdAccounts(formattedData);
+          }
+        },
+        header: false,
+        skipEmptyLines: true,
+      });
+    };
+
+    reader.readAsText(file, "UTF-8");
+  };
+
+  const handleRunCampaigns = async () => {
     if (isRunningRef.current) return; // Prevent duplicate execution
     isRunningRef.current = true;
 
     const campaignApiUrl = isAi
-        ? `${apiUrl}/api/v1/campaign/create-campaigns-ai`
-        : `${apiUrl}/api/v1/campaign/create-campaigns`;
+      ? `${apiUrl}/api/v1/campaign/create-campaigns-ai`
+      : `${apiUrl}/api/v1/campaign/create-campaigns`;
 
-        //const verifiedCampaigns = tableData.filter(row => row.status === "Verified");
+    const verifiedCampaigns = tableData.filter(
+      (row) => row.status === "Verified"
+    );
 
-        if (verifiedCampaigns.length === 0) {
-          notify("No verified campaigns available to run.", "error");
-          isRunningRef.current = false;
-          return;
+    if (verifiedCampaigns.length === 0) {
+      notify("No verified campaigns available to run.", "error");
+      isRunningRef.current = false;
+      return;
+    }
+
+    setIsRunning(true);
+    addMessage(["Running verified campaigns..."]);
+
+    console.log(
+      "✅ Verified Campaigns:",
+      JSON.stringify(verifiedCampaigns, null, 2)
+    );
+
+    for await (const [index, row] of verifiedCampaigns.entries()) {
+      console.log(
+        `🔄 Processing verified row ${index + 1}/${verifiedCampaigns.length}:`,
+        row
+      );
+
+      let parsedInterests = row["interests_list"];
+      let parsedExcludedRegions = row["excluded_ph_region"];
+
+      if (typeof parsedInterests === "string") {
+        try {
+          parsedInterests = JSON.parse(parsedInterests);
+        } catch (error) {
+          console.error(
+            "❌ Error parsing interests_list:",
+            parsedInterests,
+            error
+          );
+          parsedInterests = [[]]; // Default to an empty array if parsing fails
         }
-      
-        setIsRunning(true);
-        addMessage(["Running verified campaigns..."]);
-      
-        console.log("✅ Verified Campaigns:", JSON.stringify(verifiedCampaigns, null, 2));
-      
-        for await (const [index, row] of verifiedCampaigns.entries()) {
-          console.log(`🔄 Processing verified row ${index + 1}/${verifiedCampaigns.length}:`, row);
-      
-          let parsedInterests = row["interests_list"];
-          let parsedExcludedRegions = row["excluded_ph_region"];
-      
-          if (typeof parsedInterests === "string") {
-            try {
-              parsedInterests = JSON.parse(parsedInterests);
-            } catch (error) {
-              console.error("❌ Error parsing interests_list:", parsedInterests, error);
-              parsedInterests = [[]]; // Default to an empty array if parsing fails
-            }
-          }
-      
-          const { id } = getUserData();
-      
-          const requestBody = {
-            user_id: id,
-            campaigns: [
-              {
-                ad_account_id: row["ad_account_id"],
-                access_token: row["access_token"],
-                page_name: row["page_name"],
-                sku: row["sku"],
-                material_code: row["material_code"],
-                daily_budget: parseInt(row["daily_budget"], 10) || 0,
-                facebook_page_id: row["facebook_page_id"],
-                video_url: row["video_url"],
-                headline: row["headline"],
-                primary_text: row["primary_text"],
-                image_url: row["image_url"],
-                product: row["product"],
-                interests_list: parsedInterests,
-                exclude_ph_region: parsedExcludedRegions,
-                start_date: row["start_date"],
-                start_time: row["start_time"],
-              },
-            ],
-          };
-      
-          console.log(`Campaign Data : ${JSON.stringify(requestBody)}`);
-      
-          try {
-            const response = await fetch(campaignApiUrl, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                skip_zrok_interstitial: "true",
-              },
-              body: JSON.stringify(requestBody),
-            });
-      
-            const contentType = response.headers.get("Content-Type");
-      
-            if (!response.ok) {
-              addMessage([`❌ Failed to create campaign for SKU ${row["sku"]} (Status: ${response.status})`]);
-              console.log(`❌ Response Body: ${JSON.stringify(response)}`);
-              continue;
-            }
-      
-            if (contentType && contentType.includes("application/json")) {
-              const responseBody = await response.json();
-              addMessage([`✅ Response for SKU ${row["sku"]}: Status ${response.status}`]);
-      
-              if (responseBody.tasks && responseBody.tasks.length > 0) {
-                console.log("📌 Response Body:", responseBody);
-                addMessage([
-                  `Task Created: ${responseBody.tasks[0].campaign_name} - Status: ${
-                    responseBody.tasks[0].status
-                  } - Message: ${JSON.stringify(responseBody.tasks[0])}`,
-                ]);
-              } else {
-                addMessage([`⚠️ No task information available for SKU ${row["sku"]}.`]);
-              }
-            } else {
-              const textResponse = await response.text();
-              addMessage([
-                `Error: Expected JSON but received for SKU ${row["sku"]}: ${JSON.stringify(textResponse)}`,
-              ]);
-            }
-          } catch (error) {
-            if (error instanceof Error) {
-              addMessage([`❌ Error for SKU ${row["sku"]}: ${error.message}`]);
-            } else {
-              addMessage([`❌ Unknown error occurred for SKU ${row["sku"]}`]);
-            }
-          }
-      
-          console.log(`✅ FINISHED Processing row ${index + 1}`);
-        }
-      
-        setIsRunning(false);
-        isRunningRef.current = false;
-      
-        addMessage([
-          "✅ All verified campaigns have been created successfully!",
-        ]);
+      }
+
+      const { id } = getUserData();
+
+      const requestBody = {
+        user_id: id,
+        campaigns: [
+          {
+            ad_account_id: row["ad_account_id"],
+            access_token: row["access_token"],
+            page_name: row["page_name"],
+            sku: row["sku"],
+            material_code: row["material_code"],
+            daily_budget: parseInt(row["daily_budget"], 10) || 0,
+            facebook_page_id: row["facebook_page_id"],
+            video_url: row["video_url"],
+            headline: row["headline"],
+            primary_text: row["primary_text"],
+            image_url: row["image_url"],
+            product: row["product"],
+            interests_list: parsedInterests,
+            exclude_ph_region: parsedExcludedRegions,
+            start_date: row["start_date"],
+            start_time: row["start_time"],
+          },
+        ],
       };
 
-  const handleClearAll = () => {
-    setTableData([]); // Clear state
-    Cookies.remove("tableData"); // Remove from cookies
-    notify("All data cleared successfully!", "success");
+      console.log(`Campaign Data : ${JSON.stringify(requestBody)}`);
+
+      try {
+        const response = await fetch(campaignApiUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            skip_zrok_interstitial: "true",
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        const contentType = response.headers.get("Content-Type");
+
+        if (!response.ok) {
+          addMessage([
+            `❌ Failed to create campaign for SKU ${row["sku"]} (Status: ${response.status})`,
+          ]);
+          console.log(`❌ Response Body: ${JSON.stringify(response)}`);
+          continue;
+        }
+
+        if (contentType && contentType.includes("application/json")) {
+          const responseBody = await response.json();
+          addMessage([
+            `✅ Response for SKU ${row["sku"]}: Status ${response.status}`,
+          ]);
+
+          if (responseBody.tasks && responseBody.tasks.length > 0) {
+            console.log("📌 Response Body:", responseBody);
+            addMessage([
+              `Task Created: ${responseBody.tasks[0].campaign_name} - Status: ${
+                responseBody.tasks[0].status
+              } - Message: ${JSON.stringify(responseBody.tasks[0])}`,
+            ]);
+          } else {
+            addMessage([
+              `⚠️ No task information available for SKU ${row["sku"]}.`,
+            ]);
+          }
+        } else {
+          const textResponse = await response.text();
+          addMessage([
+            `Error: Expected JSON but received for SKU ${
+              row["sku"]
+            }: ${JSON.stringify(textResponse)}`,
+          ]);
+        }
+      } catch (error) {
+        if (error instanceof Error) {
+          addMessage([`❌ Error for SKU ${row["sku"]}: ${error.message}`]);
+        } else {
+          addMessage([`❌ Unknown error occurred for SKU ${row["sku"]}`]);
+        }
+      }
+
+      console.log(`✅ FINISHED Processing row ${index + 1}`);
+    }
+
+    setIsRunning(false);
+    isRunningRef.current = false;
+
+    addMessage([
+      "✅ All verified campaigns have been created successfully!",
+    ]);
+  };
+
+  const parseInterestsList = (interestsString) => {
+    if (!interestsString || interestsString.trim() === "") return [[]];
+
+    console.log("📌 Raw interests_list before processing:", interestsString);
+
+    try {
+      // Split by " / " to separate different groups
+      const groups = interestsString
+        .split(" / ")
+        .map((group) => group.trim())
+        .filter((group) => group.length > 0 && group !== "[]");
+
+      // Convert each group into an array of interests
+      const parsedArray = groups.map((group) =>
+        group
+          .split(",")
+          .map((interest) => interest.trim())
+          .filter(Boolean)
+      );
+
+      console.log("✅ Formatted interests_list:", parsedArray);
+      return parsedArray.length ? parsedArray : [[]]; // Ensure it's always a nested array
+    } catch (error) {
+      console.error("❌ Error parsing interests_list:", interestsString, error);
+      return [[]]; // Default to empty nested array on failure
+    }
+  };
+
+  const parseExcludedPHRegion = (regionString) => {
+    if (!regionString || regionString.trim() === "") return [[]];
+
+    console.log("Raw excluded_ph_region before processing:", regionString);
+
+    try {
+      // Split by "/" and handle empty or space-only groups as "[]"
+      const groups = regionString.split("/").map((group) => {
+        const trimmedGroup = group.trim();
+        return trimmedGroup === "" ? "[]" : trimmedGroup;
+      });
+
+      // Process each group separately
+      const parsedArray = groups.map((group) => {
+        // If the group is exactly "[]", return an empty array
+        if (group === "[]") return [];
+
+        // Otherwise, split by commas and trim each region
+        return group.split(",").map((region) => region.trim());
+      });
+
+      console.log("Formatted excluded_ph_region:", parsedArray);
+      return parsedArray;
+    } catch (error) {
+      console.error("Error parsing excluded_ph_region:", regionString, error);
+    }
+
+    return [[]]; // Default to an empty nested array if parsing fails
+  };
+
+  const verifyAdAccounts = async (campaignsData, addMessage) => {
+    try {
+      const response = await fetch(
+        `${apiUrl}/api/v1/verify-ads-account/verify`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            skip_zrok_interstitial: "true",
+          },
+          body: JSON.stringify({ user_id: 1, campaigns: campaignsData }),
+        }
+      );
+  
+      const result = await response.json();
+      console.log(`RESULT: ${JSON.stringify(result,null,2)}`);
+  
+      if (response.ok && result.verified_accounts) {
+        compareCsvWithJson(
+          campaignsData,
+          result.verified_accounts,
+          setTableData
+        ); // 🔹 Now updates table data!
+  
+        // ✅ Enhanced message logging
+        if (addMessage) {
+          addMessage([
+            `[${getCurrentTime()}] Verification completed for ${result.verified_accounts.length} accounts`,
+          ]);
+        }
+      } else {
+        const errorMsg =
+          result.message || "No verified accounts returned from API.";
+        console.warn("⚠️", errorMsg);
+        if (addMessage) {
+          addMessage([`⚠️ ${errorMsg}`]);
+        }
+      }
+    } catch (error) {
+      console.error("Error verifying ad accounts:", error);
+      if (addMessage) {
+        addMessage([`❌ Failed to verify ad accounts: ${error.message}`]);
+      }
+    }
+  };
+
+  const compareCsvWithJson = (csvData, jsonData, setTableData) => {
+    const updatedData = csvData.map((csvRow) => {
+      const jsonRow = jsonData.find(
+        (json) =>
+          json.ad_account_id === csvRow.ad_account_id &&
+          json.access_token === csvRow.access_token
+      );
+  
+      if (!jsonRow) {
+        return {
+          ...csvRow,
+          ad_account_status: "Not Verified",
+          access_token_status: "Not Verified",
+          facebook_page_status: "Not Verified",
+          status: "Not Verified",
+          ad_account_error: "Account not found",
+          access_token_error: "Account not found",
+          facebook_page_error: "Account not found"
+        };
+      }
+  
+      return {
+        ...csvRow,
+        ad_account_status: jsonRow.ad_account_status,
+        access_token_status: jsonRow.access_token_status,
+        facebook_page_status: jsonRow.facebook_page_status,
+        status: jsonRow.ad_account_status === "Verified" && 
+               jsonRow.access_token_status === "Verified" &&
+               jsonRow.facebook_page_status === "Verified"
+               ? "Verified" : "Not Verified",
+        ad_account_error: jsonRow.ad_account_error || null,
+        access_token_error: jsonRow.access_token_error || null,
+        facebook_page_error: jsonRow.facebook_page_error || null
+      };
+    });
+  
+    setTableData(updatedData);
+  };
+
+  // make string visually icons
+  const statusRenderers = {
+    ad_account_status: (value, row) => (
+      <StatusWithIcon status={value} error={row?.ad_account_error} />
+    ),
+    access_token_status: (value, row) => (
+      <StatusWithIcon status={value} error={row?.access_token_error} />
+    ),
+    facebook_page_status: (value, row) => (
+      <StatusWithIcon status={value} error={row?.facebook_page_error} />
+    ),
+    status: (value, row) => (
+      <StatusWithIcon
+        status={value}
+        error={[row?.ad_account_error, row?.access_token_error, row?.facebook_page_error]
+          .filter(Boolean)
+          .join("<br />")}
+      />
+    ),
+  };
+
+  const StatusWithIcon = ({ status, error }) => {
+    if (!status) return null;
+  
+    if (status === "Verified") {
+      return <CheckIcon style={{ color: "green" }} />;
+    }
+  
+    if (status === "Not Verified") {
+      return error ? (
+        <Tooltip
+          title={
+            <span dangerouslySetInnerHTML={{ __html: error }} />
+          }
+          arrow
+        >
+          <CancelIcon style={{ color: "red" }} />
+        </Tooltip>
+      ) : (
+        <CancelIcon style={{ color: "red" }} />
+      );
+    }
+  
+    return <span>{status}</span>;
   };
 
   return (
@@ -764,11 +935,11 @@ const CampaignCreationPage = () => {
           {/* Title + Info Icon in a flex row */}
           <Box sx={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <Typography
-              variant="h6"
+              variant="h5"
               component="div"
               style={{ display: "flex", alignItems: "center", gap: "8px" }}
             >
-              CAMPAIGN CREATIONS
+              CAMPAIGN CREATIONS PAGE
               <Tooltip title="CSV Instructions 📄">
                 <IconButton
                   color="primary"
@@ -839,7 +1010,7 @@ const CampaignCreationPage = () => {
                 onClick={handleToggle}
                 type="primary"
                 icon={<SmartToyRoundedIcon />}
-                disabled = {true}
+                disabled={true}
               />
               <CustomButton
                 name="RUN"
@@ -858,6 +1029,7 @@ const CampaignCreationPage = () => {
           />
         </Box>
       </Box>
+
       {/* Alert Dialog */}
       <Dialog
         open={openDialog}
@@ -931,6 +1103,7 @@ const CampaignCreationPage = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
       {/* Second Row (Dynamic Table) */}
       <Box sx={{ flex: 1 }}>
         <WidgetCard title="Main Section" height="100%" width={"100%"}>
@@ -944,6 +1117,7 @@ const CampaignCreationPage = () => {
               marginTop: "8px",
               textAlign: "center",
             }}
+            customRenderers={statusRenderers}
             onDataChange={setTableData}
             onSelectedChange={handleSelectedDataChange} // Pass selection handler
             nonEditableHeaders={[

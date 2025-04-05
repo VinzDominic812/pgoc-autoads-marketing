@@ -256,7 +256,7 @@ const DynamicTable = ({
                         }}
                       />
                     ) : customRenderers[header] ? (
-                      customRenderers[header](row[header])
+                      customRenderers[header](row[header], row)
                     ) : (
                       <Tooltip title={row[header]}>
                         <span
