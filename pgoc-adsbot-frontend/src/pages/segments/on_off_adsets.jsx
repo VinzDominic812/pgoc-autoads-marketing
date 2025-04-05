@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Box, Typography, TextField } from "@mui/material";
+import { Box, Typography, TextField, Tooltip } from "@mui/material";
 import WidgetCard from "../components/widget_card";
 import DynamicTable from "../components/dynamic_table";
 import notify from "../components/toast.jsx";
@@ -14,6 +14,9 @@ import CloudExportIcon from "@mui/icons-material/BackupRounded";
 import RunIcon from "@mui/icons-material/PlayCircle";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DownloadIcon from "@mui/icons-material/FileDownload";
+import CheckIcon from "@mui/icons-material/Check";
+import CancelIcon from "@mui/icons-material/Cancel";
+
 import AdsetTerminal from "../widgets/on_off_adsets/on_off_adsets_terminal.jsx";
 import { EventSource } from "extended-eventsource";
 import Cookies from "js-cookie";
@@ -41,7 +44,9 @@ const apiUrl = import.meta.env.VITE_API_URL;
 const OnOffAdsets = () => {
   const headers = [
     "ad_account_id",
+    "ad_account_status",
     "access_token",
+    "access_token_status",
     "campaign_type",
     "what_to_watch",
     "cpp_metric",
@@ -96,18 +101,14 @@ const OnOffAdsets = () => {
 
   const addAdsetsMessage = (newMessages) => {
     setMessages((prevMessages) => {
+      // Ensure newMessages is an array (even if it's a single message)
+      const messagesArray = Array.isArray(newMessages) ? newMessages : [newMessages];
+      
       // Ensure prevMessages is always an array (fallback to empty array)
-      const messagesArray = Array.isArray(prevMessages) ? prevMessages : [];
-
-      // Use a Map to store unique messages
-      const uniqueMessages = new Map(
-        [...messagesArray, ...newMessages].map((msg) => [
-          JSON.stringify(msg),
-          msg,
-        ])
-      );
-
-      return Array.from(uniqueMessages.values()); // Convert back to array
+      const prevMessagesArray = Array.isArray(prevMessages) ? prevMessages : [];
+      
+      // Combine and deduplicate messages
+      return [...prevMessagesArray, ...messagesArray];
     });
   };
 
@@ -123,7 +124,7 @@ const OnOffAdsets = () => {
 
     const { id } = getUserData();
     const batchSize = 1;
-    const delayMs = 5000; // 3 seconds delay
+    const delayMs = 5000; // 5secs delay
 
     const requestData = tableAdsetsData.map((entry) => ({
       ad_account_id: entry.ad_account_id,
@@ -290,7 +291,7 @@ const OnOffAdsets = () => {
         );
         setTableAdsetsData(uniqueData); // Store processed data in the table
         notify("CSV file successfully imported!", "success");
-        verifyAdAccounts(requestData, addAdsetsMessage);
+        verifyAdAccounts(requestData, uniqueData, addAdsetsMessage);
       },
       header: false,
       skipEmptyLines: true,
@@ -299,7 +300,78 @@ const OnOffAdsets = () => {
     event.target.value = "";
   };
 
-  const verifyAdAccounts = async (campaignsData) => {
+  const statusRenderers = {
+    ad_account_status: (value, row) => (
+      <StatusWithIcon status={value} error={row?.ad_account_error} />
+    ),
+    access_token_status: (value, row) => (
+      <StatusWithIcon status={value} error={row?.access_token_error} />
+    ),
+    status: (value, row) => (
+      <StatusWithIcon 
+        status={value} 
+        error={[row?.ad_account_error, row?.access_token_error]
+          .filter(Boolean)
+          .join('\n')} 
+      />
+    )
+  };
+
+  const StatusWithIcon = ({ status, error }) => {
+    if (!status) return null;
+    
+    if (status === "Verified") {
+      return <CheckIcon style={{ color: "green" }} />;
+    }
+    
+    if (status === "Not Verified") {
+      return error ? (
+        <Tooltip title={error}>
+          <CancelIcon style={{ color: "red" }} />
+        </Tooltip>
+      ) : (
+        <CancelIcon style={{ color: "red" }} />
+      );
+    }
+    
+    return <span>{status}</span>;
+  };
+
+  const compareCsvWithJson = (csvData, jsonData, setTableAdsetsData) => {
+    const updatedData = csvData.map((csvRow) => {
+      const jsonRow = jsonData.find(
+        (json) =>
+          json.ad_account_id === csvRow.ad_account_id &&
+          json.access_token === csvRow.access_token
+      );
+  
+      if (!jsonRow) {
+        return {
+          ...csvRow,
+          ad_account_status: "Not Verified",
+          access_token_status: "Not Verified",
+          status: "Not Verified",
+          ad_account_error: "Account not found",
+          access_token_error: "Account not found"
+        };
+      }
+  
+      return {
+        ...csvRow,
+        ad_account_status: jsonRow.ad_account_status,
+        access_token_status: jsonRow.access_token_status,
+        status: jsonRow.ad_account_status === "Verified" && 
+               jsonRow.access_token_status === "Verified" 
+               ? "Verified" : "Not Verified",
+        ad_account_error: jsonRow.ad_account_error || null,
+        access_token_error: jsonRow.access_token_error || null
+      };
+    });
+  
+    setTableAdsetsData(updatedData);
+  };
+
+  const verifyAdAccounts = async (campaignsData, originalCsvData, addAdsetsMessage) => {
     try {
       const response = await fetch(`${apiUrl}/api/v1/verify/adsets`, {
         method: "POST",
@@ -307,32 +379,22 @@ const OnOffAdsets = () => {
           "Content-Type": "application/json",
           skip_zrok_interstitial: "true",
         },
-        body: JSON.stringify(campaignsData), // 🔹 Send the array directly
+        body: JSON.stringify(campaignsData),
       });
-
+  
       const result = await response.json();
       console.log("Verification Result:", JSON.stringify(result, null, 2));
-
+  
       if (response.ok && result.verified_accounts) {
-        result.verified_accounts.forEach((entry) => {
-          // Only display errors
-          if (entry.ad_account_error) {
-            addAdsetsMessage([
-              `${entry.ad_account_id} : ${entry.ad_account_error}`
-            ]);
-          }
-          if (entry.access_token_error) {
-            addAdsetsMessage([
-              `${entry.ad_account_id}: ${entry.access_token_error}`
-            ]);
-          }
-        });
+        compareCsvWithJson(originalCsvData, result.verified_accounts, setTableAdsetsData);
+        addAdsetsMessage([`[${getCurrentTime()}] Verification completed for ${result.verified_accounts.length} accounts`]);
       } else {
-        addAdsetsMessage("⚠️ No verified accounts returned from API.");
+        const errorMsg = result.message || "No verified accounts returned from API";
+        addAdsetsMessage([`⚠️ ${errorMsg}`]);
       }
     } catch (error) {
       console.error("Error verifying ad accounts:", error);
-      addAdsetsMessage("❌ Failed to verify ad accounts. Check your network.");
+      addAdsetsMessage([`❌ Failed to verify ad accounts: ${error.message}`]);
     }
   };
 
@@ -695,6 +757,7 @@ const OnOffAdsets = () => {
               marginTop: "8px",
               textAlign: "center",
             }}
+            customRenderers={statusRenderers}
             onDataChange={setTableAdsetsData}
             onSelectedChange={handleSelectedAdsetsDataChange}
             nonEditableHeaders={[
