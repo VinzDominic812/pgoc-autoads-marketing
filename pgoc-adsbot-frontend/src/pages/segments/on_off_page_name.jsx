@@ -752,8 +752,8 @@ const PageOnOFFPage = () => {
             onDataChange={setTablePageNameData}
             onSelectedChange={handleSelectedDataChange} // Pass selection handler
             nonEditableHeaders={[
-              "ad_account_id",
-              "access_token",
+              "ad_account_status",
+              "access_token_status",
               "page_name",
               "status",
             ]}

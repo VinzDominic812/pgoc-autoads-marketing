@@ -69,9 +69,9 @@ const CampaignCreationPage = () => {
     "ad_account_status",
     "access_token",
     "access_token_status",
-    "page_name",
     "facebook_page_id",
     "facebook_page_status",
+    "page_name",
     "sku",
     "material_code",
     "interests_list",
@@ -94,31 +94,7 @@ const CampaignCreationPage = () => {
   const [openDialog, setOpenDialog] = useState(false);
   const [isAi, setIsAi] = useState(false);
 
-  const [messages, setMessages] = useState(() => {
-    try {
-      const encryptedMessages = localStorage.getItem("campaignCreationMessages");
-      if (!encryptedMessages) return [];
-      
-      const decryptedMessages = decryptData(encryptedMessages);
-      if (!decryptedMessages) return [];
-      
-      // Handle case where decryptedMessages is already parsed
-      if (typeof decryptedMessages === 'object') {
-        return Array.isArray(decryptedMessages) ? decryptedMessages : [];
-      }
-      
-      // Handle case where decryptedMessages is a JSON string
-      try {
-        const parsed = JSON.parse(decryptedMessages);
-        return Array.isArray(parsed) ? parsed : [];
-      } catch {
-        return [];
-      }
-    } catch (error) {
-      console.error("Error loading messages:", error);
-      return [];
-    }
-  });
+  const [messages, setMessages] = useState([]);
 
   const fileInputRef = useRef(null);
   const isRunningRef = useRef(false);
@@ -156,7 +132,7 @@ const CampaignCreationPage = () => {
       
       return defaultValue;
     } catch (error) {
-      console.error(`Error loading ${key}:`, error);
+      // console.error(`Error loading ${key}:`, error);
       return defaultValue;
     }
   };
@@ -174,20 +150,18 @@ const CampaignCreationPage = () => {
       const encryptedData = encryptData(dataToStore);
       localStorage.setItem("campaignCreationTableData", encryptedData);
     } catch (error) {
-      console.error("Error saving table data:", error);
+      // console.error("Error saving table data:", error);
     }
   }, [tableData]);
 
   //stores messages in a localstorage
   useEffect(() => {
     try {
-      // Only save if messages is a non-empty array
-      if (Array.isArray(messages)) {
-        const encryptedMessages = encryptData(JSON.stringify(messages));
-        localStorage.setItem("campaignCreationMessages", encryptedMessages);
-      }
+      const encryptedMessages = encryptData(messages);
+      localStorage.setItem("adsetsMessages", encryptedMessages);
     } catch (error) {
       console.error("Error saving messages:", error);
+      notify("Failed to save messages", "error");
     }
   }, [messages]);
 
@@ -198,21 +172,17 @@ const CampaignCreationPage = () => {
 
   const addMessage = (newMessages) => {
     setMessages((prevMessages) => {
-      // Ensure prevMessages is always an array
       const messagesArray = Array.isArray(prevMessages) ? prevMessages : [];
-      
-      // Ensure newMessages is an array
-      const newMessagesArray = Array.isArray(newMessages) 
-        ? newMessages 
-        : [String(newMessages)];
-      
-      // Filter out any empty or invalid messages
-      const validNewMessages = newMessagesArray
-        .map(msg => typeof msg === 'string' ? msg : JSON.stringify(msg))
-        .filter(Boolean);
-      
-      // Combine and deduplicate messages
-      return [...messagesArray, ...validNewMessages];
+
+      // Ensure newMessages is a single string, not split into characters
+      const newMessageText = Array.isArray(newMessages)
+        ? newMessages.join(" ")
+        : newMessages;
+
+      // Avoid duplicates while maintaining the order
+      const uniqueMessages = new Set([...messagesArray, newMessageText]);
+
+      return Array.from(uniqueMessages);
     });
   };
 
@@ -221,13 +191,13 @@ const CampaignCreationPage = () => {
     setIsVerified(
       tableData.length > 0 &&
         tableData.every((row) => {
-          console.log("🔍 Row Data:", row);
+          // console.log("🔍 Row Data:", row);
           const allVerified =
             row["ad_account_status"] === "Verified" &&
             row["access_token_status"] === "Verified" &&
             row["facebook_page_status"] === "Verified";
 
-          console.log("📌 Status Value:", allVerified ? "OK" : "Error");
+          // console.log("📌 Status Value:", allVerified ? "OK" : "Error");
           return allVerified; // ✅ Check using TableWidget logic
         })
     );
@@ -426,12 +396,12 @@ const CampaignCreationPage = () => {
           }
         }
       } catch (error) {
-        console.error("Error parsing SSE message:", error);
+        // console.error("Error parsing SSE message:", error);
       }
     };
     
     eventSource.onerror = (error) => {
-      console.error("SSE connection error:", error);
+      // console.error("SSE connection error:", error);
       eventSource.close();
     };
   
@@ -458,7 +428,7 @@ const CampaignCreationPage = () => {
       
       notify("All data cleared successfully!", "success");
     } catch (error) {
-      console.error("Error clearing data:", error);
+      // console.error("Error clearing data:", error);
       notify("Failed to clear data", "error");
     }
   };
@@ -497,7 +467,7 @@ const CampaignCreationPage = () => {
       link.download = "ph_regions.csv";
       link.click();
     } catch (error) {
-      console.error("Error fetching regions:", error);
+      // console.error("Error fetching regions:", error);
     }
   };
 
@@ -614,7 +584,7 @@ const CampaignCreationPage = () => {
 
       Papa.parse(fileContent, {
         complete: (result) => {
-          console.log("Parsed CSV Data:", result.data);
+          // console.log("Parsed CSV Data:", result.data);
           const csvData = result.data;
 
           if (csvData.length > 1) {
@@ -629,14 +599,14 @@ const CampaignCreationPage = () => {
 
             // Debugging: Check interests_list field before parsing
             formattedData.forEach((item) => {
-              console.log(
-                "Raw interests_list from CSV:",
-                item["interests_list"]
-              );
-              console.log(
-                "Raw excluded_ph_region from CSV:",
-                item["excluded_ph_region"]
-              );
+              // console.log(
+              //   "Raw interests_list from CSV:",
+              //   item["interests_list"]
+              // );
+              // console.log(
+              //   "Raw excluded_ph_region from CSV:",
+              //   item["excluded_ph_region"]
+              // );
               item["interests_list"] = parseInterestsList(
                 item["interests_list"]
               );
@@ -646,7 +616,7 @@ const CampaignCreationPage = () => {
             });
 
             setTableData(formattedData);
-            console.log(`formatted data: ${JSON.stringify(formattedData,null,2)}`);
+            //console.log(`formatted data: ${JSON.stringify(formattedData,null,2)}`);
             verifyAdAccounts(formattedData);
           }
         },
@@ -679,16 +649,16 @@ const CampaignCreationPage = () => {
     setIsRunning(true);
     addMessage(["Running verified campaigns..."]);
 
-    console.log(
-      "✅ Verified Campaigns:",
-      JSON.stringify(verifiedCampaigns, null, 2)
-    );
+    // console.log(
+    //   "✅ Verified Campaigns:",
+    //   JSON.stringify(verifiedCampaigns, null, 2)
+    // );
 
     for await (const [index, row] of verifiedCampaigns.entries()) {
-      console.log(
-        `🔄 Processing verified row ${index + 1}/${verifiedCampaigns.length}:`,
-        row
-      );
+      // console.log(
+      //   `🔄 Processing verified row ${index + 1}/${verifiedCampaigns.length}:`,
+      //   row
+      // );
 
       let parsedInterests = row["interests_list"];
       let parsedExcludedRegions = row["excluded_ph_region"];
@@ -732,7 +702,7 @@ const CampaignCreationPage = () => {
         ],
       };
 
-      console.log(`Campaign Data : ${JSON.stringify(requestBody)}`);
+      // console.log(`Campaign Data : ${JSON.stringify(requestBody)}`);
 
       try {
         const response = await fetch(campaignApiUrl, {
@@ -750,7 +720,7 @@ const CampaignCreationPage = () => {
           addMessage([
             `❌ Failed to create campaign for SKU ${row["sku"]} (Status: ${response.status})`,
           ]);
-          console.log(`❌ Response Body: ${JSON.stringify(response)}`);
+          // console.log(`❌ Response Body: ${JSON.stringify(response)}`);
           continue;
         }
 
@@ -761,7 +731,7 @@ const CampaignCreationPage = () => {
           ]);
 
           if (responseBody.tasks && responseBody.tasks.length > 0) {
-            console.log("📌 Response Body:", responseBody);
+            // console.log("📌 Response Body:", responseBody);
             addMessage([
               `Task Created: ${responseBody.tasks[0].campaign_name} - Status: ${
                 responseBody.tasks[0].status
@@ -788,7 +758,7 @@ const CampaignCreationPage = () => {
         }
       }
 
-      console.log(`✅ FINISHED Processing row ${index + 1}`);
+      // console.log(`✅ FINISHED Processing row ${index + 1}`);
     }
 
     setIsRunning(false);
@@ -802,7 +772,7 @@ const CampaignCreationPage = () => {
   const parseInterestsList = (interestsString) => {
     if (!interestsString || interestsString.trim() === "") return [[]];
 
-    console.log("📌 Raw interests_list before processing:", interestsString);
+    // console.log("📌 Raw interests_list before processing:", interestsString);
 
     try {
       // Split by " / " to separate different groups
@@ -819,10 +789,10 @@ const CampaignCreationPage = () => {
           .filter(Boolean)
       );
 
-      console.log("✅ Formatted interests_list:", parsedArray);
+      // console.log("✅ Formatted interests_list:", parsedArray);
       return parsedArray.length ? parsedArray : [[]]; // Ensure it's always a nested array
     } catch (error) {
-      console.error("❌ Error parsing interests_list:", interestsString, error);
+      // console.error("❌ Error parsing interests_list:", interestsString, error);
       return [[]]; // Default to empty nested array on failure
     }
   };
@@ -830,7 +800,7 @@ const CampaignCreationPage = () => {
   const parseExcludedPHRegion = (regionString) => {
     if (!regionString || regionString.trim() === "") return [[]];
 
-    console.log("Raw excluded_ph_region before processing:", regionString);
+    // console.log("Raw excluded_ph_region before processing:", regionString);
 
     try {
       // Split by "/" and handle empty or space-only groups as "[]"
@@ -848,10 +818,10 @@ const CampaignCreationPage = () => {
         return group.split(",").map((region) => region.trim());
       });
 
-      console.log("Formatted excluded_ph_region:", parsedArray);
+      // console.log("Formatted excluded_ph_region:", parsedArray);
       return parsedArray;
     } catch (error) {
-      console.error("Error parsing excluded_ph_region:", regionString, error);
+      // console.error("Error parsing excluded_ph_region:", regionString, error);
     }
 
     return [[]]; // Default to an empty nested array if parsing fails
@@ -872,7 +842,7 @@ const CampaignCreationPage = () => {
       );
   
       const result = await response.json();
-      console.log(`RESULT: ${JSON.stringify(result,null,2)}`);
+      // console.log(`RESULT: ${JSON.stringify(result,null,2)}`);
   
       if (response.ok && result.verified_accounts) {
         compareCsvWithJson(
@@ -890,13 +860,13 @@ const CampaignCreationPage = () => {
       } else {
         const errorMsg =
           result.message || "No verified accounts returned from API.";
-        console.warn("⚠️", errorMsg);
+        // console.warn("⚠️", errorMsg);
         if (addMessage) {
           addMessage([`⚠️ ${errorMsg}`]);
         }
       }
     } catch (error) {
-      console.error("Error verifying ad accounts:", error);
+      // console.error("Error verifying ad accounts:", error);
       if (addMessage) {
         addMessage([`❌ Failed to verify ad accounts: ${error.message}`]);
       }

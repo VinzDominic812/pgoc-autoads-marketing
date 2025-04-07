@@ -397,85 +397,61 @@ const OnOffAdsets = () => {
   const handleFileChange = (event) => {
     const file = event.target.files[0];
 
-    if (!file) {
-      notify("No file selected.", "error");
-      return;
-    }
+  if (!file) {
+    notify("No file selected.", "error");
+    return;
+  }
 
-    const { id: user_id } = getUserData(); // Get user ID
+  const { id: user_id } = getUserData(); // Get user ID
 
-    Papa.parse(file, {
-      complete: (result) => {
-        if (result.data.length < 2) {
-          notify("CSV file is empty or invalid.", "error");
-          return;
-        }
+  Papa.parse(file, {
+    complete: (result) => {
+      if (result.data.length < 2) {
+        notify("CSV file is empty or invalid.", "error");
+        return;
+      }
 
-        const fileHeaders = result.data[0].map((h) => h.trim().toLowerCase());
+      const fileHeaders = result.data[0].map((h) => h.trim().toLowerCase());
 
-        if (!validateCSVHeaders(fileHeaders)) {
-          notify(
-            "Invalid CSV headers. Required: ad_account_id, access_token, campaign_type, what_to_watch, cpp_metric, on_off.",
-            "error"
-          );
-          return;
-        }
-
-        const processedData = result.data
-          .slice(1)
-          .filter((row) => row.some((cell) => cell)) // Remove empty rows
-          .map((row) =>
-            fileHeaders.reduce((acc, header, index) => {
-              acc[header] = row[index] ? row[index].trim() : "";
-              return acc;
-            }, {})
-          );
-
-        // Detect and remove duplicate ad_account_id values
-        const uniqueData = [];
-        const seenAdAccounts = new Set();
-        const removedDuplicates = [];
-
-        processedData.forEach((entry) => {
-          if (seenAdAccounts.has(entry.ad_account_id)) {
-            removedDuplicates.push(entry.ad_account_id);
-          } else {
-            seenAdAccounts.add(entry.ad_account_id);
-            uniqueData.push({ ...entry, status: "Ready" }); // Add default status
-          }
-        });
-
-        if (removedDuplicates.length > 0) {
-          notify(
-            `Removed duplicate ad_account_ids: ${removedDuplicates.join(", ")}`,
-            "error"
-          );
-        }
-
-        // Convert unique data to API request format
-        const requestData = uniqueData.map((entry) => ({
-          ad_account_id: entry.ad_account_id,
-          user_id,
-          access_token: entry.access_token,
-          schedule_data: [
-            {
-              campaign_type: entry.campaign_type,
-              what_to_watch: entry.what_to_watch,
-              cpp_metric: entry.cpp_metric,
-              cpp_date_start: entry.cpp_date_start,
-              cpp_date_end: entry.cpp_date_end,
-              on_off: entry.on_off,
-            },
-          ],
-        }));
-
-        console.log(
-          "Processed Request Data:",
-          JSON.stringify(requestData, null, 2)
+      if (!validateCSVHeaders(fileHeaders)) {
+        notify(
+          "Invalid CSV headers. Required: ad_account_id, access_token, campaign_type, what_to_watch, cpp_metric, on_off.",
+          "error"
         );
-        setTableAdsetsData(uniqueData); // Store processed data in the table
+        return;
+      }
+
+      const processedData = result.data
+        .slice(1)
+        .filter((row) => row.some((cell) => cell)) // Remove empty rows
+        .map((row) =>
+          fileHeaders.reduce((acc, header, index) => {
+            acc[header] = row[index] ? row[index].trim() : "";
+            return acc;
+          }, { status: "Ready" }) // Add default status here
+        );
+
+      // Convert processed data to API request format
+      const requestData = processedData.map((entry) => ({
+        ad_account_id: entry.ad_account_id,
+        user_id,
+        access_token: entry.access_token,
+        schedule_data: [
+          {
+            campaign_type: entry.campaign_type,
+            what_to_watch: entry.what_to_watch,
+            cpp_metric: entry.cpp_metric,
+            cpp_date_start: entry.cpp_date_start,
+            cpp_date_end: entry.cpp_date_end,
+            on_off: entry.on_off,
+          },
+        ],
+      }));
+
+        //console.log("Processed Request Data:",JSON.stringify(requestData, null, 2));
+        setTableAdsetsData(processedData); // Store processed data in the table
         notify("CSV file successfully imported!", "success");
-        verifyAdAccounts(requestData, uniqueData, addAdsetsMessage);
+        verifyAdAccounts(requestData, processedData, addAdsetsMessage);
       },
       header: false,
       skipEmptyLines: true,
@@ -805,8 +781,8 @@ const OnOffAdsets = () => {
             onDataChange={setTableAdsetsData}
             onSelectedChange={handleSelectedAdsetsDataChange}
             nonEditableHeaders={[
-              "ad_account_id",
-              "access_token",
+              "ad_account_status",
+              "access_token_status",
               "campaign_type",
               "what_to_watch",
               "status",
