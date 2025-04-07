@@ -48,19 +48,19 @@ const NAVIGATION = [
     title: "ON/OFF Adsets", 
     icon: <GridViewRoundedIcon /> 
   },
-  { segment: "campaign-off", 
-    title: "ON/OFF Campaigns", 
-    icon: <PowerIcon /> 
-  },
+  // { segment: "campaign-off", 
+  //   title: "ON/OFF Campaigns", 
+  //   icon: <PowerIcon /> 
+  // },
   { segment: "pagename-off", 
     title: "ON/OFF CampaignsV2", 
     icon: <FlagRoundedIcon /> 
   },
-  {
-    segment: "scheduled-campaign-name",
-    title: "Schedule ON/OFF Campaigns ",
-    icon: <CampaignscheduleIcon />,
-  },
+  // {
+  //   segment: "scheduled-campaign-name",
+  //   title: "Schedule ON/OFF Campaigns ",
+  //   icon: <CampaignscheduleIcon />,
+  // },
   {
     segment: "scheduled-on-and-off",
     title: "Schedules",
