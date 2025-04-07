@@ -176,7 +176,7 @@ const CampaignONOFFPage = ({ userData }) => {
           ...new Set([...currentMessages, ...botMessages]),
         ];
 
-        console.log("🚀 Updated Messages:", updatedMessages);
+        //console.log("🚀 Updated Messages:", updatedMessages);
 
         return {
           ...prevMessages,
@@ -188,7 +188,7 @@ const CampaignONOFFPage = ({ userData }) => {
 
   const createEventSource = (adAccountId) => {
     if (eventSourceRef.current) {
-      console.log("EventSource already exists. Skipping new instance.");
+      //console.log("EventSource already exists. Skipping new instance.");
       return;
     }
 
@@ -205,28 +205,28 @@ const CampaignONOFFPage = ({ userData }) => {
     );
 
     eventSource.onopen = () => {
-      console.log("Connected to SSE:", redisKey);
+      //console.log("Connected to SSE:", redisKey);
     };
 
     eventSource.onmessage = (event) => {
       try {
         const parsedData = JSON.parse(event.data);
-        console.log("Received SSE:", parsedData);
+        //console.log("Received SSE:", parsedData);
 
         if (parsedData.data?.message?.length) {
           addMessage(adAccountId, parsedData.data.message);
-          console.log("Updated Messages via SSE");
+          //console.log("Updated Messages via SSE");
 
           // Reset timeout to ensure bot messages display
           resetMessageTimeout(adAccountId);
         }
       } catch (error) {
-        console.error("Error parsing SSE data:", error);
+        //console.error("Error parsing SSE data:", error);
       }
     };
 
     eventSource.onerror = () => {
-      console.error("SSE connection error. Reconnecting...");
+      //console.error("SSE connection error. Reconnecting...");
       eventSource.close();
       eventSourceRef.current = null;
 
@@ -240,7 +240,7 @@ const CampaignONOFFPage = ({ userData }) => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
-      console.log("❌ EventSource closed.");
+      //console.log("❌ EventSource closed.");
     }
   };
 

@@ -80,7 +80,7 @@ const PageOnOFFPage = () => {
       }
       return defaultValue;
     } catch (error) {
-      console.error(`Error loading ${key}:`, error);
+      //console.error(`Error loading ${key}:`, error);
       return defaultValue;
     }
   };
@@ -98,7 +98,7 @@ const PageOnOFFPage = () => {
       const encryptedData = encryptData(dataToStore);
       localStorage.setItem("tablePageNameData", encryptedData);
     } catch (error) {
-      console.error("Error Saving table data:", error);
+      //console.error("Error Saving table data:", error);
     }
   }, [tablePageNameData]);
 
@@ -107,7 +107,7 @@ const PageOnOFFPage = () => {
       const encryptedMessages = encryptData(messages);
       localStorage.setItem("pagenameMessages", encryptedMessages);
     } catch (error) {
-      console.error("Error saving messages:", error);
+      //console.error("Error saving messages:", error);
       notify("Failed to save messages", "error");
     }
   }, [messages]);
@@ -222,9 +222,9 @@ const PageOnOFFPage = () => {
             const adAccountId = errorMatch[2];
             const onOffStatus = errorMatch[3];
 
-            console.log(
-              `❌ Error detected for ${adAccountId} (${onOffStatus})`
-            );
+            // console.log(
+            //   `❌ Error detected for ${adAccountId} (${onOffStatus})`
+            // );
 
             setTablePageNameData((prevData) =>
               prevData.map((entry) =>
@@ -237,12 +237,12 @@ const PageOnOFFPage = () => {
           }
         }
       } catch (error) {
-        console.error("Error parsing SSE message:", error);
+        //console.error("Error parsing SSE message:", error);
       }
     };
 
     eventSource.onerror = (error) => {
-      console.error("SSE connection error:", error);
+      //console.error("SSE connection error:", error);
       eventSource.close();
     };
 
@@ -424,10 +424,10 @@ const PageOnOFFPage = () => {
           ],
         }));
 
-        console.log(
-          "Processed Request Data:",
-          JSON.stringify(requestData, null, 2)
-        );
+        // console.log(
+        //   "Processed Request Data:",
+        //   JSON.stringify(requestData, null, 2)
+        // );
         setTablePageNameData(uniqueData); // Store processed data in the table
         notify("CSV file successfully imported!", "success");
         verifyAdAccounts(requestData, uniqueData, addMessage);
@@ -628,7 +628,7 @@ const PageOnOFFPage = () => {
       });
 
       const result = await response.json();
-      console.log("Verification Result:", JSON.stringify(result, null, 2));
+      //console.log("Verification Result:", JSON.stringify(result, null, 2));
 
       if (response.ok && result.verified_accounts) {
         compareCsvWithJson(
@@ -647,7 +647,7 @@ const PageOnOFFPage = () => {
         addMessage([`⚠️ ${errorMsg}`]);
       }
     } catch (error) {
-      console.error("Error verifying ad accounts:", error);
+      //console.error("Error verifying ad accounts:", error);
       addMessage([`❌ Failed to verify ad accounts: ${error.message}`]);
     }
   };
@@ -752,8 +752,8 @@ const PageOnOFFPage = () => {
             onDataChange={setTablePageNameData}
             onSelectedChange={handleSelectedDataChange} // Pass selection handler
             nonEditableHeaders={[
-              "ad_account_id",
-              "access_token",
+              "ad_account_status",
+              "access_token_status",
               "page_name",
               "status",
             ]}

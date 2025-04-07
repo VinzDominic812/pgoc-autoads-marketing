@@ -84,7 +84,7 @@ const OnOffAdsets = () => {
       }
       return defaultValue;
     } catch (error) {
-      console.error(`Error loading ${key}:`, error);
+      //console.error(`Error loading ${key}:`, error);
       return defaultValue;
     }
   };
@@ -104,7 +104,7 @@ const OnOffAdsets = () => {
       const encryptedData = encryptData(dataToStore);
       localStorage.setItem("tableAdsetsData", encryptedData);
     } catch (error) {
-      console.error("Error Saving table data:", error);
+      //console.error("Error Saving table data:", error);
     }
   }, [tableAdsetsData]);
 
@@ -113,7 +113,7 @@ const OnOffAdsets = () => {
       const encryptedMessages = encryptData(messages);
       localStorage.setItem("adsetsMessages", encryptedMessages);
     } catch (error) {
-      console.error("Error saving messages:", error);
+      //console.error("Error saving messages:", error);
       notify("Failed to save messages", "error");
     }
   }, [messages]);
@@ -226,9 +226,9 @@ const OnOffAdsets = () => {
               )
             );
 
-            console.log(
-              `✅ Success for Ad Account ${adAccountId} at ${timestamp}`
-            );
+            // console.log(
+            //   `✅ Success for Ad Account ${adAccountId} at ${timestamp}`
+            // );
           }
 
           // ❌ Handle 401 Unauthorized Error with ON/OFF
@@ -282,12 +282,12 @@ const OnOffAdsets = () => {
           }
         }
       } catch (error) {
-        console.error("Error parsing SSE message:", error);
+        //console.error("Error parsing SSE message:", error);
       }
     };
 
     eventSource.onerror = (error) => {
-      console.error("SSE connection error:", error);
+      //console.error("SSE connection error:", error);
       eventSource.close();
     };
 
@@ -310,7 +310,7 @@ const OnOffAdsets = () => {
       
       notify("All data cleared successfully!", "success");
     } catch (error){
-      console.error("Error clearing data:", error);
+      //console.error("Error clearing data:", error);
       notify("Failed to clear data", "error");
     }
   };
@@ -396,23 +396,23 @@ const OnOffAdsets = () => {
 
   const handleFileChange = (event) => {
     const file = event.target.files[0];
-
+  
     if (!file) {
       notify("No file selected.", "error");
       return;
     }
-
+  
     const { id: user_id } = getUserData(); // Get user ID
-
+  
     Papa.parse(file, {
       complete: (result) => {
         if (result.data.length < 2) {
           notify("CSV file is empty or invalid.", "error");
           return;
         }
-
+  
         const fileHeaders = result.data[0].map((h) => h.trim().toLowerCase());
-
+  
         if (!validateCSVHeaders(fileHeaders)) {
           notify(
             "Invalid CSV headers. Required: ad_account_id, access_token, campaign_type, what_to_watch, cpp_metric, on_off.",
@@ -420,7 +420,7 @@ const OnOffAdsets = () => {
           );
           return;
         }
-
+  
         const processedData = result.data
           .slice(1)
           .filter((row) => row.some((cell) => cell)) // Remove empty rows
@@ -428,32 +428,11 @@ const OnOffAdsets = () => {
             fileHeaders.reduce((acc, header, index) => {
               acc[header] = row[index] ? row[index].trim() : "";
               return acc;
-            }, {})
+            }, { status: "Ready" }) // Add default status here
           );
-
-        // Detect and remove duplicate ad_account_id values
-        const uniqueData = [];
-        const seenAdAccounts = new Set();
-        const removedDuplicates = [];
-
-        processedData.forEach((entry) => {
-          if (seenAdAccounts.has(entry.ad_account_id)) {
-            removedDuplicates.push(entry.ad_account_id);
-          } else {
-            seenAdAccounts.add(entry.ad_account_id);
-            uniqueData.push({ ...entry, status: "Ready" }); // Add default status
-          }
-        });
-
-        if (removedDuplicates.length > 0) {
-          notify(
-            `Removed duplicate ad_account_ids: ${removedDuplicates.join(", ")}`,
-            "error"
-          );
-        }
-
-        // Convert unique data to API request format
-        const requestData = uniqueData.map((entry) => ({
+  
+        // Convert processed data to API request format
+        const requestData = processedData.map((entry) => ({
           ad_account_id: entry.ad_account_id,
           user_id,
           access_token: entry.access_token,
@@ -468,21 +447,19 @@ const OnOffAdsets = () => {
             },
           ],
         }));
-
-        console.log(
-          "Processed Request Data:",
-          JSON.stringify(requestData, null, 2)
-        );
-        setTableAdsetsData(uniqueData); // Store processed data in the table
+  
+        //console.log("Processed Request Data:", JSON.stringify(requestData, null, 2));
+        setTableAdsetsData(processedData); // Store all processed data in the table
         notify("CSV file successfully imported!", "success");
-        verifyAdAccounts(requestData, uniqueData, addAdsetsMessage);
+        verifyAdAccounts(requestData, processedData, addAdsetsMessage);
       },
       header: false,
       skipEmptyLines: true,
     });
-
+  
     event.target.value = "";
   };
+  
 
   const statusRenderers = {
     ad_account_status: (value, row) => (
@@ -679,7 +656,7 @@ const OnOffAdsets = () => {
       });
   
       const result = await response.json();
-      console.log("Verification Result:", JSON.stringify(result, null, 2));
+      //console.log("Verification Result:", JSON.stringify(result, null, 2));
   
       if (response.ok && result.verified_accounts) {
         compareCsvWithJson(originalCsvData, result.verified_accounts, setTableAdsetsData);
@@ -689,7 +666,7 @@ const OnOffAdsets = () => {
         addAdsetsMessage([`⚠️ ${errorMsg}`]);
       }
     } catch (error) {
-      console.error("Error verifying ad accounts:", error);
+      //console.error("Error verifying ad accounts:", error);
       addAdsetsMessage([`❌ Failed to verify ad accounts: ${error.message}`]);
     }
   };
@@ -805,8 +782,8 @@ const OnOffAdsets = () => {
             onDataChange={setTableAdsetsData}
             onSelectedChange={handleSelectedAdsetsDataChange}
             nonEditableHeaders={[
-              "ad_account_id",
-              "access_token",
+              "ad_account_status",
+              "access_token_status",
               "campaign_type",
               "what_to_watch",
               "status",

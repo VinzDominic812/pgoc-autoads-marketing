@@ -6,10 +6,15 @@ import {
   DialogContent,
   DialogActions,
   Button,
+  Tooltip,
 } from "@mui/material";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import DynamicTable from "../../components/dynamic_table";
 import CustomButton from "../../components/buttons";
+
+import CheckIcon from "@mui/icons-material/Check";
+import CancelIcon from "@mui/icons-material/Cancel";
+
 import { getUserData } from "../../../services/user_data";
 
 const REQUIRED_HEADERS = [
@@ -20,6 +25,8 @@ const REQUIRED_HEADERS = [
   "on_off",
   "watch",
 ];
+
+const apiUrl = import.meta.env.VITE_API_URL;
 
 const ONOFFImportWidget = ({
   open,
@@ -38,6 +45,9 @@ const ONOFFImportWidget = ({
   };
 
   const parseCSV = (file) => {
+
+    const { id: user_id } = getUserData();
+
     Papa.parse(file, {
       complete: (result) => {
         if (result.data.length > 1) {
@@ -67,11 +77,28 @@ const ONOFFImportWidget = ({
 
             return rowData;
           });
+          // Convert processed data to API request format
+          const requestData = processedData.map((entry) => ({
+            ad_account_id: entry.ad_account_id,
+            user_id,
+            access_token: entry.access_token,
+            schedule_data: [
+              {
+                campaign_type: entry.campaign_type,
+                what_to_watch: entry.what_to_watch,
+                cpp_metric: entry.cpp_metric,
+                cpp_date_start: entry.cpp_date_start,
+                cpp_date_end: entry.cpp_date_end,
+                on_off: entry.on_off,
+              },
+            ],
+          }));
 
           setTableHeaders(headers);
           setTableData(processedData);
           setShowTable(true);
           setErrorMessage("");
+          verifyAdAccounts(requestData, processedData);
         } else {
           setErrorMessage("The CSV file is empty or invalid.");
         }
@@ -151,8 +178,13 @@ const ONOFFImportWidget = ({
   const handleImportData = () => {
     const processedDataMap = new Map();
     const { id } = getUserData();
-
+  
     tableData.forEach((row) => {
+      // Only process rows with "Verified" status
+      if (row.status !== "Verified") {
+        return;
+      }
+  
       const ad_account_id = row["ad_account_id"];
       const access_token = row["access_token"];
       const time = row["time"];
@@ -160,13 +192,13 @@ const ONOFFImportWidget = ({
       const cpp_metric = row["cpp_metric"] || "";
       const on_off = row["on_off"] || "";
       const watch = row["watch"] || "";
-
+  
       if (!ad_account_id || !access_token || !time || !on_off || !watch) {
         return;
       }
-
+  
       const key = `${ad_account_id}_${access_token}`;
-
+  
       if (!processedDataMap.has(key)) {
         processedDataMap.set(key, {
           ad_account_id,
@@ -175,7 +207,7 @@ const ONOFFImportWidget = ({
           schedule_data: [],
         });
       }
-
+  
       processedDataMap.get(key).schedule_data.push({
         time,
         campaign_type,
@@ -184,11 +216,16 @@ const ONOFFImportWidget = ({
         watch,
       });
     });
-
+  
     const processedData = Array.from(processedDataMap.values());
-
+  
+    if (processedData.length === 0) {
+      alert("No verified rows to import. Please verify your data first.");
+      return;
+    }
+  
     console.log("Processed Data:", JSON.stringify(processedData));
-
+  
     onImportComplete(processedData);
     handleClose();
   };
@@ -214,6 +251,104 @@ const ONOFFImportWidget = ({
     // Close the dialog
     handleClose();
   };
+
+  const statusRenderers = {
+    ad_account_status: (value, row) => (
+      <StatusWithIcon status={value} error={row?.ad_account_error} />
+    ),
+    access_token_status: (value, row) => (
+      <StatusWithIcon status={value} error={row?.access_token_error} />
+    ),
+    status: (value, row) => (
+      <StatusWithIcon 
+        status={value} 
+        error={[row?.ad_account_error, row?.access_token_error]
+          .filter(Boolean)
+          .join('\n')} 
+      />
+    )
+  };
+
+  const StatusWithIcon = ({ status, error }) => {
+      if (!status) return null;
+      
+      if (status === "Verified") {
+        return <CheckIcon style={{ color: "green" }} />;
+      }
+      
+      if (status === "Not Verified") {
+        return error ? (
+          <Tooltip title={error}>
+            <CancelIcon style={{ color: "red" }} />
+          </Tooltip>
+        ) : (
+          <CancelIcon style={{ color: "red" }} />
+        );
+      }
+      
+      return <span>{status}</span>;
+    };
+  
+    const compareCsvWithJson = (csvData, jsonData, setTableData) => {
+      const updatedData = csvData.map((csvRow) => {
+        const jsonRow = jsonData.find(
+          (json) =>
+            json.ad_account_id === csvRow.ad_account_id &&
+            json.access_token === csvRow.access_token
+        );
+    
+        if (!jsonRow) {
+          return {
+            ...csvRow,
+            ad_account_status: "Not Verified",
+            access_token_status: "Not Verified",
+            status: "Not Verified",
+            ad_account_error: "Account not found",
+            access_token_error: "Account not found"
+          };
+        }
+    
+        return {
+          ...csvRow,
+          ad_account_status: jsonRow.ad_account_status,
+          access_token_status: jsonRow.access_token_status,
+          status: jsonRow.ad_account_status === "Verified" && 
+                 jsonRow.access_token_status === "Verified" 
+                 ? "Verified" : "Not Verified",
+          ad_account_error: jsonRow.ad_account_error || null,
+          access_token_error: jsonRow.access_token_error || null
+        };
+      });
+    
+      setTableData(updatedData);
+    };
+  
+    const verifyAdAccounts = async (campaignsData, originalCsvData) => {
+      try {
+        const response = await fetch(`${apiUrl}/api/v1/verify/schedule`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            skip_zrok_interstitial: "true",
+          },
+          body: JSON.stringify(campaignsData),
+        });
+    
+        const result = await response.json();
+        console.log("Verification Result:", JSON.stringify(result, null, 2));
+    
+        if (response.ok && result.verified_accounts) {
+          compareCsvWithJson(originalCsvData, result.verified_accounts, setTableData);
+          //addAdsetsMessage([`[${getCurrentTime()}] Verification completed for ${result.verified_accounts.length} accounts`]);
+        } else {
+          const errorMsg = result.message || "No verified accounts returned from API";
+          //addAdsetsMessage([`⚠️ ${errorMsg}`]);
+        }
+      } catch (error) {
+        console.error("Error verifying ad accounts:", error);
+        //addAdsetsMessage([`❌ Failed to verify ad accounts: ${error.message}`]);
+      }
+    };
 
   return (
     <Dialog
@@ -278,7 +413,15 @@ const ONOFFImportWidget = ({
             data={tableData}
             rowsPerPage={10}
             containerStyles={{ width: "100%", height: "500px" }}
+            customRenderers={statusRenderers}
             onDataChange={handleTableDataChange}
+            nonEditableHeaders={[
+              "ad_account_status",
+              "access_token_status",
+              "campaign_type",
+              "watch",
+              "status",
+            ]}
           />
         )}
       </DialogContent>
