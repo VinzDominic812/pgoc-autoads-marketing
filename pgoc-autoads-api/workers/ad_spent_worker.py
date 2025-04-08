@@ -7,12 +7,8 @@ import redis
 import requests
 from celery import shared_task
 from datetime import datetime
-from flask import request, jsonify
-from sqlalchemy.orm.attributes import flag_modified
-# from workers.on_off_functions.on_off_adsets import append_redis_message_adsets
-from workers.update_status import process_adsets
 
-# Set up Redis clients
+# Redis client
 redis_client_ads = redis.Redis(
     host="redisAds",
     port=6379,
@@ -20,24 +16,18 @@ redis_client_ads = redis.Redis(
     decode_responses=True
 )
 
-# Timezone
-manila_tz = pytz.timezone("Asia/Manila")
-
-# Facebook API
+# Constants
 FACEBOOK_API_VERSION = "v22.0"
 FACEBOOK_GRAPH_URL = f"https://graph.facebook.com/{FACEBOOK_API_VERSION}"
-
-# Compile regex once for performance
 NON_ALPHANUMERIC_REGEX = re.compile(r'[^a-zA-Z0-9]+')
+manila_tz = pytz.timezone("Asia/Manila")
 
 
 def normalize_text(text):
-    """Replace all non-alphanumeric characters with spaces and split into words."""
     return NON_ALPHANUMERIC_REGEX.sub(' ', text).lower().split()
 
 
 def fetch_facebook_data(url, access_token):
-    """Fetch data from Facebook API and handle errors."""
     try:
         response = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, timeout=5)
         response.raise_for_status()
@@ -46,83 +36,92 @@ def fetch_facebook_data(url, access_token):
         if "error" in data:
             logging.error(f"Facebook API Error: {data['error']}")
             return {"error": data["error"]}
-
         return data
 
     except requests.exceptions.RequestException as e:
-        logging.error(f"Error fetching data from Facebook API: {e}")
+        logging.error(f"RequestException: {e}")
         return {"error": {"message": str(e), "type": "RequestException"}}
 
 
+def get_facebook_user_id(access_token):
+    url = f"{FACEBOOK_GRAPH_URL}/me?fields=id"
+    data = fetch_facebook_data(url, access_token)
+    return data.get("id") if data and "id" in data else None
+
+
+def get_ad_accounts(fb_user_id, access_token):
+    url = f"{FACEBOOK_GRAPH_URL}/{fb_user_id}/adaccounts?fields=id"
+    data = fetch_facebook_data(url, access_token)
+    return [acc["id"].replace("act_", "") for acc in data.get("data", [])] if "data" in data else []
+
+
+def fetch_campaign_data_for_account(ad_account_id, access_token):
+    url = (
+        f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/campaigns"
+        f"?fields=name,status,daily_budget,budget_remaining"
+    )
+    return fetch_facebook_data(url, access_token)
+
+
 @shared_task
-def fetch_campaign_spending(user_id, ad_account_id, access_token, status_filter):
-    """
-    Fetch campaigns for an ad account and calculate their spent budget.
-    Required inputs: ad_account_id, access_token, status (e.g., ACTIVE)
-    """
-    lock_key = f"lock:fetch_spending:{ad_account_id}"
-    lock = redis_client_ads.lock(lock_key, timeout=300)
+def fetch_all_accounts_campaigns(access_token):
+    fb_user_id = get_facebook_user_id(access_token)
+    if not fb_user_id:
+        return {"error": "Failed to fetch Facebook user ID"}
 
-    if not lock.acquire(blocking=False):
-        logging.info(f"Spending fetch already running for {ad_account_id}.")
-        return f"Spending fetch already in progress for {ad_account_id}"
+    ad_account_ids = get_ad_accounts(fb_user_id, access_token)
+    if not ad_account_ids:
+        return {"error": "No ad accounts found for this user"}
 
-    try:
-        campaign_url = (
-            f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/campaigns"
-            f"?fields=id,name,status,daily_budget,budget_remaining"
-        )
-        campaigns_data = fetch_facebook_data(campaign_url, access_token)
+    result = {
+        "facebook_id": fb_user_id,
+        "accounts": {},
+        "totals": {
+            "total_daily_budget": 0,
+            "total_budget_remaining": 0,
+            "total_spent": 0
+        }
+    }
 
-        if "error" in campaigns_data:
-            error_msg = campaigns_data["error"].get("message", "Unknown error")
-            logging.error(f"Facebook API Error: {error_msg}")
-            return f"Error fetching campaign data: {error_msg}"
+    for ad_account_id in ad_account_ids:
+        logging.info(f"Processing Ad Account: {ad_account_id}")
+        campaign_data = fetch_campaign_data_for_account(ad_account_id, access_token)
 
-        campaign_spending_info = {}
-        total_daily_budget = 0
-        total_budget_remaining = 0
-        total_spent = 0
+        if "error" in campaign_data:
+            result["ad_accounts_id"][ad_account_id] = {"error": campaign_data["error"]}
+            continue
 
-        for campaign in campaigns_data.get("data", []):
-            if campaign.get("status") != status_filter:
-                continue  # Skip campaigns that do not match the status
+        account_info = {
+            "campaigns": [],
+            "total_daily_budget": 0,
+            "total_budget_remaining": 0,
+            "total_spent": 0
+        }
 
-            campaign_id = campaign["id"]
-            name = campaign.get("name", "Unknown")
-            status = campaign.get("status", "Unknown")
-
-            # Convert from microcurrency (in cents)
+        for campaign in campaign_data.get("data", []):
             daily_budget = int(campaign.get("daily_budget", 0)) / 100 if campaign.get("daily_budget") else 0
             budget_remaining = int(campaign.get("budget_remaining", 0)) / 100 if campaign.get("budget_remaining") else 0
             spent = round(daily_budget - budget_remaining, 2)
 
-            # Add to total values
-            total_daily_budget += daily_budget
-            total_budget_remaining += budget_remaining
-            total_spent += spent
-
-            # Store individual campaign info
-            campaign_spending_info[campaign_id] = {
-                "name": name,
-                "status": status,
+            account_info["campaigns"].append({
+                "name": campaign.get("name", "Unknown"),
+                "status": campaign.get("status", "Unknown"),
                 "daily_budget": daily_budget,
                 "budget_remaining": budget_remaining,
                 "spent": spent,
-            }
+            })
 
-        # Add total values to the response
-        campaign_spending_info["total_daily_budget"] = total_daily_budget
-        campaign_spending_info["total_budget_remaining"] = total_budget_remaining
-        campaign_spending_info["total_spent"] = total_spent
+            # Add to ad account totals
+            account_info["total_daily_budget"] += daily_budget
+            account_info["total_budget_remaining"] += budget_remaining
+            account_info["total_spent"] += spent
 
-        logging.info(f"Fetched spending info for ad_account {ad_account_id}: {campaign_spending_info}")
-        return campaign_spending_info
+        # Add account totals to global totals
+        result["totals"]["total_daily_budget"] += account_info["total_daily_budget"]
+        result["totals"]["total_budget_remaining"] += account_info["total_budget_remaining"]
+        result["totals"]["total_spent"] += account_info["total_spent"]
 
-    except Exception as e:
-        logging.error(f"Error fetching campaign spending: {e}")
-        return {"error": str(e)}
+        # Store account info
+        result["accounts"][ad_account_id] = account_info
 
-    finally:
-        lock.release()
-        logging.info(f"Released spending lock for Ad Account {ad_account_id}")
+    return result
