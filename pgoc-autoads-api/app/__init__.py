@@ -21,6 +21,7 @@ from routes.campaign_off_only_routes import schedule_campaign_only_bp
 from routes.on_off_campaign_name import campaign_on_off
 from routes.on_off_adsets_route import adsets_on_off
 from routes.on_off_page_route import pagename_on_off
+from routes.ad_spend_route import ad_spent_bp
 
 import logging
 from flask_mail import Mail
@@ -152,6 +153,7 @@ def create_app():
     app.register_blueprint(adsets_on_off, url_prefix="/api/v1/OnOff")
     app.register_blueprint(pagename_on_off, url_prefix="/api/v1/OnOff")
     app.register_blueprint(schedule_campaign_only_bp, url_prefix="/api/v1/campaign-only")
+    app.register_blueprint(ad_spent_bp,url_prefix='/api/v1/')
 
     return app
 
