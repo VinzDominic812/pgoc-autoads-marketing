@@ -20,13 +20,13 @@ def get_ad_accounts(fb_user_id, access_token):
         return None, response["error"]["message"]
     return [acc["account_id"] for acc in response.get("data", [])], None
 
-def get_facebook_pages(fb_user_id, access_token):
-    """Get associated Facebook pages for the Facebook user ID."""
-    url = f"{FACEBOOK_GRAPH_API_URL}/{fb_user_id}/accounts?access_token={access_token}"
+def get_facebook_pages(facebook_page_id, access_token):
+    """Check if the access token has access to a specific Facebook page."""
+    url = f"{FACEBOOK_GRAPH_API_URL}/{facebook_page_id}?fields=id&access_token={access_token}"
     response = requests.get(url).json()
     if "error" in response:
-        return None, response["error"]["message"]
-    return [page["id"] for page in response.get("data", [])], None
+        return False, response["error"]["message"]
+    return True, None
 
 def verify_ad_accounts(data):
     """Verify ad accounts, Facebook pages, and access tokens."""
@@ -49,7 +49,6 @@ def verify_ad_accounts(data):
 
     for access_token, campaign_list in grouped_campaigns.items():
         ad_account_ids = [c["ad_account_id"] for c in campaign_list]
-        facebook_page_ids = [c["facebook_page_id"] for c in campaign_list]
 
         if access_token not in access_token_map:
             fb_user_id, token_error = get_facebook_user_id(access_token)
@@ -75,17 +74,16 @@ def verify_ad_accounts(data):
             continue
 
         ad_accounts, ad_error = get_ad_accounts(fb_user_id, access_token)
-        facebook_pages, page_error = get_facebook_pages(fb_user_id, access_token)
-        
+
         for campaign in campaign_list:
             ad_account_id = campaign["ad_account_id"]
             facebook_page_id = campaign["facebook_page_id"]
 
             ad_account_status = "Verified" if ad_accounts and ad_account_id in ad_accounts else "Not Verified"
             ad_account_error = None if ad_account_status == "Verified" else "Ad account not associated with this access token"
-            
-            facebook_page_status = "Verified" if facebook_pages and facebook_page_id in facebook_pages else "Not Verified"
-            facebook_page_error = None if facebook_page_status == "Verified" else "Facebook page not associated with this access token"
+
+            facebook_page_verified, facebook_page_error = get_facebook_pages(facebook_page_id, access_token)
+            facebook_page_status = "Verified" if facebook_page_verified else "Not Verified"
 
             verified_accounts.append({
                 "ad_account_id": ad_account_id,
