@@ -74,78 +74,100 @@ def fetch_campaign_off(user_id, ad_account_id, access_token, matched_schedule):
     """Efficiently fetch campaigns from Facebook API and update only scheduled ones."""
 
     operation = "ON" if matched_schedule.get("on_off") == "ON" else "OFF"
-    lock_key = f"lock:fetch_campaign_only:{ad_account_id}"
-    lock = redis_client_pn.lock(lock_key, timeout=300)
+    
+    for page_name in matched_schedule.get("page_name", []):
+        lock_key = f"lock:fetch_campaign_only:{ad_account_id}:{access_token}:{normalize_text(page_name)}"
+        
+        # Lock for the specific ad_account_id, access_token, and page_name combination
+        lock = redis_client_pn.lock(lock_key, timeout=300)
+        
+        if not lock.acquire(blocking=False):
+            logging.info(f"Lock already held for {ad_account_id} with access token and page {page_name}. Skipping...")
+            continue  # Skip processing for this specific page if lock is held
+        
+        try:
+            logging.info(f"SCHEDULE DATA: {matched_schedule} for page {page_name}")
 
-    if not lock.acquire(blocking=False):
-        logging.info(f"Fetch already in progress for {ad_account_id}. Skipping...")
-        return f"Fetch already in progress for {ad_account_id} ({operation})."
+            # Now the task is specific to this page_name
+            scheduled_page_names = {normalize_text(page_name)}
+            on_off_value = matched_schedule.get("on_off", "").upper()
+            target_status = "ACTIVE" if on_off_value == "ON" else "PAUSED"
 
-    try:
-        logging.info(f"SCHEDULE DATA: {matched_schedule}")
-
-        # ✅ Convert to set for fast lookup
-        scheduled_page_names = {normalize_text(name) for name in matched_schedule.get("page_name", [])}
-        on_off_value = matched_schedule.get("on_off", "").upper()
-        target_status = "ACTIVE" if on_off_value == "ON" else "PAUSED"
-
-        message = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Fetching Campaign Data for {ad_account_id} ({operation})"
-        append_redis_message_pages(user_id, message)
-
-        url = f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/campaigns?fields=id,name,status&limit=500"
-        campaigns_to_update = []
-
-        while url:
-            response_data = fetch_facebook_data(url, access_token)
-
-            if "error" in response_data:
-                raise Exception(response_data["error"].get("message", "Unknown API error"))
-
-            for campaign in response_data.get("data", []):
-                campaign_id = campaign["id"]
-                campaign_name = campaign["name"]
-                campaign_status = campaign["status"]
-
-                if is_page_name_in_campaign(campaign_name, scheduled_page_names):
-                    if campaign_status != target_status:
-                        campaigns_to_update.append((campaign_id, campaign_name))
-                    else:
-                        append_redis_message_pages(
-                            user_id, 
-                            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠ Campaign {campaign_name} ({campaign_id}) IS ALREADY {target_status}."
-                        )
-
-            url = response_data.get("paging", {}).get("next")
-
-        if not campaigns_to_update:
             append_redis_message_pages(
-                user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] No campaigns needed updates."
+                user_id,
+                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Fetching Campaign Data for {ad_account_id} ({operation})"
             )
 
-        for campaign_id, campaign_name in campaigns_to_update:
-            success = update_facebook_status(user_id, ad_account_id, campaign_id, target_status, access_token)
+            url = f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/campaigns?fields=id,name,status&limit=500"
+            campaigns_to_update = []
+            matched_page_names = set()
 
-            status_message = (
-                f"✅ Updated {campaign_name} ({campaign_id}) to {target_status}"
-                if success
-                else f"❌ Failed to update {campaign_name} ({campaign_id})"
+            while url:
+                response_data = fetch_facebook_data(url, access_token)
+
+                if "error" in response_data:
+                    raise Exception(response_data["error"].get("message", "Unknown API error"))
+
+                for campaign in response_data.get("data", []):
+                    campaign_id = campaign["id"]
+                    campaign_name = campaign["name"]
+                    campaign_status = campaign["status"]
+
+                    if is_page_name_in_campaign(campaign_name, scheduled_page_names):
+                        # Track matched page name
+                        for page_name in scheduled_page_names:
+                            if normalize_text(page_name) in normalize_text(campaign_name):
+                                matched_page_names.add(normalize_text(page_name))
+                                break
+
+                        if campaign_status != target_status:
+                            campaigns_to_update.append((campaign_id, campaign_name))
+                        else:
+                            append_redis_message_pages(
+                                user_id,
+                                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠ Campaign {campaign_name} ({campaign_id}) IS ALREADY {target_status}."
+                            )
+
+                url = response_data.get("paging", {}).get("next")
+
+            # Log unmatched page names
+            unmatched_pages = scheduled_page_names - matched_page_names
+            for page in unmatched_pages:
+                append_redis_message_pages(
+                    user_id,
+                    f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ No campaign found for page: {page}"
+                )
+
+            if not campaigns_to_update:
+                append_redis_message_pages(
+                    user_id,
+                    f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] No campaigns needed updates."
+                )
+
+            for campaign_id, campaign_name in campaigns_to_update:
+                success = update_facebook_status(user_id, ad_account_id, campaign_id, target_status, access_token)
+
+                status_message = (
+                    f"✅ Updated {campaign_name} ({campaign_id}) to {target_status}"
+                    if success
+                    else f"❌ Failed to update {campaign_name} ({campaign_id})"
+                )
+                append_redis_message_pages(user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {status_message}")
+
+            append_redis_message_pages(
+                user_id,
+                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Campaign updates completed for {ad_account_id} ({operation})"
             )
-            append_redis_message_pages(user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {status_message}")
 
-        append_redis_message_pages(
-            user_id,
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Campaign updates completed for {ad_account_id} ({operation})"
-        )
+            return f"Campaign updates completed for Ad Account {ad_account_id} ({operation})."
 
-        return f"Campaign updates completed for Ad Account {ad_account_id} ({operation})."
+        except Exception as e:
+            error_message = f"❌ Error fetching campaigns for {ad_account_id} ({operation}): {e}"
+            logging.error(error_message)
+            append_redis_message_pages(user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {error_message}")
+            return error_message
 
-    except Exception as e:
-        error_message = f"❌ Error fetching campaigns for {ad_account_id} ({operation}): {e}"
-        logging.error(error_message)
-        append_redis_message_pages(user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {error_message}")
-        return error_message
-
-    finally:
-        if lock.locked():
-            lock.release()
-        logging.info(f"🔓 Released lock for {ad_account_id}")
+        finally:
+            if lock.locked():
+                lock.release()
+            logging.info(f"🔓 Released lock for {ad_account_id} - page {page_name}")
