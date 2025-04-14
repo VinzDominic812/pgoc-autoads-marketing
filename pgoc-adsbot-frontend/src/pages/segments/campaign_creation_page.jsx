@@ -842,7 +842,7 @@ const CampaignCreationPage = () => {
       );
   
       const result = await response.json();
-      // console.log(`RESULT: ${JSON.stringify(result,null,2)}`);
+      console.log(`RESULT: ${JSON.stringify(result,null,2)}`);
   
       if (response.ok && result.verified_accounts) {
         compareCsvWithJson(
@@ -890,7 +890,8 @@ const CampaignCreationPage = () => {
           status: "Not Verified",
           ad_account_error: "Account not found",
           access_token_error: "Account not found",
-          facebook_page_error: "Account not found"
+          facebook_page_error: "Account not found",
+          page_name: ""
         };
       }
   
@@ -905,7 +906,8 @@ const CampaignCreationPage = () => {
                ? "Verified" : "Not Verified",
         ad_account_error: jsonRow.ad_account_error || null,
         access_token_error: jsonRow.access_token_error || null,
-        facebook_page_error: jsonRow.facebook_page_error || null
+        facebook_page_error: jsonRow.facebook_page_error || null,
+        page_name: jsonRow.facebook_page_name || ""
       };
     });
   
@@ -1175,6 +1177,7 @@ const CampaignCreationPage = () => {
               "ad_account_status",
               "access_token_status",
               "facebook_page_status",
+              "page_name",
               "status",
             ]}
           />

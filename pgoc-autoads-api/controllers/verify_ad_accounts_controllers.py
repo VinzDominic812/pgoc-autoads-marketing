@@ -21,12 +21,13 @@ def get_ad_accounts(fb_user_id, access_token):
     return [acc["account_id"] for acc in response.get("data", [])], None
 
 def get_facebook_pages(facebook_page_id, access_token):
-    """Check if the access token has access to a specific Facebook page."""
-    url = f"{FACEBOOK_GRAPH_API_URL}/{facebook_page_id}?fields=id&access_token={access_token}"
+    """Check if the access token has access to a specific Facebook page and return page name."""
+    url = f"{FACEBOOK_GRAPH_API_URL}/{facebook_page_id}?fields=id,name&access_token={access_token}"
     response = requests.get(url).json()
     if "error" in response:
-        return False, response["error"]["message"]
-    return True, None
+        return False, response["error"]["message"], None
+    page_name = response.get("name", "Unknown")
+    return True, None, page_name
 
 def verify_ad_accounts(data):
     """Verify ad accounts, Facebook pages, and access tokens."""
@@ -82,7 +83,7 @@ def verify_ad_accounts(data):
             ad_account_status = "Verified" if ad_accounts and ad_account_id in ad_accounts else "Not Verified"
             ad_account_error = None if ad_account_status == "Verified" else "Ad account not associated with this access token"
 
-            facebook_page_verified, facebook_page_error = get_facebook_pages(facebook_page_id, access_token)
+            facebook_page_verified, facebook_page_error, page_name = get_facebook_pages(facebook_page_id, access_token)
             facebook_page_status = "Verified" if facebook_page_verified else "Not Verified"
 
             verified_accounts.append({
@@ -94,7 +95,8 @@ def verify_ad_accounts(data):
                 "access_token_error": None,
                 "facebook_page_id": facebook_page_id,
                 "facebook_page_status": facebook_page_status,
-                "facebook_page_error": facebook_page_error
+                "facebook_page_error": facebook_page_error,
+                "facebook_page_name": page_name
             })
 
     return jsonify({
