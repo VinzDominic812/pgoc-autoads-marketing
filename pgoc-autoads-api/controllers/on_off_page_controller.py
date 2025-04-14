@@ -1,3 +1,4 @@
+import logging
 import time
 from flask import Blueprint, request, jsonify
 import redis
@@ -13,32 +14,42 @@ redis_websocket_pn = redis.Redis(
 )
 
 def add_pagename_off(data):
-    data = request.get_json()
+    
+    if not isinstance(data, list):
+        return jsonify({"error": "Expected an array of schedules."}), 400
 
-    ad_account_id = data.get("ad_account_id")
-    user_id = data.get("user_id")
-    access_token = data.get("access_token")
-    schedule_data = data.get("schedule_data")  # This will always have one entry
+    # Loop through each schedule and process it
+    for schedule_entry in data:
+        ad_account_id = schedule_entry.get("ad_account_id")
+        user_id = schedule_entry.get("user_id")
+        access_token = schedule_entry.get("access_token")
+        schedule_data = schedule_entry.get("schedule_data")  # Each entry contains schedule_data
+        logging.info(f"Processing ad_account_id: {ad_account_id} for user_id: {user_id}")
 
-    if not (ad_account_id and user_id and access_token and schedule_data):
-        return jsonify({"error": "Missing required fields"}), 400
+        if not (ad_account_id and user_id and access_token and schedule_data):
+            return jsonify({"error": "Missing required fields in one of the schedule entries."}), 400
 
-    # Create WebSocket Redis key if it doesn’t exist
-    websocket_key = f"{user_id}-key"
-    if not redis_websocket_pn.exists(websocket_key):
-        redis_websocket_pn.set(websocket_key, json.dumps({"message": ["User-Id Created"]}))
+        # Create WebSocket Redis key if it doesn’t exist
+        websocket_key = f"{user_id}-key"
+        if not redis_websocket_pn.exists(websocket_key):
+            redis_websocket_pn.set(websocket_key, json.dumps({"message": ["User-Id Created"]}))
+            logging.info(f"Created Redis key for user_id: {user_id} with initial message.")
 
-    # Since every call has only one schedule, directly process it
-    schedule = schedule_data[0]
-    page_name = schedule.get("page_name")
+        # Process each schedule in the schedule_data array
+        for schedule in schedule_data:
+            page_name = schedule.get("page_name")
+            logging.info(f"Processing page_names: {page_name}")
 
-    if not page_name or not isinstance(page_name, str):
-        return jsonify({"error": "Invalid or missing 'page_name'. It should be a non-empty string."}), 400
+            if not page_name or not isinstance(page_name, list) or len(page_name) == 0:
+                return jsonify({"error": "Invalid or missing 'page_name'. It should be a non-empty list of strings."}), 400
 
-    if schedule["on_off"] not in ["ON", "OFF"]:
-        return jsonify({"error": f"Invalid on_off value for '{page_name}'. Use 'ON' or 'OFF'."}), 400
+            if schedule["on_off"] not in ["ON", "OFF"]:
+                return jsonify({"error": f"Invalid on_off value for '{page_name}'. Use 'ON' or 'OFF'."}), 400
 
-    # Introduce a delay before calling Celery Task (delay of 3 seconds)
-    fetch_campaign_off.apply_async(args=[user_id, ad_account_id, access_token, schedule_data[0]], countdown=2)
+            # Introduce a delay before calling Celery Task (delay of 3 seconds)
+            logging.info(f"Scheduling fetch_campaign_off for user_id: {user_id}, ad_account_id: {ad_account_id}, page_name: {page_name} with on_off value: {schedule['on_off']}")
+            fetch_campaign_off.apply_async(args=[user_id, ad_account_id, access_token, schedule], countdown=2)
+            logging.info(f"Scheduled task for page_name: {page_name} with delay.")
 
-    return jsonify({"message": "Schedule will be processed after a short delay."}), 201
+    logging.info(f"All schedules processed, responding with success message.")
+    return jsonify({"message": "Schedules will be processed after a short delay."}), 201

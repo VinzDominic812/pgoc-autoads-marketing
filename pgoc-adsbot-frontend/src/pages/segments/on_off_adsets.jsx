@@ -459,7 +459,6 @@ const OnOffAdsets = () => {
   
     event.target.value = "";
   };
-  
 
   const statusRenderers = {
     ad_account_status: (value, row) => (
