@@ -37,7 +37,6 @@ import CampaignCreationTerminal from "../widgets/campaign_creation_widgets/campa
 const REQUIRED_HEADERS = [
   "ad_account_id",
   "access_token",
-  "page_name",
   "facebook_page_id",
   "sku",
   "material_code",
@@ -476,7 +475,6 @@ const CampaignCreationPage = () => {
       [
         "ad_account_id",
         "access_token",
-        "page_name",
         "sku",
         "material_code",
         "interests_list",
@@ -492,7 +490,6 @@ const CampaignCreationPage = () => {
         "excluded_ph_region",
       ],
       [
-        "'",
         "'",
         "'",
         "'",
