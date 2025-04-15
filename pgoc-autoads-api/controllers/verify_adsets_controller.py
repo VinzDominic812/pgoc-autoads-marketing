@@ -12,13 +12,13 @@ def get_facebook_user_id(access_token):
         return None, response["error"]["message"]
     return response["id"], None
 
-def get_ad_accounts(fb_user_id, access_token):
-    """Get associated ad accounts for the Facebook user ID."""
-    url = f"{FACEBOOK_GRAPH_API_URL}/{fb_user_id}/adaccounts?access_token={access_token}"
+def get_ad_accounts(ad_account_id, access_token):
+    """Check if the access token has access to a specific ad account."""
+    url = f"{FACEBOOK_GRAPH_API_URL}/act_{ad_account_id}?access_token={access_token}"
     response = requests.get(url).json()
     if "error" in response:
-        return None, response["error"]["message"]
-    return [acc["account_id"] for acc in response.get("data", [])], None
+        return False, response["error"]["message"]
+    return True, None
 
 def verify_ad_accounts(data):
     """Verify ad accounts and access tokens."""
@@ -66,24 +66,32 @@ def verify_ad_accounts(data):
             continue
 
         # Verify the ad account
-        ad_accounts, ad_error = get_ad_accounts(fb_user_id, access_token)
-
         for campaign in campaign_list:
             ad_account_id = campaign["ad_account_id"]
+            ad_account_verified, ad_account_error = get_ad_accounts(ad_account_id, access_token)
 
-            ad_account_status = "Verified" if ad_accounts and ad_account_id in ad_accounts else "Not Verified"
-            ad_account_error = None if ad_account_status == "Verified" else "Ad account not associated with this access token"
-
-            # Append the results for each campaign
-            verified_accounts.append({
-                "ad_account_id": ad_account_id,
-                "ad_account_status": ad_account_status,
-                "ad_account_error": ad_account_error,
-                "access_token": access_token,
-                "access_token_status": "Verified",
-                "access_token_error": None,
-                "schedule_data": campaign["schedule_data"]
-            })
+            # If the ad account is not accessible, append an error to the result
+            if not ad_account_verified:
+                verified_accounts.append({
+                    "ad_account_id": ad_account_id,
+                    "ad_account_status": "Not Verified",
+                    "ad_account_error": ad_account_error,
+                    "access_token": access_token,
+                    "access_token_status": "Verified",  # Assuming the token itself is valid
+                    "access_token_error": None,
+                    "schedule_data": campaign["schedule_data"]
+                })
+            else:
+                # If the ad account is accessible, mark it as verified
+                verified_accounts.append({
+                    "ad_account_id": ad_account_id,
+                    "ad_account_status": "Verified",
+                    "ad_account_error": None,
+                    "access_token": access_token,
+                    "access_token_status": "Verified",
+                    "access_token_error": None,
+                    "schedule_data": campaign["schedule_data"]
+                })
 
     return jsonify({
         "user_id": user_id,

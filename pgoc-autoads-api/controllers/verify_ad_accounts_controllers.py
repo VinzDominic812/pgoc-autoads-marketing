@@ -12,13 +12,13 @@ def get_facebook_user_id(access_token):
         return None, response["error"]["message"]
     return response["id"], None
 
-def get_ad_accounts(fb_user_id, access_token):
-    """Get associated ad accounts for the Facebook user ID."""
-    url = f"{FACEBOOK_GRAPH_API_URL}/{fb_user_id}/adaccounts?access_token={access_token}"
+def get_ad_accounts(ad_account_id, access_token):
+    """Check if the access token has access to a specific ad account."""
+    url = f"{FACEBOOK_GRAPH_API_URL}/act_{ad_account_id}?access_token={access_token}"
     response = requests.get(url).json()
     if "error" in response:
-        return None, response["error"]["message"]
-    return [acc["account_id"] for acc in response.get("data", [])], None
+        return False, response["error"]["message"]
+    return True, None
 
 def get_facebook_pages(facebook_page_id, access_token):
     """Check if the access token has access to a specific Facebook page and return page name."""
@@ -74,15 +74,16 @@ def verify_ad_accounts(data):
         if not fb_user_id:
             continue
 
-        ad_accounts, ad_error = get_ad_accounts(fb_user_id, access_token)
-
         for campaign in campaign_list:
             ad_account_id = campaign["ad_account_id"]
             facebook_page_id = campaign["facebook_page_id"]
 
-            ad_account_status = "Verified" if ad_accounts and ad_account_id in ad_accounts else "Not Verified"
+            # Verify ad account access
+            ad_account_verified, ad_account_error = get_ad_accounts(ad_account_id, access_token)
+            ad_account_status = "Verified" if ad_account_verified else "Not Verified"
             ad_account_error = None if ad_account_status == "Verified" else "Ad account not associated with this access token"
 
+            # Verify Facebook page access
             facebook_page_verified, facebook_page_error, page_name = get_facebook_pages(facebook_page_id, access_token)
             facebook_page_status = "Verified" if facebook_page_verified else "Not Verified"
 

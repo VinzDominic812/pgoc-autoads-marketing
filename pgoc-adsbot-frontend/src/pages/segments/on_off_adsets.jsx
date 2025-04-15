@@ -515,7 +515,7 @@ const OnOffAdsets = () => {
         ]);
 
         try {
-          const response = await fetch(`${apiUrl}/api/v1/OnOff/adsets`, {
+          const response = await fetch(`${apiUrl}/api/v1/onoff/adsets`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",

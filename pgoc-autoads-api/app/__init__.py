@@ -149,9 +149,9 @@ def create_app():
     app.register_blueprint(verify_scheduled_bp, url_prefix="/api/v1/verify")
     app.register_blueprint(export_region_bp)
     app.register_blueprint(message_events_blueprint, url_prefix="/api/v1")
-    app.register_blueprint(campaign_on_off, url_prefix="/api/v1/OnOff")
-    app.register_blueprint(adsets_on_off, url_prefix="/api/v1/OnOff")
-    app.register_blueprint(pagename_on_off, url_prefix="/api/v1/OnOff")
+    app.register_blueprint(campaign_on_off, url_prefix="/api/v1/onoff")
+    app.register_blueprint(adsets_on_off, url_prefix="/api/v1/onoff")
+    app.register_blueprint(pagename_on_off, url_prefix="/api/v1/onoff")
     app.register_blueprint(schedule_campaign_only_bp, url_prefix="/api/v1/campaign-only")
     app.register_blueprint(ad_spent_bp,url_prefix='/api/v1/')
 

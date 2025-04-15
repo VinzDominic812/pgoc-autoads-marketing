@@ -500,7 +500,7 @@ const PageOnOFFPage = () => {
           `[${getCurrentTime()}] ⏳ Processing campaign for page: ${page_name}`,
         ]);
   
-        const response = await fetch(`${apiUrl}/api/v1/OnOff/pagename`, {
+        const response = await fetch(`${apiUrl}/api/v1/onoff/pagename`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
