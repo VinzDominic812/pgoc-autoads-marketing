@@ -774,7 +774,7 @@ const CampaignCreationPage = () => {
     try {
       // Split by " / " to separate different groups
       const groups = interestsString
-        .split(" / ")
+        .split("/")
         .map((group) => group.trim())
         .filter((group) => group.length > 0 && group !== "[]");
 
