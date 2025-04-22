@@ -10,6 +10,7 @@ import {
   Tooltip,
   IconButton,
 } from "@mui/material";
+import axios from "axios";
 
 import WidgetCard from "../components/widget_card";
 import DynamicTable from "../components/dynamic_table";
@@ -40,6 +41,7 @@ const REQUIRED_HEADERS = [
   "facebook_page_id",
   "sku",
   "material_code",
+  "campaign_code",
   "interests_list",
   "daily_budget",
   "video_url",
@@ -73,6 +75,7 @@ const CampaignCreationPage = () => {
     "page_name",
     "sku",
     "material_code",
+    "campaign_code",
     "interests_list",
     "daily_budget",
     "video_url",
@@ -475,11 +478,12 @@ const CampaignCreationPage = () => {
       [
         "ad_account_id",
         "access_token",
+        "facebook_page_id",
         "sku",
         "material_code",
+        "campaign_code",
         "interests_list",
         "daily_budget",
-        "facebook_page_id",
         "video_url",
         "headline",
         "primary_text",
@@ -494,8 +498,9 @@ const CampaignCreationPage = () => {
         "'",
         "'",
         "'",
-        `"[] / Interest1, Interest2, Interest3 / Interest4, Interest5, Interest6"`,
         "'",
+        "'",
+        `"[] / Interest1, Interest2, Interest3 / Interest4, Interest5, Interest6"`,
         "'",
         "'",
         "'",
@@ -573,210 +578,226 @@ const CampaignCreationPage = () => {
   const handleFileChange = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
+  
     const reader = new FileReader();
-
+  
     reader.onload = (e) => {
       const fileContent = e.target?.result;
-
+  
       Papa.parse(fileContent, {
-        complete: (result) => {
-          // console.log("Parsed CSV Data:", result.data);
+        complete: async (result) => {
           const csvData = result.data;
-
+          console.log(`formattedData:\n${JSON.stringify(csvData, null, 2)}`);
+  
           if (csvData.length > 1) {
-            const headers = csvData[0].map((header) => header.trim()); // Trim headers
-
+            const headers = csvData[0].map((header) => header.trim().toLowerCase().replace(/\s+/g, "_"));
+            console.log("🧠 Headers:", headers);
             const formattedData = csvData.slice(1).map((row) =>
               headers.reduce((acc, header, index) => {
-                acc[header] = row[index]?.trim() || ""; // Trim values & handle empty cells
+                acc[header] = row[index]?.trim() || "";
                 return acc;
               }, {})
             );
-
-            // Debugging: Check interests_list field before parsing
-            formattedData.forEach((item) => {
-              // console.log(
-              //   "Raw interests_list from CSV:",
-              //   item["interests_list"]
-              // );
-              // console.log(
-              //   "Raw excluded_ph_region from CSV:",
-              //   item["excluded_ph_region"]
-              // );
-              item["interests_list"] = parseInterestsList(
-                item["interests_list"]
-              );
-              item["excluded_ph_region"] = parseExcludedPHRegion(
-                item["excluded_ph_region"]
-              );
+  
+            // Pre-process fields
+            formattedData.forEach((item, i) => {
+              console.log(`Row ${i}:`, item.campaign_code);
+              item["interests_list"] = parseInterestsList(item["interests_list"]);
+              item["excluded_ph_region"] = parseExcludedPHRegion(item["excluded_ph_region"]);
             });
-
+  
             setTableData(formattedData);
-            //console.log(`formatted data: ${JSON.stringify(formattedData,null,2)}`);
+
+            const campaignCodes = formattedData
+              .map((item) => item["campaign_code"])
+              .filter((code) => code)
+
+            verifyCampaignCodes(campaignCodes, addMessage);
             verifyAdAccounts(formattedData);
+            console.log("🚀 Final Payload Preview:", JSON.stringify(formattedData, null, 2));
           }
         },
         header: false,
         skipEmptyLines: true,
       });
     };
-
+  
     reader.readAsText(file, "UTF-8");
-  };
+  };  
 
   const handleRunCampaigns = async () => {
     if (isRunningRef.current) return; // Prevent duplicate execution
     isRunningRef.current = true;
-
+  
     const campaignApiUrl = isAi
       ? `${apiUrl}/api/v1/campaign/create-campaigns-ai`
       : `${apiUrl}/api/v1/campaign/create-campaigns`;
-
+  
     const verifiedCampaigns = tableData.filter(
       (row) => row.status === "Verified"
     );
-
+  
     if (verifiedCampaigns.length === 0) {
       notify("No verified campaigns available to run.", "error");
       isRunningRef.current = false;
       return;
     }
-
+  
     setIsRunning(true);
     addMessage(["Running verified campaigns..."]);
-
-    // console.log(
-    //   "✅ Verified Campaigns:",
-    //   JSON.stringify(verifiedCampaigns, null, 2)
-    // );
-
-    for await (const [index, row] of verifiedCampaigns.entries()) {
-      // console.log(
-      //   `🔄 Processing verified row ${index + 1}/${verifiedCampaigns.length}:`,
-      //   row
-      // );
-
-      let parsedInterests = row["interests_list"];
-      let parsedExcludedRegions = row["excluded_ph_region"];
-
-      if (typeof parsedInterests === "string") {
-        try {
-          parsedInterests = JSON.parse(parsedInterests);
-        } catch (error) {
-          console.error(
-            "❌ Error parsing interests_list:",
-            parsedInterests,
-            error
-          );
-          parsedInterests = [[]]; // Default to an empty array if parsing fails
-        }
+  
+    // Check if all campaign_codes are valid
+    const campaignCodes = verifiedCampaigns.map((row) => row["campaign_code"]);
+    const invalidCampaignCodes = [];
+  
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/verify/campaign-code`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          user_id: 1, // assuming user_id is 1 or get the correct user_id
+          campaign_codes: campaignCodes,
+        }),
+      });
+  
+      if (!response.ok) {
+        addMessage(["❌ Error while validating campaign codes."]);
+        isRunningRef.current = false;
+        setIsRunning(false);
+        return;
       }
-
-      const { id } = getUserData();
-
-      const requestBody = {
-        user_id: id,
-        campaigns: [
-          {
-            ad_account_id: row["ad_account_id"],
-            access_token: row["access_token"],
-            page_name: row["page_name"],
-            sku: row["sku"],
-            material_code: row["material_code"],
-            daily_budget: parseInt(row["daily_budget"], 10) || 0,
-            facebook_page_id: row["facebook_page_id"],
-            video_url: row["video_url"],
-            headline: row["headline"],
-            primary_text: row["primary_text"],
-            image_url: row["image_url"],
-            product: row["product"],
-            interests_list: parsedInterests,
-            exclude_ph_region: parsedExcludedRegions,
-            start_date: row["start_date"],
-            start_time: row["start_time"],
-          },
-        ],
-      };
-
-      // console.log(`Campaign Data : ${JSON.stringify(requestBody)}`);
-
-      try {
-        const response = await fetch(campaignApiUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            skip_zrok_interstitial: "true",
-          },
-          body: JSON.stringify(requestBody),
-        });
-
-        const contentType = response.headers.get("Content-Type");
-
-        if (!response.ok) {
-          addMessage([
-            `❌ Failed to create campaign for SKU ${row["sku"]} (Status: ${response.status})`,
-          ]);
-          // console.log(`❌ Response Body: ${JSON.stringify(response)}`);
-          continue;
-        }
-
-        if (contentType && contentType.includes("application/json")) {
-          const responseBody = await response.json();
-          addMessage([
-            `✅ Response for SKU ${row["sku"]}: Status ${response.status}`,
-          ]);
-
-          if (responseBody.tasks && responseBody.tasks.length > 0) {
-            // console.log("📌 Response Body:", responseBody);
-            addMessage([
-              `Task Created: ${responseBody.tasks[0].campaign_name} - Status: ${
-                responseBody.tasks[0].status
-              } - Message: ${JSON.stringify(responseBody.tasks[0])}`,
-            ]);
-          } else {
-            addMessage([
-              `⚠️ No task information available for SKU ${row["sku"]}.`,
-            ]);
+  
+      const result = await response.json();
+      const { missing_codes } = result;
+  
+      if (missing_codes.length > 0) {
+        // Identify which campaigns are invalid
+        invalidCampaignCodes.push(...missing_codes);
+        addMessage([`❌ The following campaign codes are missing: ${missing_codes.join(", ")}`]);
+      }
+  
+      // Filter out the campaigns that have invalid campaign codes
+      const validCampaigns = verifiedCampaigns.filter(
+        (row) => !invalidCampaignCodes.includes(row["campaign_code"])
+      );
+  
+      // If no valid campaigns are left, notify the user and exit
+      if (validCampaigns.length === 0) {
+        addMessage(["❌ No valid campaigns to run. All campaigns had invalid campaign codes."]);
+        isRunningRef.current = false;
+        setIsRunning(false);
+        return;
+      }
+  
+      // Process the valid campaigns
+      for await (const [index, row] of validCampaigns.entries()) {
+        let parsedInterests = row["interests_list"];
+        let parsedExcludedRegions = row["excluded_ph_region"];
+  
+        if (typeof parsedInterests === "string") {
+          try {
+            parsedInterests = JSON.parse(parsedInterests);
+          } catch (error) {
+            console.error(
+              "❌ Error parsing interests_list:",
+              parsedInterests,
+              error
+            );
+            parsedInterests = [[]]; // Default to an empty array if parsing fails
           }
-        } else {
-          const textResponse = await response.text();
-          addMessage([
-            `Error: Expected JSON but received for SKU ${
-              row["sku"]
-            }: ${JSON.stringify(textResponse)}`,
-          ]);
         }
-      } catch (error) {
-        if (error instanceof Error) {
-          addMessage([`❌ Error for SKU ${row["sku"]}: ${error.message}`]);
-        } else {
-          addMessage([`❌ Unknown error occurred for SKU ${row["sku"]}`]);
+  
+        const { id } = getUserData();
+  
+        const requestBody = {
+          user_id: id,
+          campaigns: [
+            {
+              ad_account_id: row["ad_account_id"],
+              access_token: row["access_token"],
+              page_name: row["page_name"],
+              sku: row["sku"],
+              material_code: row["material_code"],
+              campaign_code: row["campaign_code"],
+              daily_budget: parseInt(row["daily_budget"], 10) || 0,
+              facebook_page_id: row["facebook_page_id"],
+              video_url: row["video_url"],
+              headline: row["headline"],
+              primary_text: row["primary_text"],
+              image_url: row["image_url"],
+              product: row["product"],
+              interests_list: parsedInterests,
+              exclude_ph_region: parsedExcludedRegions,
+              start_date: row["start_date"],
+              start_time: row["start_time"],
+            },
+          ],
+        };
+  
+        try {
+          const response = await fetch(campaignApiUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              skip_zrok_interstitial: "true",
+            },
+            body: JSON.stringify(requestBody),
+          });
+  
+          const contentType = response.headers.get("Content-Type");
+  
+          if (!response.ok) {
+            addMessage([`❌ Failed to create campaign for SKU ${row["sku"]} (Status: ${response.status})`]);
+            continue;
+          }
+  
+          if (contentType && contentType.includes("application/json")) {
+            const responseBody = await response.json();
+            addMessage([`✅ Response for SKU ${row["sku"]}: Status ${response.status}`]);
+  
+            if (responseBody.tasks && responseBody.tasks.length > 0) {
+              addMessage([`Task Created: ${responseBody.tasks[0].campaign_name} - Status: ${responseBody.tasks[0].status} - Message: ${JSON.stringify(responseBody.tasks[0])}`]);
+            } else {
+              addMessage([`⚠️ No task information available for SKU ${row["sku"]}.`]);
+            }
+          } else {
+            const textResponse = await response.text();
+            addMessage([`Error: Expected JSON but received for SKU ${row["sku"]}: ${JSON.stringify(textResponse)}`]);
+          }
+        } catch (error) {
+          if (error instanceof Error) {
+            addMessage([`❌ Error for SKU ${row["sku"]}: ${error.message}`]);
+          } else {
+            addMessage([`❌ Unknown error occurred for SKU ${row["sku"]}`]);
+          }
         }
       }
-
-      // console.log(`✅ FINISHED Processing row ${index + 1}`);
+  
+      setIsRunning(false);
+      isRunningRef.current = false;
+  
+      addMessage(["✅ All valid campaigns have been created successfully!"]);
+  
+    } catch (error) {
+      console.error("Error validating campaign codes:", error);
+      addMessage(["❌ Error occurred while validating campaign codes."]);
+      setIsRunning(false);
+      isRunningRef.current = false;
     }
-
-    setIsRunning(false);
-    isRunningRef.current = false;
-
-    addMessage([
-      "✅ All verified campaigns have been created successfully!",
-    ]);
-  };
+  };  
 
   const parseInterestsList = (interestsString) => {
     if (!interestsString || interestsString.trim() === "") return [[]];
 
-    // console.log("📌 Raw interests_list before processing:", interestsString);
+    console.log("📌 Raw interests_list before processing:", interestsString);
 
     try {
-      // Split by " / " to separate different groups
+      // Split by "/" to separate different groups
       const groups = interestsString
         .split("/")
-        .map((group) => group.trim())
-        .filter((group) => group.length > 0 && group !== "[]");
+        .map((group) => group.trim());
 
       // Convert each group into an array of interests
       const parsedArray = groups.map((group) =>
@@ -786,7 +807,7 @@ const CampaignCreationPage = () => {
           .filter(Boolean)
       );
 
-      // console.log("✅ Formatted interests_list:", parsedArray);
+      console.log("✅ Formatted interests_list:", parsedArray);
       return parsedArray.length ? parsedArray : [[]]; // Ensure it's always a nested array
     } catch (error) {
       // console.error("❌ Error parsing interests_list:", interestsString, error);
@@ -957,6 +978,52 @@ const CampaignCreationPage = () => {
     return <span>{status}</span>;
   };
 
+  const verifyCampaignCodes = async (campaignCodes, addMessage) => {
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/verify/campaign-code`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ user_id: 1, campaign_codes: campaignCodes }), // Pass in the user_id and the campaign_codes
+      });
+  
+      const result = await response.json();
+      console.log(`RESULT: ${JSON.stringify(result, null, 2)}`);
+  
+      if (response.ok) {
+        const { existing_codes, missing_codes } = result;
+  
+        if (existing_codes.length > 0) {
+          console.log(`✅ Existing campaign codes: ${existing_codes.join(", ")}`);
+        }
+  
+        if (missing_codes.length > 0) {
+          // You could also show the missing codes in the UI if needed
+          console.warn(`❌ Missing campaign codes: ${missing_codes.join(", ")}`);
+        }
+  
+        // Handle the result and update the UI or table data
+        if (addMessage) {
+          addMessage([
+            `[${getCurrentTime()}] Verified campaign codes: ${existing_codes.length} found, ${missing_codes.length} missing.`,
+          ]);
+        }
+      } else {
+        const errorMsg = result.message || "An error occurred while verifying campaign codes.";
+        console.warn("⚠️", errorMsg);
+        if (addMessage) {
+          addMessage([`⚠️ ${errorMsg}`]);
+        }
+      }
+    } catch (error) {
+      console.error("Error verifying campaign codes:", error);
+      if (addMessage) {
+        addMessage([`❌ Failed to verify campaign codes: ${error.message}`]);
+      }
+    }
+  };
+
   return (
     <Box
       sx={{
@@ -1118,17 +1185,17 @@ const CampaignCreationPage = () => {
             </li>
             <ul style={{ paddingLeft: 16, margin: 4 }}>
               <li>
-                ✅ Use <code>/</code> as a delimiter between interest groups.
+                ✅ Use <code>"/"</code> as a delimiter between interest groups.
               </li>
               <li>
                 📌 Example:{" "}
                 <code>
-                  [] / Interest1, Interest2, Interest3 / Interest4, Interest5
+                  /Interest1, Interest2, Interest3/Interest4, Interest5
                 </code>
               </li>
               <li>
                 📌 Example:{" "}
-                <code>[] / Davao, Mimaropa, Calabarzon / Ilocos, Davao</code>
+                <code>/Davao, Mimaropa, Calabarzon/Ilocos, Davao</code>
               </li>
               <li>
                 ❗ If all ad sets share the same excluded regions, omit
@@ -1138,7 +1205,7 @@ const CampaignCreationPage = () => {
                 ⚠️ If only PH, leave blank or use <code>[]</code>.
               </li>
               <li>
-                🆓 Empty Interest List: Use <code>[]</code> or <code>/ /</code>{" "}
+                🆓 Empty Interest List: Use <code>[]</code> or <code>//</code>{" "}
                 (space).
               </li>
             </ul>
@@ -1156,7 +1223,7 @@ const CampaignCreationPage = () => {
 
       {/* Second Row (Dynamic Table) */}
       <Box sx={{ flex: 1 }}>
-        <WidgetCard title="Main Section" height="83.1%">
+        <WidgetCard title="Main Section" height="96%">
           <DynamicTable
             headers={headers}
             data={tableData}

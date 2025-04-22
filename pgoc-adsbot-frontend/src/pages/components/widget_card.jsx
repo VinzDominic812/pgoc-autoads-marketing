@@ -7,7 +7,7 @@ const WidgetCard = ({ title, height, width, children }) => {
       elevation={3}
       sx={{
         width: width || "100%", // Ensures full width inside grid
-        height: height || "650px", // Default height is 650px, can be customized
+        height: height || "800px", // Default height is 650px, can be customized
         backgroundColor: "#FFFFFF", // White background
         borderRadius: "12px", // Modern rounded corners
         boxShadow: "0px 6px 12px rgba(0, 0, 0, 0.1)", // Softer shadow for a sleek look

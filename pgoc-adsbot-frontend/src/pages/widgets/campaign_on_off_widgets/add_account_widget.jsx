@@ -13,6 +13,7 @@ import {
   Box,
   Grid,
   Typography,
+  CircularProgress,
 } from "@mui/material";
 import { AddCircleOutline, RemoveCircleOutline } from "@mui/icons-material";
 import CustomButton from "../../components/buttons";
@@ -55,6 +56,8 @@ const menuProps = {
 };
 
 const AddAdAccountWidget = ({ open, handleClose, fetchSchedules}) => {
+  const [campaignTypes, setCampaignTypes] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [adAccountId, setAdAccountId] = useState("");
   const [accessToken, setAccessToken] = useState("");
   const [scheduleData, setScheduleData] = useState([
@@ -67,6 +70,25 @@ const AddAdAccountWidget = ({ open, handleClose, fetchSchedules}) => {
       on_off: "",
     },
   ]);
+
+  const { id: uid } = getUserData();
+  
+  useEffect(() => {
+    const fetchCampaignTypes = async () => {
+      setLoading(true);
+      try {
+        const response = await fetch(`${apiUrl}/api/v1/user/${uid}/campaign-codes`); // Fetch campaign codes from your backend
+        const data = await response.json();
+        setCampaignTypes(data.data);  // Set the 'data' array from the response to state
+      } catch (error) {
+        console.error("Error fetching campaign types:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCampaignTypes();
+  }, [uid]);
 
   const lastScheduleRefs = useRef([]);
 
@@ -283,15 +305,25 @@ const AddAdAccountWidget = ({ open, handleClose, fetchSchedules}) => {
                 Campaign Type
               </InputLabel>
               <Select
-                value={schedule.campaign_type}
-                onChange={(e) =>
-                  handleScheduleChange(index, "campaign_type", e.target.value)
+                value={scheduleData[0].campaign_type} // Use the correct schedule data index here
+                onChange={
+                  (e) =>
+                    handleScheduleChange(0, "campaign_type", e.target.value) // Change index as needed
                 }
                 sx={selectStyles}
                 MenuProps={menuProps}
               >
-                <MenuItem value="TEST">TEST (so1) </MenuItem>
-                <MenuItem value="REGULAR">REGULAR (so2) </MenuItem>
+                {loading ? (
+                  <MenuItem disabled>
+                    <CircularProgress size={24} />
+                  </MenuItem>
+                ) : (
+                  campaignTypes.map((type) => (
+                    <MenuItem key={type.id} value={type.campaign_code}>
+                      {type.campaign_code}
+                    </MenuItem>
+                  ))
+                )}
               </Select>
             </FormControl>
 

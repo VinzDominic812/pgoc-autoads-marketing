@@ -43,6 +43,7 @@ class Campaign(db.Model):
     page_name = db.Column(db.String(255))
     sku = db.Column(db.String(50))
     material_code = db.Column(db.String(50))
+    campaign_code = db.Column(db.String(50))
     daily_budget = db.Column(db.Float)
     facebook_page_id = db.Column(db.String(50))
     video_url = db.Column(db.String(255))
@@ -89,7 +90,6 @@ class CampaignOffOnly(db.Model):
     last_check_message = db.Column(db.Text, nullable=True)  # Tracks last check status message
     task_id = db.Column(db.String(255), nullable=True)  # Celery task tracking
 
-
 class PHRegionTable(db.Model):
     __tablename__ = "ph_region_tables"
 
@@ -97,3 +97,12 @@ class PHRegionTable(db.Model):
     region_name = db.Column(db.String(100), nullable=False)
     region_key = db.Column(db.Integer, unique=True, nullable=False)
     country_code = db.Column(db.String(10), nullable=False, default="PH")
+
+class CampaignCode(db.Model):
+    __tablename__ = 'tbl_campaign_code'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.BigInteger, ForeignKey('marketing_users.id'), nullable=False)  # Foreign key to marketing_users table
+    campaign_code = db.Column(db.String(5), nullable=False)  # Campaign code with a maximum length of 5 characters
+
+    user = db.relationship('User', backref=db.backref('campaign_codes', lazy=True))  # Relationship with User model

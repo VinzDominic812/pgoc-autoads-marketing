@@ -197,12 +197,14 @@ from workers.on_off_functions.create_campaign_message import append_redis_messag
 
 @shared_task(bind=True)
 def create_simple_campaign_task(self, ad_account_id, user_id, access_token, campaign_id, campaign_name, page_name,
-                                facebook_page_id, sku, material_code, daily_budget, headline, primary_text,
+                                facebook_page_id, sku, material_code, campaign_code, daily_budget, headline, primary_text,
                                 product, video_url, image_url, interests_list, start_time, adset_excluded_regions):
+    print(f"📦 Received campaign_code: {campaign_code}")
     try:
 
         logging.info("Fetching campaign data from CSV...")
         append_redis_message_create_campaigns(user_id, f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Fetching campaign data from CSV...")
+
 
         # Log campaign details
         logging.info(f"Processing campaign: {campaign_name} (ID: {campaign_id}) for Ad Account: {ad_account_id}")
@@ -223,6 +225,7 @@ def create_simple_campaign_task(self, ad_account_id, user_id, access_token, camp
         logging.info(f"🚀 {initial_message}")
 
         append_redis_message_create_campaigns(user_id, initial_message)
+        upsert_campaign_data(user_id, ad_account_id, campaign_id, last_server_messages="...", status="Generating")
         upsert_campaign_data(user_id, ad_account_id, campaign_id, last_server_messages=initial_message, status="Generating")
 
         # Handle video upload if a URL is provided

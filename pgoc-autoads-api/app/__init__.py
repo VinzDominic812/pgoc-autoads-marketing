@@ -22,6 +22,8 @@ from routes.on_off_campaign_name import campaign_on_off
 from routes.on_off_adsets_route import adsets_on_off
 from routes.on_off_page_route import pagename_on_off
 from routes.ad_spend_route import ad_spent_bp
+from routes.user_settings_route import user_routes
+from routes.verify_campaign_code_route import verify_campaign_code
 
 import logging
 from flask_mail import Mail
@@ -147,13 +149,16 @@ def create_app():
     app.register_blueprint(verify_adsets_accounts_bp, url_prefix="/api/v1/verify")
     app.register_blueprint(verify_page_name_bp, url_prefix="/api/v1/verify")
     app.register_blueprint(verify_scheduled_bp, url_prefix="/api/v1/verify")
+    app.register_blueprint(verify_campaign_code, url_prefix="/api/v1/verify")
     app.register_blueprint(export_region_bp)
     app.register_blueprint(message_events_blueprint, url_prefix="/api/v1")
     app.register_blueprint(campaign_on_off, url_prefix="/api/v1/onoff")
     app.register_blueprint(adsets_on_off, url_prefix="/api/v1/onoff")
     app.register_blueprint(pagename_on_off, url_prefix="/api/v1/onoff")
     app.register_blueprint(schedule_campaign_only_bp, url_prefix="/api/v1/campaign-only")
-    app.register_blueprint(ad_spent_bp,url_prefix='/api/v1/')
+    app.register_blueprint(ad_spent_bp, url_prefix='/api/v1')
+    app.register_blueprint(user_routes, url_prefix='/api/v1')
+    
 
     return app
 

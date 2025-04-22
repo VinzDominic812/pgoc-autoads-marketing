@@ -25,7 +25,9 @@ const DynamicTable = ({
   // onSelectedChange,
   nonEditableHeaders = [],
   customRenderers = {}, //icons
+  compact = false,
 }) => {
+  
   const [page, setPage] = useState(1);
   const [selectedRows, setSelectedRows] = useState(new Map());
   const [editedData, setEditedData] = useState(data);
@@ -130,7 +132,7 @@ const DynamicTable = ({
       }}
     >
       {/* Table with Horizontal Scroll */}
-      <TableContainer sx={{ flexGrow: 1, overflowY: "auto", maxWidth: "100%", }}>
+      <TableContainer sx={{ flexGrow: 1, overflowY: "auto", maxWidth: "100%" }}>
         <Table stickyHeader sx={{ minWidth: "800px", tableLayout: "fixed" }}>
           <TableHead>
             <TableRow sx={{ height: "30px" }}>
@@ -179,10 +181,10 @@ const DynamicTable = ({
                   sx={{
                     backgroundColor: "#d32f2f",
                     color: "white",
-                    fontSize: "14px",
+                    fontSize: compact ? "12px" : "14px",
                     fontWeight: "bold",
                     textAlign: "center",
-                    padding: "8px",
+                    padding: compact ? "4px" : "8px",
                     whiteSpace: "nowrap",
                     width: "150px",
                   }}
@@ -227,11 +229,11 @@ const DynamicTable = ({
                     key={colIndex}
                     sx={{
                       textAlign: "center",
-                      fontSize: "13px",
+                      fontSize: compact ? "12px" : "13px",
                       whiteSpace: "nowrap",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
-                      padding: "8px",
+                      padding: compact ? "4px" : "8px",
                       width: "150px",
                       cursor: "pointer",
                     }}
