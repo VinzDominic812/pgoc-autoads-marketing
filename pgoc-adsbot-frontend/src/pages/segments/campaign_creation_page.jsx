@@ -790,28 +790,27 @@ const CampaignCreationPage = () => {
 
   const parseInterestsList = (interestsString) => {
     if (!interestsString || interestsString.trim() === "") return [[]];
-
+  
     console.log("📌 Raw interests_list before processing:", interestsString);
-
+  
     try {
-      // Split by "/" to separate different groups
-      const groups = interestsString
-        .split("/")
-        .map((group) => group.trim());
-
-      // Convert each group into an array of interests
-      const parsedArray = groups.map((group) =>
-        group
+      const groups = interestsString.split("/").map((group) => group.trim());
+  
+      const parsedArray = groups.map((group) => {
+        // Preserve "[]" as empty array to represent Broad
+        if (group === "[]" || group === "") return [];
+  
+        return group
           .split(",")
           .map((interest) => interest.trim())
-          .filter(Boolean)
-      );
-
-      console.log("✅ Formatted interests_list:", parsedArray);
-      return parsedArray.length ? parsedArray : [[]]; // Ensure it's always a nested array
+          .filter(Boolean);
+      });
+  
+      console.log("✅ Final parsed interests_list:", parsedArray);
+      return parsedArray.length ? parsedArray : [[]];
     } catch (error) {
-      // console.error("❌ Error parsing interests_list:", interestsString, error);
-      return [[]]; // Default to empty nested array on failure
+      console.error("❌ Error parsing interests_list:", error);
+      return [[]]; // fallback
     }
   };
 
