@@ -60,6 +60,7 @@ const OnOffAdsets = () => {
   const [selectedAdsetsData, setSelectedAdsetsData] = useState([]); // Store selected data
   const [messages, setMessages] = useState([]); // Ensure it's an array
   const [missingCampaignCodes, setMissingCampaignCodes] = useState(false);
+  const [verifiedCampaignCodes, setVerifiedCampaignCodes] = useState([]);
   const fileInputRef = useRef(null);
   const eventSourceRef = useRef(null);
 
@@ -143,163 +144,105 @@ const OnOffAdsets = () => {
   useEffect(() => {
     const { id: user_id } = getUserData();
     const eventSourceUrl = `${apiUrl}/api/v1/messageevents-adsets?keys=${user_id}-key`;
-
+  
     if (eventSourceRef.current) {
-      eventSourceRef.current.close(); // Close any existing SSE connection
+      eventSourceRef.current.close();
     }
-
+  
     const eventSource = new EventSource(eventSourceUrl, {
       headers: {
         "ngrok-skip-browser-warning": "true",
         skip_zrok_interstitial: "true",
       },
-      retry: 1500, // Auto-retry every 1.5s on failure
+      retry: 1500,
     });
-
+  
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         if (data && data.data && data.data.message) {
-          const messageText = data.data.message[0]; // ✅ Extract first message
-
-          // ✅ Always add the message to the message list
+          const messageText = data.data.message[0];
           addAdsetsMessage(data.data.message);
-
-          // ✅ Check if it's a "Last Message"
-          const lastMessageMatch = messageText.match(/\[(.*?)\] (.*)/);
-
-          if (lastMessageMatch) {
-            const timestamp = lastMessageMatch[1]; // e.g., "2025-03-13 11:34:03"
-            const messageContent = lastMessageMatch[2]; // e.g., "Campaign updates completed for 1152674286244491 (OFF)"
-
-            setTableAdsetsData((prevData) =>
-              prevData.map((entry) =>
-                entry.key === `${user_id}-key`
-                  ? {
-                      ...entry,
-                      lastMessage: `${timestamp} - ${messageContent}`,
-                    }
+  
+          const processingMatch = messageText.match(/\[(.*?)\] ⏳ Processing Ad Account (\d+) \((ON|OFF)\)/);
+          if (processingMatch) {
+            const adAccountId = processingMatch[2];
+            const onOffStatus = processingMatch[3];
+            setTableAdsetsData((prev) =>
+              prev.map((entry) =>
+                entry.ad_account_id === adAccountId && entry.on_off === onOffStatus
+                  ? { ...entry, status: "Processing ⏳" }
                   : entry
               )
             );
           }
-
-          // ✅ Handle "Fetching Campaign Data for {ad_account_id} ({operation})"
-          const fetchingMatch = messageText.match(
-            /\[(.*?)\] Fetching Campaign Data for (\S+) schedule (.*)/
-          );
-
-          if (fetchingMatch) {
-            const timestamp = fetchingMatch[1];
-            const adAccountId = fetchingMatch[2];
-            const scheduleData = JSON.parse(
-              fetchingMatch[3].replace(/'/g, '"') // Convert single quotes to valid JSON
-            );
-            const onOffStatus = scheduleData.on_off;
-
-            setTableAdsetsData((prevData) =>
-              prevData.map((entry) =>
-                entry.ad_account_id === adAccountId &&
-                entry.on_off === onOffStatus
-                  ? { ...entry, status: "Fetching ⏳" }
-                  : entry
-              )
-            );
-          }
-
-          // ✅ Handle "Campaign updates completed"
-          const successMatch = messageText.match(
-            /\[(.*?)\] Processing (\S+) Completed/
-          );
-
+  
+          const successMatch = messageText.match(/\[(.*?)\] ✅ Ad Account (\d+) \((ON|OFF)\) processed successfully/);
           if (successMatch) {
-            const timestamp = successMatch[1];
             const adAccountId = successMatch[2];
-
-            setTableAdsetsData((prevData) =>
-              prevData.map((entry) =>
-                entry.ad_account_id === adAccountId
-                  ? {
-                      ...entry,
-                      status: `Success ✅ (${entry.on_off.toUpperCase()})`,
-                    }
+            const onOffStatus = successMatch[3];
+            setTableAdsetsData((prev) =>
+              prev.map((entry) =>
+                entry.ad_account_id === adAccountId && entry.on_off === onOffStatus
+                  ? { ...entry, status: `Success ✅ (${onOffStatus})` }
                   : entry
               )
             );
-
-            // console.log(
-            //   `✅ Success for Ad Account ${adAccountId} at ${timestamp}`
-            // );
           }
-
-          // ❌ Handle 401 Unauthorized Error with ON/OFF
-          const unauthorizedMatch = messageText.match(
-            /Error during campaign fetch for Ad Account (\S+) \((ON|OFF)\): 401 Client Error/
-          );
-
-          if (unauthorizedMatch) {
-            const adAccountId = unauthorizedMatch[1];
-            const onOffStatus = unauthorizedMatch[2];
-
-            setTableAdsetsData((prevData) =>
-              prevData.map((entry) =>
-                entry.ad_account_id === adAccountId &&
-                entry.on_off === onOffStatus
-                  ? {
-                      ...entry,
-                      status: `Unauthorized ❌ (${entry.on_off.toUpperCase()})`,
-                    }
+  
+          const fetchingMatch = messageText.match(/\[(.*?)\] ⏳ Fetching Campaign Data for (\d+) \((ON|OFF)\)/);
+          if (fetchingMatch) {
+            const adAccountId = fetchingMatch[2];
+            const onOffStatus = fetchingMatch[3];
+            setTableAdsetsData((prev) =>
+              prev.map((entry) =>
+                entry.ad_account_id === adAccountId && entry.on_off === onOffStatus
+                  ? { ...entry, status: "Fetching Campaign Data ⏳" }
                   : entry
               )
             );
-
-            addAdsetsMessage([
-              `[${getCurrentTime()}] ❌ 401 Unauthorized Error for Ad Account ${adAccountId} (${onOffStatus}). Check access token or permissions.`,
-            ]);
           }
-
-          // ❌ Handle 403 Forbidden Error
-          const forbiddenMatch = messageText.match(
-            /https:\/\/graph\.facebook\.com\/v\d+\.\d+\/act_(\d+)\/campaigns/
-          );
-
-          if (forbiddenMatch) {
-            const adAccountId = forbiddenMatch[1]; // Extracted ad account ID
-
-            setTableAdsetsData((prevData) =>
-              prevData.map((entry) =>
+  
+          const adsetUpdateMatch = messageText.match(/Updated AdSet (.+) \((\d+)\) to (PAUSED|ACTIVE)/);
+          if (adsetUpdateMatch) {
+            const adsetName = adsetUpdateMatch[1];
+            const adsetId = adsetUpdateMatch[2];
+            const newStatus = adsetUpdateMatch[3];
+  
+            // You could store per-adset updates if needed, or display status updates on a log panel
+            console.log(`✅ ${adsetName} (${adsetId}) set to ${newStatus}`);
+          }
+  
+          const completionMatch = messageText.match(/Processing (\d+) completed/);
+          if (completionMatch) {
+            const adAccountId = completionMatch[1];
+            setTableAdsetsData((prev) =>
+              prev.map((entry) =>
                 entry.ad_account_id === adAccountId
-                  ? {
-                      ...entry,
-                      status: `Error ❌ (${entry.on_off.toUpperCase()})`,
-                    }
+                  ? { ...entry, status: `Done ✅ (${entry.on_off})` }
                   : entry
               )
             );
-
-            addAdsetsMessage([
-              `[${getCurrentTime()}] ❌ 403 Forbidden for Ad Account ${adAccountId}. Check permissions or tokens.`,
-            ]);
           }
         }
-      } catch (error) {
-        //console.error("Error parsing SSE message:", error);
+      } catch (err) {
+        console.error("Error handling SSE message:", err);
       }
     };
-
-    eventSource.onerror = (error) => {
-      //console.error("SSE connection error:", error);
+  
+    eventSource.onerror = (err) => {
+      console.error("SSE error:", err);
       eventSource.close();
     };
-
+  
     eventSourceRef.current = eventSource;
-
+  
     return () => {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
       }
     };
-  }, []);
+  }, []);  
 
   const handleClearAll = () => {
     try {
@@ -491,9 +434,19 @@ const OnOffAdsets = () => {
       return;
     }
   
-    // Check if there are missing campaign codes
-    if (missingCampaignCodes) {
-      addAdsetsMessage([`[${getCurrentTime()}] ❌ Campaign codes are missing. Cannot process adsets.`]);
+    // Ensure there are verified campaign codes
+    if (verifiedCampaignCodes.length === 0) {
+      addAdsetsMessage([`[${getCurrentTime()}] ❌ No verified campaign codes. Cannot process adsets.`]);
+      return;
+    }
+  
+    // Filter the data to include only adsets with verified campaign codes
+    const validAdsetsData = tableAdsetsData.filter((entry) =>
+      verifiedCampaignCodes.includes(entry.campaign_code)
+    );
+  
+    if (validAdsetsData.length === 0) {
+      addAdsetsMessage([`[${getCurrentTime()}] ❌ No valid campaign codes to process.`]);
       return;
     }
   
@@ -501,7 +454,7 @@ const OnOffAdsets = () => {
     const batchSize = 1;
     const delayMs = 5000; // 5secs delay
   
-    const requestData = tableAdsetsData.map((entry) => ({
+    const requestData = validAdsetsData.map((entry) => ({
       ad_account_id: entry.ad_account_id,
       user_id: id,
       access_token: entry.access_token,
@@ -702,16 +655,13 @@ const OnOffAdsets = () => {
   
         if (existing_codes.length > 0) {
           console.log(`✅ Existing campaign codes: ${existing_codes.join(", ")}`);
+          setVerifiedCampaignCodes(existing_codes); // Store valid campaign codes
         }
   
         if (missing_codes.length > 0) {
           console.warn(`❌ Missing campaign codes: ${missing_codes.join(", ")}`);
-          setMissingCampaignCodes(true); // Set state to true if there are missing codes
-        } else {
-          setMissingCampaignCodes(false); // No missing codes, set to false
         }
   
-        // Handle the result and update the UI or table data
         if (addMessage) {
           addMessage([
             `[${getCurrentTime()}] Verified campaign codes: ${existing_codes.length} found, ${missing_codes.length} missing.`,
