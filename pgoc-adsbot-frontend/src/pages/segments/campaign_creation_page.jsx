@@ -604,6 +604,9 @@ const CampaignCreationPage = () => {
               console.log(`Row ${i}:`, item.campaign_code);
               item["interests_list"] = parseInterestsList(item["interests_list"]);
               item["excluded_ph_region"] = parseExcludedPHRegion(item["excluded_ph_region"]);
+              addMessage([
+                `[${getCurrentTime()}] 🎯 Row ${i + 1} (${item.sku || "No SKU"}): interests_list = ${JSON.stringify(item.interests_list)}`
+              ]);
             });
   
             setTableData(formattedData);
