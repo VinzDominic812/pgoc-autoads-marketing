@@ -24,7 +24,7 @@ import Cookies from "js-cookie";
 const REQUIRED_HEADERS = [
   "ad_account_id",
   "access_token",
-  "campaign_type",
+  "campaign_code",
   "what_to_watch",
   "cpp_metric",
   "cpp_date_start",
@@ -47,7 +47,7 @@ const OnOffAdsets = () => {
     "ad_account_status",
     "access_token",
     "access_token_status",
-    "campaign_type",
+    "campaign_code",
     "what_to_watch",
     "cpp_metric",
     "cpp_date_start",
@@ -59,6 +59,7 @@ const OnOffAdsets = () => {
   const [selectedRows, setSelectedRows] = useState(new Map());
   const [selectedAdsetsData, setSelectedAdsetsData] = useState([]); // Store selected data
   const [messages, setMessages] = useState([]); // Ensure it's an array
+  const [missingCampaignCodes, setMissingCampaignCodes] = useState(false);
   const fileInputRef = useRef(null);
   const eventSourceRef = useRef(null);
 
@@ -320,7 +321,7 @@ const OnOffAdsets = () => {
       [
         "ad_account_id",
         "access_token",
-        "campaign_type",
+        "campaign_code",
         "what_to_watch",
         "cpp_metric",
         "cpp_date_start",
@@ -330,7 +331,7 @@ const OnOffAdsets = () => {
       [
         "SAMPLE_AD_ACCOUNT_ID",
         "SAMPLE_ACCESS_TOKEN",
-        "CAMPAIGN_TYPE",
+        "CAMPAIGN_CODE",
         "ADSETS/CAMPAIGNS",
         "1",
         "YYYY-MM-DD",
@@ -363,7 +364,7 @@ const OnOffAdsets = () => {
     const csvHeaders = [
       "ad_account_id",
       "access_token",
-      "campaign_type",
+      "campaign_code",
       "what_to_watch",
       "cpp_metric",
       "cpp_date_start",
@@ -415,7 +416,7 @@ const OnOffAdsets = () => {
   
         if (!validateCSVHeaders(fileHeaders)) {
           notify(
-            "Invalid CSV headers. Required: ad_account_id, access_token, campaign_type, what_to_watch, cpp_metric, on_off.",
+            "Invalid CSV headers. Required: ad_account_id, access_token, campaign_code, what_to_watch, cpp_metric, on_off.",
             "error"
           );
           return;
@@ -438,7 +439,7 @@ const OnOffAdsets = () => {
           access_token: entry.access_token,
           schedule_data: [
             {
-              campaign_type: entry.campaign_type,
+              campaign_code: entry.campaign_code,
               what_to_watch: entry.what_to_watch,
               cpp_metric: entry.cpp_metric,
               cpp_date_start: entry.cpp_date_start,
@@ -450,6 +451,13 @@ const OnOffAdsets = () => {
   
         //console.log("Processed Request Data:", JSON.stringify(requestData, null, 2));
         setTableAdsetsData(processedData); // Store all processed data in the table
+
+        const campaignCodes = processedData
+              .map((item) => item["campaign_code"])
+              .filter((code) => code)
+
+        verifyCampaignCodes(campaignCodes, addAdsetsMessage);
+
         notify("CSV file successfully imported!", "success");
         verifyAdAccounts(requestData, processedData, addAdsetsMessage);
       },
@@ -482,18 +490,24 @@ const OnOffAdsets = () => {
       addAdsetsMessage([`[${getCurrentTime()}] ❌ No campaigns to process.`]);
       return;
     }
-
+  
+    // Check if there are missing campaign codes
+    if (missingCampaignCodes) {
+      addAdsetsMessage([`[${getCurrentTime()}] ❌ Campaign codes are missing. Cannot process adsets.`]);
+      return;
+    }
+  
     const { id } = getUserData();
     const batchSize = 1;
     const delayMs = 5000; // 5secs delay
-
+  
     const requestData = tableAdsetsData.map((entry) => ({
       ad_account_id: entry.ad_account_id,
       user_id: id,
       access_token: entry.access_token,
       schedule_data: [
         {
-          campaign_type: entry.campaign_type,
+          campaign_code: entry.campaign_code,
           what_to_watch: entry.what_to_watch,
           cpp_metric: entry.cpp_metric,
           cpp_date_start: entry.cpp_date_start,
@@ -502,18 +516,18 @@ const OnOffAdsets = () => {
         },
       ],
     }));
-
+  
     for (let i = 0; i < requestData.length; i += batchSize) {
       const batch = requestData.slice(i, i + batchSize);
-
+  
       for (const data of batch) {
         const { ad_account_id, schedule_data } = data;
         const on_off = schedule_data[0].on_off;
-
+  
         addAdsetsMessage([
           `[${getCurrentTime()}] ⏳ Processing Ad Account ${ad_account_id} (${on_off.toUpperCase()})`,
         ]);
-
+  
         try {
           const response = await fetch(`${apiUrl}/api/v1/onoff/adsets`, {
             method: "POST",
@@ -523,11 +537,11 @@ const OnOffAdsets = () => {
             },
             body: JSON.stringify(data),
           });
-
+  
           if (!response.ok) {
             throw new Error(`Request failed for Ad Account ${ad_account_id}`);
           }
-
+  
           setTableAdsetsData((prevData) =>
             prevData.map((entry) =>
               entry.ad_account_id === ad_account_id && entry.on_off === on_off
@@ -538,7 +552,7 @@ const OnOffAdsets = () => {
                 : entry
             )
           );
-
+  
           addAdsetsMessage([
             `[${getCurrentTime()}] ✅ Ad Account ${ad_account_id} (${on_off.toUpperCase()}) processed successfully`,
           ]);
@@ -548,7 +562,7 @@ const OnOffAdsets = () => {
               error.message
             }`,
           ]);
-
+  
           setTableAdsetsData((prevData) =>
             prevData.map((entry) =>
               entry.ad_account_id === ad_account_id && entry.on_off === on_off
@@ -558,7 +572,7 @@ const OnOffAdsets = () => {
           );
         }
       }
-
+  
       if (i + batchSize < requestData.length) {
         addAdsetsMessage([
           `[${getCurrentTime()}] ⏸ Waiting for 5 seconds before processing the next batch...`,
@@ -566,9 +580,9 @@ const OnOffAdsets = () => {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
-
+  
     addAdsetsMessage([`[${getCurrentTime()}] 🚀 All Requests Sent`]);
-  };
+  };  
 
   useEffect(() => {
     const lowerSearchTerm = searchTerm.toLowerCase();
@@ -667,6 +681,54 @@ const OnOffAdsets = () => {
     } catch (error) {
       //console.error("Error verifying ad accounts:", error);
       addAdsetsMessage([`❌ Failed to verify ad accounts: ${error.message}`]);
+    }
+  };
+
+  const verifyCampaignCodes = async (campaignCodes, addMessage) => {
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/verify/campaign-code`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ user_id: 1, campaign_codes: campaignCodes }),
+      });
+  
+      const result = await response.json();
+      console.log(`RESULT: ${JSON.stringify(result, null, 2)}`);
+  
+      if (response.ok) {
+        const { existing_codes, missing_codes } = result;
+  
+        if (existing_codes.length > 0) {
+          console.log(`✅ Existing campaign codes: ${existing_codes.join(", ")}`);
+        }
+  
+        if (missing_codes.length > 0) {
+          console.warn(`❌ Missing campaign codes: ${missing_codes.join(", ")}`);
+          setMissingCampaignCodes(true); // Set state to true if there are missing codes
+        } else {
+          setMissingCampaignCodes(false); // No missing codes, set to false
+        }
+  
+        // Handle the result and update the UI or table data
+        if (addMessage) {
+          addMessage([
+            `[${getCurrentTime()}] Verified campaign codes: ${existing_codes.length} found, ${missing_codes.length} missing.`,
+          ]);
+        }
+      } else {
+        const errorMsg = result.message || "An error occurred while verifying campaign codes.";
+        console.warn("⚠️", errorMsg);
+        if (addMessage) {
+          addMessage([`⚠️ ${errorMsg}`]);
+        }
+      }
+    } catch (error) {
+      console.error("Error verifying campaign codes:", error);
+      if (addMessage) {
+        addMessage([`❌ Failed to verify campaign codes: ${error.message}`]);
+      }
     }
   };
 
@@ -787,7 +849,7 @@ const OnOffAdsets = () => {
             nonEditableHeaders={[
               "ad_account_status",
               "access_token_status",
-              "campaign_type",
+              "campaign_code",
               "what_to_watch",
               "status",
             ]}

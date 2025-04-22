@@ -164,55 +164,52 @@ def process_adsets(user_id, ad_account_id, access_token, schedule_data, campaign
         logging.info(f"Processing schedule: {schedule_data}")
 
         # Extract schedule parameters
-        campaign_type = schedule_data.get("campaign_type", "").lower()  # "test" or "regular"
-        what_to_watch = schedule_data.get("what_to_watch", "").lower()  # "campaigns" or "adsets"
-        cpp_metric = int(schedule_data.get("cpp_metric", 0))  # Ensure it's an integer
-        on_off = schedule_data.get("on_off", "").upper()  # "ON" or "OFF"
+        campaign_code = schedule_data["campaign_code"]
+        cpp_metric = int(schedule_data.get("cpp_metric", 0))
+        on_off = schedule_data["on_off"].upper()  # "ON" or "OFF"
 
-        logging.info(f"Campaign Type: {campaign_type}, Watch: {what_to_watch}, CPP Metric: {cpp_metric}, On/Off: {on_off}")
+        logging.info(f"Campaign Code: {campaign_code}, CPP Metric: {cpp_metric}, On/Off: {on_off}")
 
-        # Determine new status
+        # Determine new status for adsets
         new_status = "ACTIVE" if on_off == "ON" else "PAUSED"
 
         if not campaigns_data:
-            logging.warning(f"No campaigns data received for processing in {campaign_type}")
-            return f"No campaigns found for {campaign_type} in Ad Account {ad_account_id}"
+            logging.warning(f"No campaigns data received for processing in Ad Account {ad_account_id}")
+            return f"No campaigns found for processing in Ad Account {ad_account_id}"
 
+        update_success = False
+
+        # Loop through each campaign in campaigns_data
         for campaign_id, campaign_info in campaigns_data.items():
-            campaign_name = campaign_info.get("campaign_name", "Unknown")
-            campaign_cpp = campaign_info.get("CPP", 0)
-            campaign_status = campaign_info.get("STATUS", "")
+            campaign_name = campaign_info.get("campaign_name", "")
+            
+            # Only process campaigns whose name contains the campaign_code
+            if campaign_code not in campaign_name:
+                continue  # Skip this campaign if the code is not in the name
 
-            if what_to_watch == "campaigns":
-                # Check if campaign meets CPP condition
-                if (on_off == "ON" and campaign_cpp < cpp_metric) or (on_off == "OFF" and campaign_cpp >= cpp_metric):
-                    if campaign_status != new_status:
-                        success = update_facebook_status(user_id, ad_account_id, campaign_id, new_status, access_token)
-                        if success:
-                            logging.info(f"Updated Campaign {campaign_name} ({campaign_id}) to {new_status}")
-                            append_redis_message_adsets(user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Updated Campaign {campaign_name} ({campaign_id}) to {new_status}")
-                    else:
-                        logging.info(f"Campaign {campaign_name} ({campaign_id}) already in {new_status} status")
-                        append_redis_message_adsets(user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Campaign {campaign_name} ({campaign_id}) already in {new_status} status")
+            adsets = campaign_info.get("ADSETS", {})
 
-            elif what_to_watch == "adsets":
-                for adset_id, adset_info in campaign_info.get("ADSETS", {}).items():
-                    adset_name = adset_info.get("NAME", "Unknown")
-                    adset_cpp = adset_info.get("CPP", 0)
-                    adset_status = adset_info.get("STATUS", "")
+            for adset_id, adset_info in adsets.items():
+                adset_cpp = adset_info.get("CPP", 0)
+                adset_status = adset_info.get("STATUS", "")
+                adset_name = adset_info.get("NAME", "Unknown")
 
-                    if (on_off == "ON" and adset_cpp < cpp_metric) or (on_off == "OFF" and adset_cpp >= cpp_metric):
-                        if adset_status != new_status:
-                            success = update_facebook_status(user_id, ad_account_id, adset_id, new_status, access_token)
-                            if success:
-                                logging.info(f"Updated AdSet {adset_name} ({adset_id}) to {new_status}")
-                                append_redis_message_adsets(user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Updated AdSet {adset_name} ({adset_id}) to {new_status}")
-                        else:
-                            logging.info(f"AdSet {adset_name} ({adset_id}) already in {new_status} status")
-                            append_redis_message_adsets(user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] AdSet {adset_name} ({adset_id}) already in {new_status} status")
-        
-        append_redis_message_adsets(user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing {ad_account_id} Completed")
-        return f"Processing {ad_account_id} Completed"
+                # Determine if we need to update the AdSet status based on CPP metric
+                should_update = (on_off == "ON" and adset_cpp < cpp_metric) or (on_off == "OFF" and adset_cpp >= cpp_metric)
+
+                if should_update and adset_status != new_status:
+                    success = update_facebook_status(user_id, ad_account_id, adset_id, new_status, access_token)
+                    if success:
+                        adset_info["STATUS"] = new_status
+                        update_success = True
+                        append_redis_message_adsets(user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Updated AdSet {adset_name} ({adset_id}) to {new_status}")
+                else:
+                    append_redis_message_adsets(user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] AdSet {adset_name} ({adset_id}) remains {adset_status}")
+
+        if update_success:
+            append_redis_message_adsets(user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing {ad_account_id} completed")
+
+        return f"Processing {ad_account_id} completed"
 
     except Exception as e:
         logging.error(f"Error processing schedule: {e}")

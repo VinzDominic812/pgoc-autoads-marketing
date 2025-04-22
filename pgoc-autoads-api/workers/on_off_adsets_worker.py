@@ -113,12 +113,12 @@ def fetch_adsets(user_id, ad_account_id, access_token, matched_schedule):
         return f"Fetch already in progress for {ad_account_id}, queued process_scheduled_campaigns"
 
     try:
-        test_campaigns = {}
-        regular_campaigns = {}
+        campaign_data = {}
 
         # Extract date range from matched_schedule
         cpp_date_start = matched_schedule.get("cpp_date_start")
         cpp_date_end = matched_schedule.get("cpp_date_end")
+        campaign_code = matched_schedule.get("campaign_code")
 
         if not cpp_date_start or not cpp_date_end:
             append_redis_message_adsets(
@@ -156,51 +156,29 @@ def fetch_adsets(user_id, ad_account_id, access_token, matched_schedule):
             campaign_status = campaign["status"]
             campaign_CPP = cpp_campaign_data.get(campaign_id, 0)
 
-            if contains_test(campaign_name):
-                target_dict = test_campaigns
-            elif contains_regular(campaign_name):
-                target_dict = regular_campaigns
-            else:
-                continue  # Skip campaigns that do not match TEST or REGULAR
-
-            target_dict[campaign_id] = {
-                "campaign_name": campaign_name,
-                "STATUS": campaign_status,
-                "CPP": campaign_CPP,
-                "ADSETS": {},
-            }
-
-            for adset in campaign.get("adsets", {}).get("data", []):
-                adset_id = adset["id"]
-                adset_status = adset["status"]  # ✅ Adset Status
-
-                # ✅ Check if Adset is already ON or OFF
-                if adset_status == "ACTIVE":
-                    status_message = f"Adset {adset_id} in Campaign {campaign_id} is ALREADY ON."
-                elif adset_status == "PAUSED":
-                    status_message = f"Adset {adset_id} in Campaign {campaign_id} is ALREADY OFF."
-                else:
-                    status_message = f"Adset {adset_id} in Campaign {campaign_id} has unknown status: {adset_status}."
-
-                append_redis_message_adsets(
-                    user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {status_message}"
-                )
-
-                target_dict[campaign_id]["ADSETS"][adset_id] = {
-                    "NAME": adset["name"],
-                    "STATUS": adset["status"],
-                    "CPP": cpp_adset_data.get(adset_id, 0),
+            # Check if campaign_name contains the campaign_code
+            if campaign_code in campaign_name:
+                # Add the campaign to the data structure if it matches the campaign_code
+                campaign_data[campaign_id] = {
+                    "campaign_name": campaign_name,
+                    "STATUS": campaign_status,
+                    "CPP": campaign_CPP,
+                    "ADSETS": {},
                 }
 
+                for adset in campaign.get("adsets", {}).get("data", []):
+                    adset_id = adset["id"]
+                    campaign_data[campaign_id]["ADSETS"][adset_id] = {
+                        "NAME": adset["name"],
+                        "STATUS": adset["status"],
+                        "CPP": cpp_adset_data.get(adset_id, 0),
+                    }
+
         logging.info(
-            f"Successfully fetched campaigns for Ad Account {ad_account_id}. Data: TEST:{test_campaigns}, REGULAR:{regular_campaigns}"
+            f"Successfully fetched campaigns for Ad Account {ad_account_id}. Data: {campaign_data}"
         )
 
-        # Determine which data to pass based on campaign_type
-        campaign_type = matched_schedule.get("campaign_type", "").lower()
-        campaign_data = {"test": test_campaigns, "regular": regular_campaigns}.get(campaign_type, {})
-
-        # Pass only the relevant campaigns to the next Celery task
+        # Pass only the relevant campaigns (filtered by campaign_code) to the next Celery task
         process_adsets.apply_async(
             args=[user_id, ad_account_id, access_token, matched_schedule, campaign_data]
         )

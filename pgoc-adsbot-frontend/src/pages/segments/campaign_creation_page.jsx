@@ -539,6 +539,7 @@ const CampaignCreationPage = () => {
       "page_name",
       "sku",
       "material_code",
+      "campaign_code",
       "interests_list",
       "daily_budget",
       "facebook_page_id",
