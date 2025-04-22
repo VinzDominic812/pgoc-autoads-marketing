@@ -215,10 +215,11 @@ def create_multiple_simple_campaigns():
                 # Extract campaign data from the request
                 ad_account_id = campaign_data.get('ad_account_id')
                 access_token = campaign_data.get('access_token')
-                page_name = campaign_data.get('page_name')
                 facebook_page_id = campaign_data.get('facebook_page_id')
+                page_name = campaign_data.get('page_name')
                 sku = campaign_data.get('sku')
                 material_code = campaign_data.get('material_code')
+                campaign_code = campaign_data.get('campaign_code')
                 daily_budget = campaign_data.get('daily_budget')
                 headline = campaign_data.get('headline')
                 primary_text = campaign_data.get('primary_text')
@@ -269,7 +270,7 @@ def create_multiple_simple_campaigns():
                     adset_excluded_regions.append(excluded_geo_locations or {"regions": []})
 
                 # Create Facebook campaign
-                campaign_name = f"{page_name}-{sku}-{material_code}"
+                campaign_name = f"{page_name}-{sku}-{material_code}-{campaign_code}"
                 adjusted_daily_budget = daily_budget * 10
 
                 append_redis_message_create_campaigns(user_id, f"[INFO] Creating Facebook campaign: {campaign_name}.")
@@ -297,6 +298,7 @@ def create_multiple_simple_campaigns():
                     page_name=page_name,
                     sku=sku,
                     material_code=material_code,
+                    campaign_code=campaign_code,
                     daily_budget=daily_budget,
                     facebook_page_id=facebook_page_id,
                     video_url=video_url,
@@ -319,7 +321,7 @@ def create_multiple_simple_campaigns():
                 # Async Task
                 task = create_simple_campaign_task.apply_async(
                     args=[ad_account_id, user_id, access_token, campaign_id, campaign_name, page_name, facebook_page_id,
-                          sku, material_code, daily_budget, headline, primary_text, product, video_url, image_url, interests_list, start_time, adset_excluded_regions]
+                          sku, material_code, campaign_code, daily_budget, headline, primary_text, product, video_url, image_url, interests_list, start_time, adset_excluded_regions]
                 )
 
                 upsert_campaign_data(user_id, ad_account_id, campaign_id, last_server_messages=f"Task created: {task.id}")
@@ -358,6 +360,7 @@ def get_user_campaigns():
                 "page_name": campaign.page_name,
                 "sku": campaign.sku,
                 "material_code": campaign.material_code,
+                "campaign_code": campaign.campaign_code,
                 "daily_budget": campaign.daily_budget,
                 "facebook_page_id": campaign.facebook_page_id,
                 "video_url": campaign.video_url,

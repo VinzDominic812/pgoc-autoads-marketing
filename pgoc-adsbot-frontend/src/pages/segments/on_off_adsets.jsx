@@ -515,7 +515,7 @@ const OnOffAdsets = () => {
         ]);
 
         try {
-          const response = await fetch(`${apiUrl}/api/v1/OnOff/adsets`, {
+          const response = await fetch(`${apiUrl}/api/v1/onoff/adsets`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -696,7 +696,7 @@ const OnOffAdsets = () => {
           }}
         >
           <Typography variant="h5" gutterBottom>
-            ON/OFF ADSETS PAGE
+            ON/OFF ADS PAGE
           </Typography>
           <Box sx={{ flex: 1 }} /> {/* Spacer */}
           <Box
@@ -754,8 +754,8 @@ const OnOffAdsets = () => {
       </Box>
 
       {/* Second Row (Dynamic Table) */}
-      <Box sx={{ flex: 1 }}>
-        <WidgetCard title="Main Section" height="90%">
+      <Box sx={{ flex: 1, paddingTop: "10px"}}>
+        <WidgetCard title="Main Section" height="100%">
           {/* Search Bar */}
           <TextField
             label="Search For adAccountId"
@@ -763,7 +763,11 @@ const OnOffAdsets = () => {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             size="small"
-            sx={{ marginBottom: "8px", width: "300px" }}
+            sx={{
+              marginBottom: "8px",
+              width: "300px",
+              marginRight: "16px", // <== add this
+            }}
           />
 
           {/* Dynamic Table with Filtered Data */}
@@ -772,8 +776,8 @@ const OnOffAdsets = () => {
             data={filteredData}
             rowsPerPage={1000}
             containerStyles={{
-              width: "100%",
-              height: "100%",
+              width: "10%",
+              height: "50%",
               marginTop: "8px",
               textAlign: "center",
             }}

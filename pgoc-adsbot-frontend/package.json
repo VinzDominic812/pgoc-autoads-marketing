@@ -15,6 +15,7 @@
     "@mui/icons-material": "^6.4.0",
     "@mui/material": "^6.4.0",
     "@mui/utils": "^6.4.0",
+    "axios": "^1.8.4",
     "crypto-js": "^4.2.0",
     "dotenv": "^16.4.7",
     "extended-eventsource": "^2.1.0",

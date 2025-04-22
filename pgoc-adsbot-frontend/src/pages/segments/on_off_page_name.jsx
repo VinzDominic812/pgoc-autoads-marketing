@@ -500,7 +500,7 @@ const PageOnOFFPage = () => {
           `[${getCurrentTime()}] ⏳ Processing campaign for page: ${page_name}`,
         ]);
   
-        const response = await fetch(`${apiUrl}/api/v1/OnOff/pagename`, {
+        const response = await fetch(`${apiUrl}/api/v1/onoff/pagename`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -779,7 +779,7 @@ const PageOnOFFPage = () => {
 
       {/* Second Row (Dynamic Table) */}
       <Box sx={{ flex: 1 }}>
-        <WidgetCard title="Main Section" height="83.1%">
+        <WidgetCard title="Main Section" height="96%">
           <DynamicTable
             headers={headers}
             data={tablePageNameData}

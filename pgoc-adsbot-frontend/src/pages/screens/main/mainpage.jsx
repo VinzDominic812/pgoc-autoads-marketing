@@ -16,6 +16,7 @@ import PowerIcon from "@mui/icons-material/PowerSettingsNewSharp";
 import LogoutIcon from "@mui/icons-material/LogoutRounded";
 import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
 import FlagRoundedIcon from '@mui/icons-material/FlagRounded';
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 
 // Pages
 import DashboardPage from "../../segments/dashboardpage";
@@ -45,7 +46,7 @@ const NAVIGATION = [
   },
   { 
     segment: "adsets-off", 
-    title: "ON/OFF Adsets", 
+    title: "ON/OFF Ads", 
     icon: <GridViewRoundedIcon /> 
   },
   // { segment: "campaign-off", 
@@ -53,7 +54,7 @@ const NAVIGATION = [
   //   icon: <PowerIcon /> 
   // },
   { segment: "pagename-off", 
-    title: "ON/OFF CampaignsV2", 
+    title: "ON/OFF By Page", 
     icon: <FlagRoundedIcon /> 
   },
   // {
@@ -63,13 +64,18 @@ const NAVIGATION = [
   // },
   {
     segment: "scheduled-on-and-off",
-    title: "Schedules",
+    title: "ON/OFF By Sched",
     icon: <ScheduledIcon />,
   },
   { 
     segment: "reports", 
     title: "Reports", 
     icon: <BarChartIcon /> 
+  },
+  { 
+    segment: "settings", 
+    title: "Settings", 
+    icon: <SettingsOutlinedIcon /> 
   },
   { 
     segment: "logout", 
