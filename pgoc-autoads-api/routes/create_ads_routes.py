@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 import json
 import logging
+import time
 from flask import Blueprint, request, jsonify
 import pytz
 import redis
@@ -8,10 +9,8 @@ from sqlalchemy import or_
 from controllers.create_ads_controller import create_campaign
 from workers.create_campaig_celery import create_full_campaign_task, create_simple_campaign_task
 from models.models import PHRegionTable, User, db, Campaign
-from datetime import datetime
 from sqlalchemy.exc import SQLAlchemyError
 from controllers.insert_campaign_controller import upsert_campaign_data
-from datetime import datetime, timedelta
 
 from workers.on_off_functions.create_campaign_message import append_redis_message_create_campaigns
 
@@ -137,6 +136,8 @@ def create_full_campaign():
                 db.session.add(campaign_entry)
                 db.session.commit()
 
+                time.sleep(5)
+                
                 # Save the initial server message
                 initial_message = f"[{current_time_manila.strftime('%Y-%m-%d %H:%M:%S')}] Campaign created {campaign_name}."
                 upsert_campaign_data(user_id, ad_account_id, campaign_id, last_server_messages=initial_message)
@@ -317,6 +318,8 @@ def create_multiple_simple_campaigns():
                 db.session.add(campaign_entry)
                 db.session.commit()
                 append_redis_message_create_campaigns(user_id, f"[INFO] Campaign {campaign_name} saved to database.")
+
+                time.sleep(5)
 
                 # Async Task
                 task = create_simple_campaign_task.apply_async(

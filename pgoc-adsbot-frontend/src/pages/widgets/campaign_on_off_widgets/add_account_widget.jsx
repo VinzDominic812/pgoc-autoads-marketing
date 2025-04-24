@@ -55,7 +55,7 @@ const menuProps = {
   },
 };
 
-const AddAdAccountWidget = ({ open, handleClose, fetchSchedules}) => {
+const AddAdAccountWidget = ({ open, handleClose, fetchSchedules }) => {
   const [campaignTypes, setCampaignTypes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [adAccountId, setAdAccountId] = useState("");
@@ -64,7 +64,7 @@ const AddAdAccountWidget = ({ open, handleClose, fetchSchedules}) => {
     {
       hour: "",
       minute: "",
-      campaign_type: "",
+      campaign_code: "",
       watch: "",
       cpp_metric: "",
       on_off: "",
@@ -72,14 +72,16 @@ const AddAdAccountWidget = ({ open, handleClose, fetchSchedules}) => {
   ]);
 
   const { id: uid } = getUserData();
-  
+
   useEffect(() => {
     const fetchCampaignTypes = async () => {
       setLoading(true);
       try {
-        const response = await fetch(`${apiUrl}/api/v1/user/${uid}/campaign-codes`); // Fetch campaign codes from your backend
+        const response = await fetch(
+          `${apiUrl}/api/v1/user/${uid}/campaign-codes`
+        ); // Fetch campaign codes from your backend
         const data = await response.json();
-        setCampaignTypes(data.data);  // Set the 'data' array from the response to state
+        setCampaignTypes(Array.isArray(data?.data) ? data.data : []); // Set the 'data' array from the response to state
       } catch (error) {
         console.error("Error fetching campaign types:", error);
       } finally {
@@ -108,7 +110,7 @@ const AddAdAccountWidget = ({ open, handleClose, fetchSchedules}) => {
         {
           hour: "",
           minute: "",
-          campaign_type: "",
+          campaign_code: "",
           watch: "",
           cpp_metric: "",
           on_off: "",
@@ -136,7 +138,7 @@ const AddAdAccountWidget = ({ open, handleClose, fetchSchedules}) => {
 
     const formattedSchedules = scheduleData.map((schedule) => ({
       time: `${schedule.hour}:${schedule.minute}`,
-      campaign_type: schedule.campaign_type,
+      campaign_code: schedule.campaign_code,
       watch: schedule.watch,
       cpp_metric: schedule.cpp_metric,
       on_off: schedule.on_off,
@@ -158,7 +160,7 @@ const AddAdAccountWidget = ({ open, handleClose, fetchSchedules}) => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "skip_zrok_interstitial" : "true"
+            skip_zrok_interstitial: "true",
           },
           body: JSON.stringify(payload),
         }
@@ -171,7 +173,7 @@ const AddAdAccountWidget = ({ open, handleClose, fetchSchedules}) => {
 
       notify("Schedule created successfully!", "success");
       handleClose();
-      fetchSchedules(); 
+      fetchSchedules();
     } catch (error) {
       console.error("Error creating schedule:", error);
       notify(error.message, "error");
@@ -302,13 +304,12 @@ const AddAdAccountWidget = ({ open, handleClose, fetchSchedules}) => {
 
             <FormControl fullWidth size="small" sx={{ mt: 2 }}>
               <InputLabel shrink sx={labelStyles}>
-                Campaign Type
+                Campaign Code
               </InputLabel>
               <Select
-                value={scheduleData[0].campaign_type} // Use the correct schedule data index here
-                onChange={
-                  (e) =>
-                    handleScheduleChange(0, "campaign_type", e.target.value) // Change index as needed
+                value={schedule.campaign_code}
+                onChange={(e) =>
+                  handleScheduleChange(index, "campaign_code", e.target.value)
                 }
                 sx={selectStyles}
                 MenuProps={menuProps}
@@ -317,12 +318,14 @@ const AddAdAccountWidget = ({ open, handleClose, fetchSchedules}) => {
                   <MenuItem disabled>
                     <CircularProgress size={24} />
                   </MenuItem>
-                ) : (
+                ) : Array.isArray(campaignTypes) && campaignTypes.length > 0 ? (
                   campaignTypes.map((type) => (
                     <MenuItem key={type.id} value={type.campaign_code}>
                       {type.campaign_code}
                     </MenuItem>
                   ))
+                ) : (
+                  <MenuItem disabled>No campaign types found</MenuItem>
                 )}
               </Select>
             </FormControl>

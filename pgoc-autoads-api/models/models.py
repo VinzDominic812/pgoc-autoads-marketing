@@ -3,6 +3,7 @@ import pytz
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy import func, ForeignKey
 from sqlalchemy.dialects.postgresql import JSON, BYTEA, ENUM, TIMESTAMP
+from sqlalchemy.orm import validates
 from datetime import datetime
 
 db = SQLAlchemy()
@@ -63,17 +64,26 @@ class Campaign(db.Model):
 class CampaignsScheduled(db.Model):
     __tablename__ = 'campaigns_scheduled'
 
-    ad_account_id = db.Column(db.String(50), primary_key=True)  # Primary key as requested
+    ad_account_id = db.Column(db.BigInteger, primary_key=True)  # Primary key as requested
     user_id = db.Column(db.BigInteger, ForeignKey('marketing_users.id'), nullable=False)
     access_token = db.Column(db.Text, nullable=False)
     schedule_data = db.Column(MutableDict.as_mutable(JSON), nullable=False)
+    campaign_code = db.Column(db.String(255), nullable=True)
     added_at = db.Column(TIMESTAMP, server_default=func.now(), nullable=False)
-    test_campaign_data = db.Column(MutableDict.as_mutable(JSON), nullable=True)
-    regular_campaign_data = db.Column(MutableDict.as_mutable(JSON), nullable=True)  # Stores multiple campaign IDs
+    matched_campaign_data = db.Column(MutableDict.as_mutable(JSON), nullable=True)
     last_time_checked = db.Column(TIMESTAMP, nullable=True, default=datetime.utcnow)
     last_check_status = db.Column(ENUM('Failed', 'Success', 'Ongoing', name='check_status_enum'), nullable=False, default='Success')  # Status for last check
     last_check_message = db.Column(db.Text, nullable=True)   # Tracks the last time campaigns were checked
     task_id = db.Column(db.String(255), nullable=True)
+
+    @validates('schedule_data')
+    def validate_schedule_data(self, key, value):
+        # Check if campaign_code exists in the schedule_data
+        if isinstance(value, list) and len(value) > 0:
+            schedule = value[0]
+            if 'campaign_code' in schedule:
+                self.campaign_code = schedule['campaign_code']  # Save campaign_code in its column
+        return value
 
 class CampaignOffOnly(db.Model):
     __tablename__ = 'campaign_off_only'

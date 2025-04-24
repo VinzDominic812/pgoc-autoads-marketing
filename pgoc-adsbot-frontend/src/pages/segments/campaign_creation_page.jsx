@@ -539,6 +539,7 @@ const CampaignCreationPage = () => {
       "page_name",
       "sku",
       "material_code",
+      "campaign_code",
       "interests_list",
       "daily_budget",
       "facebook_page_id",
@@ -604,6 +605,9 @@ const CampaignCreationPage = () => {
               console.log(`Row ${i}:`, item.campaign_code);
               item["interests_list"] = parseInterestsList(item["interests_list"]);
               item["excluded_ph_region"] = parseExcludedPHRegion(item["excluded_ph_region"]);
+              addMessage([
+                `[${getCurrentTime()}] 🎯 Row ${i + 1} (${item.sku || "No SKU"}): interests_list = ${JSON.stringify(item.interests_list)}`
+              ]);
             });
   
             setTableData(formattedData);
