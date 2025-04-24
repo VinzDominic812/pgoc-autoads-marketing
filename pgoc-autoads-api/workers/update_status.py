@@ -36,60 +36,61 @@ def update_facebook_status(user_id, ad_account_id, entity_id, new_status, access
         append_redis_message(user_id, ad_account_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error updating {entity_id} to {new_status}: {e}")
         return False
 
+# def extract_campaign_code(campaign_name):
+#     # Assuming campaign_code is part of the campaign_name (e.g., "Campaign XYZ-12345")
+#     # You can adapt the logic here depending on how the campaign_code is embedded in the name
+#     """Extract campaign_code from the campaign_name. Assuming the campaign_code is a part of the name."""
+#     parts = campaign_name.split("-")  # Split by some delimiter like "-"
+#     if len(parts) > 1:
+#         return parts[-1].strip()  # Assuming the campaign_code is the last part
+#     return None  # Return None if no campaign_code is found
+
+def extract_campaign_code_from_db(campaign_entry):
+    """
+    Fetch the campaign_code directly from the database.
+    """
+    return campaign_entry.campaign_code
+
+@shared_task
 @shared_task
 def process_scheduled_campaigns(user_id, ad_account_id, access_token, schedule_data):
-    """
-    Process scheduled campaign updates based on `schedule_data`.
-    """
     try:
         logging.info(f"Processing schedule: {schedule_data}")
 
-        # Extract schedule parameters
-        campaign_type = schedule_data["campaign_type"]
-        what_to_watch = schedule_data["what_to_watch"]
-        cpp_metric = int(schedule_data.get("cpp_metric"))  # Ensure conversion to int
+        campaign_code = schedule_data["campaign_code"]
+        watch = schedule_data["watch"]
+        cpp_metric = int(schedule_data.get("cpp_metric", 0))
         on_off = schedule_data["on_off"]
 
-        # Fetch campaign data from the database
         campaign_entry = CampaignsScheduled.query.filter_by(ad_account_id=ad_account_id).first()
         if not campaign_entry:
             logging.warning(f"No campaign data found for Ad Account {ad_account_id}")
-            campaign_entry.last_time_checked = datetime.now(manila_tz)
-            campaign_entry.last_check_status = "Success"
-            campaign_entry.last_check_message = (
-                f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] "
-                f"No campaign data found for Ad Account {ad_account_id}"
-            )
             return f"No campaign data found for Ad Account {ad_account_id}"
 
-        # Select the correct dataset based on campaign type
-        campaign_data = (
-            campaign_entry.regular_campaign_data if campaign_type == "REGULAR"
-            else campaign_entry.test_campaign_data
-        )
+        # Use the pre-matched campaigns
+        campaign_data = campaign_entry.matched_campaign_data or {}
 
         if not campaign_data:
-            logging.warning(f"No {campaign_type} campaigns available for processing.")
-            append_redis_message(user_id, ad_account_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] No {campaign_type} campaigns available for processing.")
-            return f"No {campaign_type} campaigns available for processing."
+            logging.warning(f"No matched campaign data found for Ad Account {ad_account_id}")
+            append_redis_message(user_id, ad_account_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] No matched campaign data found.")
+            return f"No matched campaign data found for Ad Account {ad_account_id}"
 
-        update_success = False  # Track if any updates are successful
-
-        if what_to_watch == "Campaigns":
+        update_success = False
+        if watch == "Campaigns":
             for campaign_id, campaign_info in campaign_data.items():
-                current_status = campaign_info["STATUS"]
-                campaign_cpp = campaign_info["CPP"]
-                campaign_name = campaign_info["campaign_name"]
+                current_status = campaign_info.get("STATUS", "")
+                campaign_cpp = campaign_info.get("CPP", 0)
+                campaign_name = campaign_info.get("campaign_name", "")
 
-                # Determine the new status based on the CPP metric
+                # Decide whether to turn ON or OFF
                 if on_off == "ON" and campaign_cpp < cpp_metric:
                     new_status = "ACTIVE"
                 elif on_off == "OFF" and campaign_cpp >= cpp_metric:
                     new_status = "PAUSED"
                 else:
                     logging.info(f"Campaign {campaign_id} remains {current_status}")
-                    append_redis_message(user_id, ad_account_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Campaign {campaign_name} ID: {campaign_id}  Remains {current_status}")
-                    continue  # Skip if no change is needed
+                    append_redis_message(user_id, ad_account_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Campaign {campaign_name} ID: {campaign_id} remains {current_status}")
+                    continue
 
                 if current_status != new_status:
                     success = update_facebook_status(user_id, ad_account_id, campaign_id, new_status, access_token)
@@ -97,66 +98,31 @@ def process_scheduled_campaigns(user_id, ad_account_id, access_token, schedule_d
                         campaign_info["STATUS"] = new_status
                         update_success = True
                         logging.info(f"Updated Campaign {campaign_id} -> {new_status}")
-                        append_redis_message(user_id, ad_account_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Updated Campaign {campaign_name} ID: {campaign_id}  -> {new_status}")
-
-        elif what_to_watch == "AdSets":
-            for campaign_id, campaign_info in campaign_data.items():
-                adsets = campaign_info.get("ADSETS", {})  # Get AdSets dictionary
-
-                for adset_id, adset_info in adsets.items():
-                    current_status = adset_info["STATUS"]
-                    adset_cpp = adset_info["CPP"]
-                    adset_name = adset_info["NAME"]
-
-                    # Determine the new status based on the CPP metric
-                    if on_off == "ON" and adset_cpp < cpp_metric:
-                        new_status = "ACTIVE"
-                    elif on_off == "OFF" and adset_cpp >= cpp_metric:
-                        new_status = "PAUSED"
-                    else:
-                        logging.info(f"AdSet {adset_id} remains {current_status}")
-                        append_redis_message(user_id, ad_account_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Adset {adset_name} ID: {adset_id}  Remains {current_status}")
-                        continue  
-
-                    if current_status != new_status:
-                        success = update_facebook_status(user_id, ad_account_id, adset_id, new_status, access_token)
-                        if success:
-                            adset_info["STATUS"] = new_status
-                            update_success = True
-                            logging.info(f"Updated AdSet {adset_id} -> {new_status}")
-                            append_redis_message(user_id, ad_account_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Updated {adset_name} ID: {adset_id}  -> {new_status}")
+                        append_redis_message(user_id, ad_account_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Updated Campaign {campaign_name} ID: {campaign_id} -> {new_status}")
 
         if update_success:
-            if campaign_type == "REGULAR":
-                campaign_entry.regular_campaign_data = campaign_data
-                flag_modified(campaign_entry, "regular_campaign_data")
-            else:
-                campaign_entry.test_campaign_data = campaign_data
-                flag_modified(campaign_entry, "test_campaign_data")
-
+            campaign_entry.matched_campaign_data = campaign_data
+            flag_modified(campaign_entry, "matched_campaign_data")
             campaign_entry.last_time_checked = datetime.now(manila_tz)
             campaign_entry.last_check_status = "Success"
             campaign_entry.last_check_message = (
-                f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] "
-                f"Successfully updated {what_to_watch} statuses."
+                f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Successfully updated {watch} statuses."
             )
-
             db.session.commit()
-            logging.info(f"Successfully saved updated {what_to_watch} statuses in DB.")
-            append_redis_message(user_id, ad_account_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Successfully updated {what_to_watch} statuses.")
+            append_redis_message(user_id, ad_account_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Successfully updated {watch} statuses.")
 
-        return f"Processed scheduled {what_to_watch} for Ad Account {ad_account_id}"
+        return f"Processed scheduled {watch} for Ad Account {ad_account_id}"
 
     except Exception as e:
-        logging.error(f"Error processing scheduled {what_to_watch} for Ad Account {ad_account_id}: {e}")
-        campaign_entry.last_check_status = "Failed"
-        campaign_entry.last_check_message = (
-                f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] "
-                f"Error processing scheduled {what_to_watch} for Ad Account {ad_account_id}: {e}"
+        logging.error(f"Error processing scheduled {watch} for Ad Account {ad_account_id}: {e}")
+        if campaign_entry:
+            campaign_entry.last_check_status = "Failed"
+            campaign_entry.last_check_message = (
+                f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Error: {e}"
             )
-        db.session.commit()
-        append_redis_message(user_id, ad_account_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error processing scheduled {what_to_watch} for Ad Account {ad_account_id}: {e}")
-        return f"Error processing scheduled {what_to_watch} for Ad Account {ad_account_id}: {e}"
+            db.session.commit()
+        append_redis_message(user_id, ad_account_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error processing scheduled {watch}: {e}")
+        return f"Error processing scheduled {watch} for Ad Account {ad_account_id}: {e}"
     
 @shared_task
 def process_adsets(user_id, ad_account_id, access_token, schedule_data, campaigns_data):

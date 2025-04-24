@@ -13,6 +13,7 @@ import {
   Box,
   Grid,
   Typography,
+  CircularProgress,
 } from "@mui/material";
 import { AddCircleOutline, RemoveCircleOutline } from "@mui/icons-material";
 import CustomButton from "../../components/buttons";
@@ -64,12 +65,14 @@ const AddScheduleDataDialog = ({
     {
       hour: "",
       minute: "",
-      campaign_type: "",
-      what_to_watch: "",
+      campaign_code: "",
+      watch: "",
       cpp_metric: "",
       on_off: "",
     },
   ]);
+  const [campaignTypes, setCampaignTypes] = useState([]);
+  const [loading, setLoading] = useState(false);
 
   const lastScheduleRefs = useRef([]);
 
@@ -82,6 +85,26 @@ const AddScheduleDataDialog = ({
     }
   }, [scheduleData]);
 
+  const { id: uid } = getUserData();
+  useEffect(() => {
+    const fetchCampaignTypes = async () => {
+      setLoading(true);
+      try {
+        const response = await fetch(
+          `${apiUrl}/api/v1/user/${uid}/campaign-codes`
+        ); // Fetch campaign codes from your backend
+        const data = await response.json();
+        setCampaignTypes(Array.isArray(data?.data) ? data.data : []); // Set the 'data' array from the response to state
+      } catch (error) {
+        console.error("Error fetching campaign types:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCampaignTypes();
+  }, [uid]);
+
   const handleAddSchedule = () => {
     if (scheduleData.length < MAX_SCHEDULES) {
       setScheduleData((prev) => [
@@ -89,8 +112,8 @@ const AddScheduleDataDialog = ({
         {
           hour: "",
           minute: "",
-          campaign_type: "",
-          what_to_watch: "",
+          campaign_code: "",
+          watch: "",
           cpp_metric: "",
           on_off: "",
         },
@@ -118,9 +141,8 @@ const AddScheduleDataDialog = ({
     const { id } = getUserData();
     const formattedSchedules = scheduleData.map((schedule) => ({
       time: `${schedule.hour}:${schedule.minute}`,
-      campaign_type: schedule.campaign_type,
-      what_to_watch: schedule.what_to_watch,
-      watch: schedule.what_to_watch,
+      campaign_code: schedule.campaign_code,
+      watch: schedule.watch,
       cpp_metric: schedule.cpp_metric,
       on_off: schedule.on_off,
     }));
@@ -155,7 +177,7 @@ const AddScheduleDataDialog = ({
         const updatedScheduleData = { ...(prev.schedule_data || {}) }; // Ensure it's an object
 
         formattedSchedules.forEach((schedule) => {
-          const key = `${schedule.time}-${schedule.campaign_type}`;
+          const key = `${schedule.time}-${schedule.campaign_code}`;
           updatedScheduleData[key] = schedule;
         });
 
@@ -262,18 +284,29 @@ const AddScheduleDataDialog = ({
 
             <FormControl fullWidth size="small" sx={{ mt: 2 }}>
               <InputLabel shrink sx={labelStyles}>
-                Campaign Type
+                Campaign Code
               </InputLabel>
               <Select
-                value={schedule.campaign_type}
+                value={schedule.campaign_code}
                 onChange={(e) =>
-                  handleScheduleChange(index, "campaign_type", e.target.value)
+                  handleScheduleChange(index, "campaign_code", e.target.value)
                 }
                 sx={selectStyles}
                 MenuProps={menuProps}
               >
-                <MenuItem value="TEST">TEST (so1) </MenuItem>
-                <MenuItem value="REGULAR">REGULAR (so2) </MenuItem>
+                {loading ? (
+                  <MenuItem disabled>
+                    <CircularProgress size={24} />
+                  </MenuItem>
+                ) : Array.isArray(campaignTypes) && campaignTypes.length > 0 ? (
+                  campaignTypes.map((type) => (
+                    <MenuItem key={type.id} value={type.campaign_code}>
+                      {type.campaign_code}
+                    </MenuItem>
+                  ))
+                ) : (
+                  <MenuItem disabled>No campaign Code found</MenuItem>
+                )}
               </Select>
             </FormControl>
 
@@ -282,9 +315,9 @@ const AddScheduleDataDialog = ({
                 Watch
               </InputLabel>
               <Select
-                value={schedule.what_to_watch}
+                value={schedule.watch}
                 onChange={(e) =>
-                  handleScheduleChange(index, "what_to_watch", e.target.value)
+                  handleScheduleChange(index, "watch", e.target.value)
                 }
                 sx={selectStyles}
                 MenuProps={menuProps}

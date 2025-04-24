@@ -7,9 +7,9 @@ import json
 from celery import shared_task
 from datetime import datetime
 from sqlalchemy.orm.attributes import flag_modified
-from models.models import db, CampaignsScheduled  
+from models.models import db, CampaignsScheduled
 from workers.on_off_functions.account_message import append_redis_message
-from workers.update_status import process_scheduled_campaigns
+from workers.update_status import process_scheduled_campaigns, process_adsets
 
 # Redis Client
 redis_client = redis.StrictRedis(host="redisAds", port=6379, db=2, decode_responses=True)
@@ -20,25 +20,6 @@ manila_tz = pytz.timezone("Asia/Manila")
 # Facebook API
 FACEBOOK_API_VERSION = "v22.0"
 FACEBOOK_GRAPH_URL = f"https://graph.facebook.com/{FACEBOOK_API_VERSION}"
-
-# Compile regex once for performance
-NON_ALPHANUMERIC_REGEX = re.compile(r'[^a-zA-Z0-9]+')
-
-
-def normalize_text(text):
-    """Replace all non-alphanumeric characters with spaces and split into words."""
-    return NON_ALPHANUMERIC_REGEX.sub(' ', text).lower().split()
-
-
-def contains_test(text):
-    """Check if 'so1' exists as a separate word in campaign_name."""
-    return "so1" in normalize_text(text)
-
-
-def contains_regular(text):
-    """Check if 'so2' exists as a separate word in campaign_name."""
-    return "so2" in normalize_text(text)
-
 
 def fetch_facebook_data(url, access_token):
     """Fetch data from Facebook API and handle errors."""
@@ -58,13 +39,15 @@ def fetch_facebook_data(url, access_token):
         return {"error": {"message": str(e), "type": "RequestException"}}
 
 
-def get_cpp_from_insights(ad_account_id, access_token, level):
+def get_cpp_from_insights(ad_account_id, access_token, level, cpp_date_start, cpp_date_end):
     """
-    Fetch CPP values from Facebook insights API.
+    Fetch CPP values from Facebook insights API within a specific date range.
     Returns a dictionary mapping campaign_id or adset_id to CPP values.
     """
     cpp_data = {}
-    url = f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/insights?level={level}&fields={level}_id,actions,spend"
+    url = (f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/insights"
+           f"?level={level}&fields={level}_id,actions,spend"
+           f"&time_range[since]={cpp_date_start}&time_range[until]={cpp_date_end}")
 
     while url:
         response_data = fetch_facebook_data(url, access_token)
@@ -85,7 +68,6 @@ def get_cpp_from_insights(ad_account_id, access_token, level):
 
     return cpp_data
 
-
 @shared_task
 def fetch_campaign(user_id, ad_account_id, access_token, matched_schedule):
     """Fetch campaigns for an ad account and store structured data in CampaignsScheduled."""
@@ -94,7 +76,6 @@ def fetch_campaign(user_id, ad_account_id, access_token, matched_schedule):
     pending_schedules_key = f"pending_schedules:{ad_account_id}"
 
     logging.info(f"Schedule Data: {matched_schedule}")
-
     append_redis_message(user_id, ad_account_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Fetching Campaign Data for {ad_account_id} schedule {matched_schedule}")
 
     if not lock.acquire(blocking=False):
@@ -103,9 +84,9 @@ def fetch_campaign(user_id, ad_account_id, access_token, matched_schedule):
         return f"Fetch already in progress for {ad_account_id}, queued process_scheduled_campaigns"
 
     try:
-        test_campaigns, regular_campaigns = {}, {}
+        matched_campaigns = {}
+        schedule_code = matched_schedule["campaign_code"].lower()
 
-        # Fetch Campaign & Adset data in one API call
         campaign_url = f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/campaigns?fields=id,name,status,adsets{{id,name,status}}"
         campaigns_data = fetch_facebook_data(campaign_url, access_token)
 
@@ -125,13 +106,12 @@ def fetch_campaign(user_id, ad_account_id, access_token, matched_schedule):
             campaign_status = campaign["status"]
             campaign_CPP = cpp_campaign_data.get(campaign_id, 0)
 
-            target_dict = test_campaigns if contains_test(campaign_name) else regular_campaigns if contains_regular(campaign_name) else None
-
-            if target_dict is not None:
-                target_dict[campaign_id] = {
+            if schedule_code in campaign_name.lower():
+                matched_campaigns[campaign_id] = {
                     "campaign_name": campaign_name,
                     "STATUS": campaign_status,
                     "CPP": campaign_CPP,
+                    "on_off": matched_schedule["on_off"],
                     "ADSETS": {
                         adset["id"]: {
                             "NAME": adset["name"],
@@ -142,34 +122,39 @@ def fetch_campaign(user_id, ad_account_id, access_token, matched_schedule):
                     },
                 }
 
-        # Update database
         campaign_entry = CampaignsScheduled.query.filter_by(ad_account_id=ad_account_id).first()
-
         if not campaign_entry:
             campaign_entry = CampaignsScheduled(
                 ad_account_id=ad_account_id,
-                test_campaign_data={},
-                regular_campaign_data={},
+                matched_campaign_data={},
                 last_time_checked=datetime.now(),
                 last_check_status="Ongoing",
                 last_check_message=f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Campaigns saved successfully."
             )
             db.session.add(campaign_entry)
 
-        campaign_entry.test_campaign_data = test_campaigns
-        campaign_entry.regular_campaign_data = regular_campaigns
+        campaign_entry.matched_campaign_data = matched_campaigns
         campaign_entry.last_time_checked = datetime.now()
         campaign_entry.last_check_status = "Success"
         campaign_entry.last_check_message = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Campaign data updated."
 
-        flag_modified(campaign_entry, "test_campaign_data")
-        flag_modified(campaign_entry, "regular_campaign_data")
+        flag_modified(campaign_entry, "matched_campaign_data")
         db.session.commit()
 
         logging.info(f"Successfully fetched and saved campaigns for Ad Account {ad_account_id}")
         append_redis_message(user_id, ad_account_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Campaigns updated successfully.")
 
-        process_scheduled_campaigns.apply_async(args=[user_id, ad_account_id, access_token, matched_schedule])
+        # Case insensitive watch selection
+        watch = matched_schedule.get("watch", "").strip().lower()
+
+        if watch == "campaigns":
+            process_scheduled_campaigns.apply_async(args=[user_id, ad_account_id, access_token, matched_schedule])
+        elif watch == "adsets":
+            process_adsets.apply_async(args=[user_id, ad_account_id, access_token, matched_schedule, matched_campaigns])
+        else:
+            msg = f"Unknown watch type: {matched_schedule.get('watch')}"
+            logging.warning(msg)
+            append_redis_message(user_id, ad_account_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
 
         return f"Fetched campaign data for Ad Account {ad_account_id}"
 

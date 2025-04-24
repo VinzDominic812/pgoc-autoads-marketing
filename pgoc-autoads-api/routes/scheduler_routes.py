@@ -2,7 +2,7 @@ import json
 from flask import Blueprint, request, jsonify
 import pytz
 import redis
-from controllers.scheduler_controller import add_schedule_logic, append_schedule_logic, delete_schedule_logic, edit_schedule_campaign_logic, remove_schedule_time_logic
+from controllers.scheduler_controller import add_schedule_logic, append_schedule_logic, delete_schedule_logic, edit_schedule_campaign_logic, remove_schedule_time_logic, pause_schedule_campaign_logic
 from models.models import User, db, CampaignsScheduled
 from datetime import datetime, timedelta
 
@@ -41,6 +41,11 @@ def edit_schedule_campaign():
     response, status_code = edit_schedule_campaign_logic(data)
     return jsonify(response), status_code
 
+@schedule_bp.route("/pause-schedule", methods=["PUT"])
+def pause_schedule_campaign():
+    data = request.get_json()
+    response, status_code = pause_schedule_campaign_logic(data)
+    return jsonify(response), status_code
 
 # Get schedule for a specific ad_account_id using query params
 @schedule_bp.route("/get-campaign-schedule", methods=["GET"])

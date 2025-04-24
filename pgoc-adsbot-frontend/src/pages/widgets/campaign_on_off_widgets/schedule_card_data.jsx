@@ -44,7 +44,6 @@ const ScheduleCardData = ({ selectedAccount, setSelectedAccount }) => {
     setScheduleData(selectedAccount?.schedule_data || {});
   }, [selectedAccount]);
 
-
   const handleCardClick = (key) => {
     if (selectedSchedule === key) {
       // If already selected, unselect it
@@ -78,21 +77,21 @@ const ScheduleCardData = ({ selectedAccount, setSelectedAccount }) => {
 
   const handleRemoveSchedule = async () => {
     if (!selectedScheduleData) return;
-
+  
     const { id } = getUserData();
-
+  
     const requestBody = {
       id,
       ad_account_id: selectedAccount.ad_account_id,
       time: selectedScheduleData.time,
-      campaign_type: selectedScheduleData.campaign_type,
-      watch: selectedScheduleData.what_to_watch,
+      campaign_code: selectedScheduleData.campaign_code, // Make sure this matches the backend
+      watch: selectedScheduleData.watch,
       cpp_metric: selectedScheduleData.cpp_metric,
       on_off: selectedScheduleData.on_off,
     };
-
+  
     console.log("Removing Schedule:", requestBody);
-
+  
     try {
       const response = await fetch(
         `${apiUrl}/api/v1/schedule/remove-schedule-time`,
@@ -105,17 +104,17 @@ const ScheduleCardData = ({ selectedAccount, setSelectedAccount }) => {
           body: JSON.stringify(requestBody),
         }
       );
-
+  
       if (!response.ok)
         throw new Error(`Error ${response.status}: ${response.statusText}`);
-
+  
       setScheduleData((prev) => {
         const updatedSchedule = Object.fromEntries(
           Object.entries(prev).filter(([key]) => key !== selectedSchedule)
         );
         return updatedSchedule;
       });
-
+  
       setSelectedAccount((prev) => ({
         ...prev,
         schedule_data: Object.fromEntries(
@@ -124,14 +123,13 @@ const ScheduleCardData = ({ selectedAccount, setSelectedAccount }) => {
           )
         ),
       }));
-      f;
-
+  
       setSelectedSchedule(null);
       setSelectedScheduleData(null);
     } catch (error) {
       console.error("Error removing schedule:", error);
     }
-  };
+  };  
 
   const handleUpdateSchedule = (updatedSchedule) => {
     setScheduleData((prev) => ({
@@ -143,61 +141,65 @@ const ScheduleCardData = ({ selectedAccount, setSelectedAccount }) => {
   };
 
   const handleUpdateScheduleStatus = async (newStatus) => {
-      if (!selectedSchedule || !selectedScheduleData) {
-        console.error("Error: No schedule selected.");
-        return;
-      }
-  
-      // UI Update Before API Call
-      setScheduleData((prev) => {
-        if (!prev[selectedSchedule]) return prev; // Prevent undefined errors
-        return {
-          ...prev,
-          [selectedSchedule]: {
-            ...prev[selectedSchedule],
-            status: newStatus, // Only update the status key
-          },
-        };
-      });
-  
-      setSelectedScheduleData((prev) =>
-        prev ? { ...prev, status: newStatus } : null
-      );
-  
-      const { id } = getUserData();
-      const payload = {
-        id,
-        ad_account_id: selectedScheduleData.ad_account_id, // Ensure this exists
-        time: selectedScheduleData.time, // Keep original time
-        new_status: newStatus,
+    if (!selectedSchedule || !selectedScheduleData) {
+      console.error("Error: No schedule selected.");
+      return;
+    }
+
+    // UI Update Before API Call
+    setScheduleData((prev) => {
+      if (!prev[selectedSchedule]) return prev; // Prevent undefined errors
+      return {
+        ...prev,
+        [selectedSchedule]: {
+          ...prev[selectedSchedule],
+          status: newStatus, // Only update the status key
+        },
       };
-  
-      console.log("Calling API with payload:", payload); // ✅ Debugging API Call
-  
-      try {
-        const response = await fetch(`${apiUrl}/api/v1/schedule/edit-schedule`, {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            skip_zrok_interstitial: "true",
-          },
-          body: JSON.stringify(payload),
-        });
-  
-        console.log("API Response Status:", response.status); // ✅ Debugging
-  
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`Failed to update schedule: ${errorText}`);
-        }
-  
-        notify("Status Changed successfully!", "success");
-      } catch (error) {
-        console.error("Error updating status:", error);
-        notify(`Error: ${error.message}`, "error");
-      }
+    });
+
+    setSelectedScheduleData((prev) =>
+      prev ? { ...prev, status: newStatus } : null
+    );
+
+    const { id: user_id } = getUserData();
+    const payload = {
+      ad_account_id: selectedScheduleData.ad_account_id,
+      user_id,
+      access_token: selectedAccount?.access_token, // grab this from selectedAccount
+      schedule_data: [
+        {
+          ...selectedScheduleData,
+          status: newStatus,
+        },
+      ],
     };
-    
+
+    console.log("Calling API with payload:", payload); // ✅ Debugging API Call
+
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/schedule/pause-schedule`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          skip_zrok_interstitial: "true",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      console.log("API Response Status:", response.status); // ✅ Debugging
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to update schedule: ${errorText}`);
+      }
+
+      notify("Status Changed successfully!", "success");
+    } catch (error) {
+      console.error("Error updating status:", error);
+      notify(`Error: ${error.message}`, "error");
+    }
+  };
 
   return (
     <WidgetCard sx={{ padding: 3, height: "650px", overflow: "hidden" }}>
@@ -374,7 +376,7 @@ const ScheduleCardData = ({ selectedAccount, setSelectedAccount }) => {
                     >
                       <CampaignIcon sx={{ color: "#ff9800" }} />
                       <Typography variant="body2" sx={{ color: "#444" }}>
-                        <b>Campaign Type:</b> {schedule.campaign_type}
+                        <b>Campaign Code:</b> {schedule.campaign_code}
                       </Typography>
                     </Box>
 
@@ -439,7 +441,7 @@ const ScheduleCardData = ({ selectedAccount, setSelectedAccount }) => {
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                       <VisibilityIcon sx={{ color: "#673ab7" }} />
                       <Typography variant="body2" sx={{ color: "#444" }}>
-                        <b>Watch:</b> {schedule.what_to_watch}
+                        <b>Watch:</b> {schedule.watch}
                       </Typography>
                     </Box>
                   </CardContent>
