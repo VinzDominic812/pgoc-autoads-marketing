@@ -205,7 +205,6 @@ def create_simple_campaign_task(self, ad_account_id, user_id, access_token, camp
         logging.info("Fetching campaign data from CSV...")
         append_redis_message_create_campaigns(user_id, f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Fetching campaign data from CSV...")
 
-
         # Log campaign details
         logging.info(f"Processing campaign: {campaign_name} (ID: {campaign_id}) for Ad Account: {ad_account_id}")
         append_redis_message_create_campaigns(user_id, f" [{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Processing campaign: {campaign_name} (ID: {campaign_id})")
@@ -369,6 +368,8 @@ def create_simple_campaign_task(self, ad_account_id, user_id, access_token, camp
             # If no interests, name it "BR", otherwise join interest words as the name
             logging.info(f"🛠 Creating AdSet {adset_index + 1} - {interest_words}")
             append_redis_message_create_campaigns(user_id, f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Creating AdSet {adset_index + 1} - {interest_words}")
+
+            time.sleep(5)
 
             adset_name = "BR" if not interest_words else ", ".join(interest_words)
             ads_name = f"{adset_name}-ad"
