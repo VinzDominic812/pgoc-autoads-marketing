@@ -204,7 +204,11 @@ const Dashboard = () => {
             flexGrow: 1,
             bgcolor: "transparent",
             transition: "margin-left 0.3s",
-            p: 3,
+            pr: 0, // only remove right padding
+            pt: 3, // optional: add back top padding if needed
+            pb: 3, // optional: bottom
+            pl: 3, // optional: left
+            mr: 2,
             mt: 0,
           }}
         >
