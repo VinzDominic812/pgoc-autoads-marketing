@@ -67,8 +67,13 @@ const Sidebar = ({
         sx={{
           display: "flex",
           alignItems: "center",
-          padding: "10px",
-          justifyContent: open ? "flex-start" : "center",
+          justifyContent: "flex-start",
+          flexDirection: open ? "row" : "column",
+          height: "40px",
+          width: open ? "250px" : "60px", // Set a fixed width
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
         }}
       >
         <img
@@ -78,6 +83,7 @@ const Sidebar = ({
             width: "30px",
             height: "30px",
             marginRight: open ? "8px" : "0",
+            transition: "margin-right 0.3s ease", // Smooth transition for margin change
           }}
         />
         {open && (
@@ -85,11 +91,9 @@ const Sidebar = ({
             sx={{
               fontSize: "14px",
               fontWeight: "bold",
-              whiteSpace: "normal",
+              whiteSpace: "nowrap",
               overflow: "hidden",
-              display: "-webkit-box",
-              WebkitBoxOrient: "vertical",
-              WebkitLineClamp: 2,
+              textOverflow: "ellipsis",
             }}
           >
             Philippian Group of Companies
@@ -104,17 +108,18 @@ const Sidebar = ({
           alignItems: "center",
           marginTop: "-8px",
           padding: "6px 10px",
-          justifyContent: open ? "flex-start" : "center",
+          justifyContent: "flex-start",
+          width: open ? "250px" : "60px", // Set a fixed width
           flexDirection: open ? "row" : "column",
         }}
       >
         <Avatar
           variant="square"
           sx={{
-            width: 30,
-            height: 30,
+            width: 40,
+            height: 40,
             backgroundColor: "#f0f0f0",
-            marginRight: open ? "6px" : "0",
+            transition: "none",
           }}
           src={profilePicture || undefined}
         >
@@ -125,23 +130,44 @@ const Sidebar = ({
           <Box
             sx={{
               display: "flex",
-              flexDirection: "column",
-              alignItems: "flex-start",
-              marginLeft: "15px",
-              marginTop: "28px",
-              gap: "2px",
+              flexDirection: "column", // Now we are stacking name and email
+              justifyContent: "center",
+              marginLeft: 1.5,
             }}
           >
-            <Typography
-              sx={{
-                fontSize: "13px",
-                fontWeight: "bold",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {userName}
-            </Typography>
+            {/* Name and Status inline */}
+            <Box sx={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <Typography
+                sx={{
+                  fontSize: "13px",
+                  fontWeight: "bold",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {userName}
+              </Typography>
 
+              <Chip
+                label={
+                  userData?.status?.toLowerCase() === "active"
+                    ? "Active"
+                    : "Inactive"
+                }
+                size="small"
+                sx={{
+                  backgroundColor:
+                    userData?.status?.toLowerCase() === "active"
+                      ? "#4CAF50"
+                      : "#D32F2F",
+                  color: "#fff",
+                  fontSize: "10px",
+                  fontWeight: "bold",
+                  height: "18px",
+                }}
+              />
+            </Box>
+
+            {/* Email below name */}
             <Typography
               sx={{
                 fontSize: "11px",
@@ -151,26 +177,6 @@ const Sidebar = ({
             >
               {userData?.email || "No Email"}
             </Typography>
-
-            <Chip
-              label={
-                userData?.status?.toLowerCase() === "active"
-                  ? "Active"
-                  : "Inactive"
-              }
-              size="small"
-              sx={{
-                backgroundColor:
-                  userData?.status?.toLowerCase() === "active"
-                    ? "#4CAF50"
-                    : "#D32F2F",
-                color: "#fff",
-                fontSize: "10px",
-                fontWeight: "bold",
-                height: "18px",
-                marginTop: "10px",
-              }}
-            />
           </Box>
         )}
       </Box>
@@ -196,7 +202,13 @@ const Sidebar = ({
                     localStorage.removeItem("authToken");
 
                     // List of cookies to remove
-                    const cookiesToRemove = ["xsid", "xsid_g", "usr", "rsid", "isxd"];
+                    const cookiesToRemove = [
+                      "xsid",
+                      "xsid_g",
+                      "usr",
+                      "rsid",
+                      "isxd",
+                    ];
 
                     // Delete cookies
                     cookiesToRemove.forEach((cookie) => {
@@ -206,11 +218,14 @@ const Sidebar = ({
                     // Redirect to login page
                     window.location.href = "/";
                     return;
+                    // Handle logout
+                  } else {
+                    onSelectSegment(item.segment);
                   }
-
-                  onSelectSegment(item.segment);
                 }}
                 sx={{
+                  width: open ? 250 : 60, // Adjust based on whether the sidebar is open
+                  height: "48px", // Fixed height to prevent vertical stretching
                   backgroundColor:
                     selectedSegment === item.segment
                       ? "rgb(219, 218, 218)"
@@ -225,16 +240,20 @@ const Sidebar = ({
                     backgroundColor: "rgb(235, 235, 235)",
                     color: "black",
                   },
+                  display: "flex",
+                  alignItems: "center", // Align items to the start to prevent stretching
                 }}
               >
                 <ListItemIcon
                   sx={{
+                    minWidth: 40, // Fixed width for the icon
                     color: selectedSegment === item.segment ? "red" : "inherit",
-                    minWidth: 40,
                   }}
                 >
                   {item.icon}
                 </ListItemIcon>
+
+                {/* Ensure ListItemText is aligned and does not stretch */}
                 {open && (
                   <ListItemText
                     primary={item.title}
@@ -243,6 +262,7 @@ const Sidebar = ({
                         selectedSegment === item.segment ? "red" : "inherit",
                       fontWeight:
                         selectedSegment === item.segment ? "bold" : "normal",
+                      whiteSpace: "nowrap", // Prevent text from wrapping
                     }}
                   />
                 )}
