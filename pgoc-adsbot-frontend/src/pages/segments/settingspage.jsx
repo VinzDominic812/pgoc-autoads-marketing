@@ -172,15 +172,10 @@ const SettingsPage = () => {
           label="New Campaign Code"
           value={newCode}
           onChange={(e) => {
-            let value = e.target.value.toUpperCase();
-
-            // Only allow the first letter and the next up to 4 digits, and allow deleting characters
-            if (/^[A-Z]?[0-9]{0,4}$/.test(value)) {
-              setNewCode(value);
-            }
+            setNewCode(e.target.value);
           }}
-          inputProps={{ maxLength: 5 }} // Limit input to 5 characters (1 letter + 4 numbers)
-          helperText="First letter is uppercase, followed by numbers (e.g., A1234)"
+          inputProps={{ maxLength: 5 }} // Limit to 5 characters only
+          helperText="Up to 5 characters"
         />
         <Button variant="contained" onClick={handleAddCode}>
           Save
