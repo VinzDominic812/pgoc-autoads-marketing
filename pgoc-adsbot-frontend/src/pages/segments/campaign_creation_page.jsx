@@ -695,8 +695,8 @@ const CampaignCreationPage = () => {
         return;
       }
   
-      // Process the valid campaigns
-      for await (const [index, row] of validCampaigns.entries()) {
+      // Process each campaign one at a time
+      for (const row of validCampaigns) {
         let parsedInterests = row["interests_list"];
         let parsedExcludedRegions = row["excluded_ph_region"];
   
@@ -790,7 +790,7 @@ const CampaignCreationPage = () => {
       setIsRunning(false);
       isRunningRef.current = false;
     }
-  };  
+  };    
 
   const parseInterestsList = (interestsString) => {
     if (!interestsString || interestsString.trim() === "") return [[]];
@@ -899,7 +899,8 @@ const CampaignCreationPage = () => {
       const jsonRow = jsonData.find(
         (json) =>
           json.ad_account_id === csvRow.ad_account_id &&
-          json.access_token === csvRow.access_token
+          json.access_token === csvRow.access_token &&
+          json.facebook_page_id === csvRow.facebook_page_id // <- 🔥 match on page ID too
       );
   
       if (!jsonRow) {
