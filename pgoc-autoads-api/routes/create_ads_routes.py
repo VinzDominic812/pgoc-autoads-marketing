@@ -319,8 +319,6 @@ def create_multiple_simple_campaigns():
                 db.session.commit()
                 append_redis_message_create_campaigns(user_id, f"[INFO] Campaign {campaign_name} saved to database.")
 
-                time.sleep(5)
-
                 # Async Task
                 task = create_simple_campaign_task.apply_async(
                     args=[ad_account_id, user_id, access_token, campaign_id, campaign_name, page_name, facebook_page_id,

@@ -402,8 +402,6 @@ def create_simple_campaign_task(self, ad_account_id, user_id, access_token, camp
                 upsert_campaign_data(user_id, ad_account_id, campaign_id, last_server_messages=error_message, status="Failed")
                 append_redis_message_create_campaigns(user_id, error_message)
                 return {"status": "failed", "error": f"Failed to create ad for adset {adset_name}", "details": ad_response}
-                
-
 
             ad_id = ad_response['id']
             logging.info(f"AD ID : {ad_id} ADSET: {adset_name}")
