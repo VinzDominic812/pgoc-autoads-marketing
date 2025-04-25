@@ -66,8 +66,8 @@ def seed_regions():
         db.session.bulk_save_objects(new_regions)
         db.session.commit()
         print("PH_REGION_TABLES seeded successfully!")
-    else:
-        print("PH_REGION_TABLES already contains all regions.")
+    # else:
+    #     print("PH_REGION_TABLES already contains all regions.")
 
 def create_app():
     app = Flask(__name__)
