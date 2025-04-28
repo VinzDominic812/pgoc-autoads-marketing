@@ -1,3 +1,4 @@
+
 services:
   flask:
     build:
@@ -59,6 +60,7 @@ services:
     healthcheck:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
     restart: always
+
   postgresdb:
     image: postgres:15
     container_name: db_postgres_ads
@@ -80,4 +82,4 @@ services:
     restart: always
 
 volumes:
-  postgres_data:
+  postgres_data:  # Define the volume for persistent storage of Postgres data
