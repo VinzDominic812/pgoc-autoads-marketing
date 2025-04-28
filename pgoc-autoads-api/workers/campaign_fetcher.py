@@ -39,7 +39,7 @@ def fetch_facebook_data(url, access_token):
         return {"error": {"message": str(e), "type": "RequestException"}}
 
 
-def get_cpp_from_insights(ad_account_id, access_token, level, cpp_date_start, cpp_date_end):
+def get_cpp_from_insights(ad_account_id, access_token, level):
     """
     Fetch CPP values from Facebook insights API within a specific date range.
     Returns a dictionary mapping campaign_id or adset_id to CPP values.
@@ -47,7 +47,7 @@ def get_cpp_from_insights(ad_account_id, access_token, level, cpp_date_start, cp
     cpp_data = {}
     url = (f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/insights"
            f"?level={level}&fields={level}_id,actions,spend"
-           f"&time_range[since]={cpp_date_start}&time_range[until]={cpp_date_end}")
+           f"&date_preset=yesterday")
 
     while url:
         response_data = fetch_facebook_data(url, access_token)
