@@ -17,25 +17,15 @@ RUN apk add --no-cache \
 # Set the working directory inside the container
 WORKDIR /app
 
-# Copy the requirements.txt file first for caching dependencies
 COPY requirements.txt .
 
-# Install the dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the entire project into the container
 COPY . .
 
-# Set environment variables for Flask
-ENV FLASK_APP=app.py
-ENV FLASK_RUN_PORT=5095
-ENV FLASK_ENV=production 
-
-# Install Gunicorn for production use
-RUN pip install gunicorn
-
-# Expose the port that Flask will run on
+# Expose the port your app runs on
 EXPOSE 5095
 
-# Set the entry point to run the app with Gunicorn (instead of Flask's development server)
-CMD ["gunicorn", "--bind", "0.0.0.0:5095", "app:create_app()"]
+# Use Gunicorn to serve the app instead of Flask's built-in server
+CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5095", "app:create_app()"]

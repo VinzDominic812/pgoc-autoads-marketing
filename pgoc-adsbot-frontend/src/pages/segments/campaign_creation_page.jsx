@@ -18,7 +18,11 @@ import notify from "../components/toast.jsx";
 import CustomButton from "../components/buttons";
 import SpaceBg from "../../assets/campaign_creation_bg.png";
 import Papa from "papaparse";
-import { getUserData, encryptData, decryptData } from "../../services/user_data.js";
+import {
+  getUserData,
+  encryptData,
+  decryptData,
+} from "../../services/user_data.js";
 
 // ICONS
 import SmartToyRoundedIcon from "@mui/icons-material/SmartToyRounded";
@@ -64,7 +68,6 @@ const getCurrentTime = () => {
 const apiUrl = import.meta.env.VITE_API_URL;
 
 const CampaignCreationPage = () => {
-  
   const headers = [
     "ad_account_id",
     "ad_account_status",
@@ -111,19 +114,19 @@ const CampaignCreationPage = () => {
     try {
       const encryptedData = localStorage.getItem(key);
       if (!encryptedData) return defaultValue;
-      
+
       const decryptedData = decryptData(encryptedData);
-      
+
       // Ensure we always return an array
       if (!decryptedData) return defaultValue;
-      
+
       // Handle case where decryptedData is already an array
       if (Array.isArray(decryptedData)) {
         return decryptedData;
       }
-      
+
       // Handle case where decryptedData is a JSON string
-      if (typeof decryptedData === 'string') {
+      if (typeof decryptedData === "string") {
         try {
           const parsed = JSON.parse(decryptedData);
           return Array.isArray(parsed) ? parsed : defaultValue;
@@ -131,20 +134,20 @@ const CampaignCreationPage = () => {
           return defaultValue;
         }
       }
-      
+
       return defaultValue;
     } catch (error) {
       // console.error(`Error loading ${key}:`, error);
       return defaultValue;
     }
   };
-  
+
   // Initialize state with array fallback
   const [tableData, setTableData] = useState(() => {
     const data = getPersistedState("campaignCreationTableData", []);
     return Array.isArray(data) ? data : [];
   });
-  
+
   // Save to localStorage with array validation
   useEffect(() => {
     try {
@@ -226,10 +229,10 @@ const CampaignCreationPage = () => {
         const data = JSON.parse(event.data);
         if (data && data.data && data.data.message) {
           const messageText = data.data.message[0]; // Extract first message
-    
+
           // Always add the message to the message list
           addMessage(data.data.message);
-    
+
           // ✅ Match for "Creating Facebook campaign"
           const campaignCreationMatch = messageText.match(
             /Creating Facebook campaign: (.*?)\./
@@ -247,7 +250,7 @@ const CampaignCreationPage = () => {
               )
             );
           }
-    
+
           // ✅ Match for "Task Created" with campaign name
           const taskCreatedMatch = messageText.match(
             /Task Created: (.*) - Status: (\S+) - Message: (.*)/
@@ -256,7 +259,7 @@ const CampaignCreationPage = () => {
             const taskName = taskCreatedMatch[1]; // Extracted task name
             const taskStatus = taskCreatedMatch[2]; // Extracted task status
             const taskMessage = JSON.parse(taskCreatedMatch[3]); // Parsed task message
-    
+
             // Update table with task creation details
             setTableData((prevData) =>
               prevData.map((entry) =>
@@ -270,7 +273,7 @@ const CampaignCreationPage = () => {
               )
             );
           }
-    
+
           // ✅ Match for "Uploading video for campaign"
           const uploadingVideoMatch = messageText.match(
             /\[(.*?)\] Uploading video for (.*?)\./
@@ -289,7 +292,7 @@ const CampaignCreationPage = () => {
               )
             );
           }
-    
+
           // ✅ Match for "Uploading image for campaign"
           const uploadingImageMatch = messageText.match(
             /\[(.*?)\] Uploading image for (.*?)\./
@@ -308,7 +311,7 @@ const CampaignCreationPage = () => {
               )
             );
           }
-    
+
           // ✅ Match for "Ad creative successfully created"
           const adCreativeSuccessMatch = messageText.match(
             /\[(.*?)\] Ad creative successfully created for (.*?)\./
@@ -327,7 +330,7 @@ const CampaignCreationPage = () => {
               )
             );
           }
-    
+
           // ✅ Handle "Failed to create ad for adset" with error details
           const failedToCreateAdMatch = messageText.match(
             /Failed to create ad for adset (.*?), details: (.*)/
@@ -335,7 +338,7 @@ const CampaignCreationPage = () => {
           if (failedToCreateAdMatch) {
             const adsetDetails = failedToCreateAdMatch[1]; // Extracted adset details
             const errorDetails = JSON.parse(failedToCreateAdMatch[2]); // Parsed error details
-    
+
             setTableData((prevData) =>
               prevData.map((entry) =>
                 entry.key === `${user_id}-key`
@@ -346,9 +349,13 @@ const CampaignCreationPage = () => {
                   : entry
               )
             );
-            addMessage([`[${getCurrentTime()}] ❌ Error creating ad for adset ${adsetDetails}: ${errorDetails.error.message}`]);
+            addMessage([
+              `[${getCurrentTime()}] ❌ Error creating ad for adset ${adsetDetails}: ${
+                errorDetails.error.message
+              }`,
+            ]);
           }
-    
+
           // ❌ Handle 401 Unauthorized Error with ON/OFF
           const unauthorizedMatch = messageText.match(
             /Error during campaign fetch for Ad Account (\S+) \((ON|OFF)\): 401 Client Error/
@@ -356,7 +363,7 @@ const CampaignCreationPage = () => {
           if (unauthorizedMatch) {
             const adAccountId = unauthorizedMatch[1];
             const onOffStatus = unauthorizedMatch[2];
-    
+
             setTableData((prevData) =>
               prevData.map((entry) =>
                 entry.ad_account_id === adAccountId &&
@@ -368,19 +375,19 @@ const CampaignCreationPage = () => {
                   : entry
               )
             );
-    
+
             addMessage([
               `[${getCurrentTime()}] ❌ 401 Unauthorized Error for Ad Account ${adAccountId} (${onOffStatus}). Check access token or permissions.`,
             ]);
           }
-    
+
           // ❌ Handle 403 Forbidden Error
           const forbiddenMatch = messageText.match(
             /https:\/\/graph\.facebook\.com\/v\d+\.\d+\/act_(\d+)\/campaigns/
           );
           if (forbiddenMatch) {
             const adAccountId = forbiddenMatch[1]; // Extracted ad account ID
-    
+
             setTableData((prevData) =>
               prevData.map((entry) =>
                 entry.ad_account_id === adAccountId
@@ -391,7 +398,7 @@ const CampaignCreationPage = () => {
                   : entry
               )
             );
-    
+
             addMessage([
               `[${getCurrentTime()}] ❌ 403 Forbidden for Ad Account ${adAccountId}. Check permissions or tokens.`,
             ]);
@@ -401,14 +408,14 @@ const CampaignCreationPage = () => {
         // console.error("Error parsing SSE message:", error);
       }
     };
-    
+
     eventSource.onerror = (error) => {
       // console.error("SSE connection error:", error);
       eventSource.close();
     };
-  
+
     eventSourceRef.current = eventSource;
-  
+
     return () => {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
@@ -419,15 +426,15 @@ const CampaignCreationPage = () => {
   const handleClearAll = () => {
     try {
       setTableData([]); // Clear state
-      
+
       // Remove from localStorage (encrypted version)
       localStorage.removeItem("campaignCreationTableData");
-      
+
       // Optional: Clean up legacy cookie if it exists
       if (Cookies.get("campaignCreationTableData")) {
         Cookies.remove("campaignCreationTableData");
       }
-      
+
       notify("All data cleared successfully!", "success");
     } catch (error) {
       // console.error("Error clearing data:", error);
@@ -579,19 +586,21 @@ const CampaignCreationPage = () => {
   const handleFileChange = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-  
+
     const reader = new FileReader();
-  
+
     reader.onload = (e) => {
       const fileContent = e.target?.result;
-  
+
       Papa.parse(fileContent, {
         complete: async (result) => {
           const csvData = result.data;
           console.log(`formattedData:\n${JSON.stringify(csvData, null, 2)}`);
-  
+
           if (csvData.length > 1) {
-            const headers = csvData[0].map((header) => header.trim().toLowerCase().replace(/\s+/g, "_"));
+            const headers = csvData[0].map((header) =>
+              header.trim().toLowerCase().replace(/\s+/g, "_")
+            );
             console.log("🧠 Headers:", headers);
             const formattedData = csvData.slice(1).map((row) =>
               headers.reduce((acc, header, index) => {
@@ -599,107 +608,123 @@ const CampaignCreationPage = () => {
                 return acc;
               }, {})
             );
-  
+
             // Pre-process fields
             formattedData.forEach((item, i) => {
               console.log(`Row ${i}:`, item.campaign_code);
-              item["interests_list"] = parseInterestsList(item["interests_list"]);
-              item["excluded_ph_region"] = parseExcludedPHRegion(item["excluded_ph_region"]);
+              item["interests_list"] = parseInterestsList(
+                item["interests_list"]
+              );
+              item["excluded_ph_region"] = parseExcludedPHRegion(
+                item["excluded_ph_region"]
+              );
               addMessage([
-                `[${getCurrentTime()}] 🎯 Row ${i + 1} (${item.sku || "No SKU"}): interests_list = ${JSON.stringify(item.interests_list)}`
+                `[${getCurrentTime()}] 🎯 Row ${i + 1} (${
+                  item.sku || "No SKU"
+                }): interests_list = ${JSON.stringify(item.interests_list)}`,
               ]);
             });
-  
+
             setTableData(formattedData);
 
             const campaignCodes = formattedData
               .map((item) => item["campaign_code"])
-              .filter((code) => code)
+              .filter((code) => code);
 
             verifyCampaignCodes(campaignCodes, addMessage);
             verifyAdAccounts(formattedData);
-            console.log("🚀 Final Payload Preview:", JSON.stringify(formattedData, null, 2));
+            console.log(
+              "🚀 Final Payload Preview:",
+              JSON.stringify(formattedData, null, 2)
+            );
           }
         },
         header: false,
         skipEmptyLines: true,
       });
     };
-  
+
     reader.readAsText(file, "UTF-8");
-  };  
+  };
 
   const handleRunCampaigns = async () => {
     if (isRunningRef.current) return; // Prevent duplicate execution
     isRunningRef.current = true;
-  
+
     const campaignApiUrl = isAi
       ? `${apiUrl}/api/v1/campaign/create-campaigns-ai`
       : `${apiUrl}/api/v1/campaign/create-campaigns`;
-  
+
     const verifiedCampaigns = tableData.filter(
       (row) => row.status === "Verified"
     );
-  
+
     if (verifiedCampaigns.length === 0) {
       notify("No verified campaigns available to run.", "error");
       isRunningRef.current = false;
       return;
     }
-  
+
     setIsRunning(true);
     addMessage(["Running verified campaigns..."]);
-  
+
     // Check if all campaign_codes are valid
     const campaignCodes = verifiedCampaigns.map((row) => row["campaign_code"]);
     const invalidCampaignCodes = [];
-  
+
     try {
+      const { id: user_id } = getUserData();
       const response = await fetch(`${apiUrl}/api/v1/verify/campaign-code`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          user_id: 1, // assuming user_id is 1 or get the correct user_id
+          user_id, // assuming user_id is 1 or get the correct user_id
           campaign_codes: campaignCodes,
         }),
       });
-  
+
       if (!response.ok) {
         addMessage(["❌ Error while validating campaign codes."]);
         isRunningRef.current = false;
         setIsRunning(false);
         return;
       }
-  
+
       const result = await response.json();
       const { missing_codes } = result;
-  
+
       if (missing_codes.length > 0) {
         // Identify which campaigns are invalid
         invalidCampaignCodes.push(...missing_codes);
-        addMessage([`❌ The following campaign codes are missing: ${missing_codes.join(", ")}`]);
+        addMessage([
+          `❌ The following campaign codes are missing: ${missing_codes.join(
+            ", "
+          )}`,
+        ]);
       }
-  
+
       // Filter out the campaigns that have invalid campaign codes
       const validCampaigns = verifiedCampaigns.filter(
         (row) => !invalidCampaignCodes.includes(row["campaign_code"])
       );
-  
+
       // If no valid campaigns are left, notify the user and exit
       if (validCampaigns.length === 0) {
-        addMessage(["❌ No valid campaigns to run. All campaigns had invalid campaign codes."]);
+        addMessage([
+          "❌ No valid campaigns to run. All campaigns had invalid campaign codes.",
+        ]);
         isRunningRef.current = false;
         setIsRunning(false);
         return;
       }
-  
+
       // Process each campaign one at a time
       for (const row of validCampaigns) {
         let parsedInterests = row["interests_list"];
         let parsedExcludedRegions = row["excluded_ph_region"];
-  
+
         if (typeof parsedInterests === "string") {
           try {
             parsedInterests = JSON.parse(parsedInterests);
@@ -712,9 +737,9 @@ const CampaignCreationPage = () => {
             parsedInterests = [[]]; // Default to an empty array if parsing fails
           }
         }
-  
+
         const { id } = getUserData();
-  
+
         const requestBody = {
           user_id: id,
           campaigns: [
@@ -739,7 +764,7 @@ const CampaignCreationPage = () => {
             },
           ],
         };
-  
+
         try {
           const response = await fetch(campaignApiUrl, {
             method: "POST",
@@ -749,26 +774,42 @@ const CampaignCreationPage = () => {
             },
             body: JSON.stringify(requestBody),
           });
-  
+
           const contentType = response.headers.get("Content-Type");
-  
+
           if (!response.ok) {
-            addMessage([`❌ Failed to create campaign for SKU ${row["sku"]} (Status: ${response.status})`]);
+            addMessage([
+              `❌ Failed to create campaign for SKU ${row["sku"]} (Status: ${response.status})`,
+            ]);
             continue;
           }
-  
+
           if (contentType && contentType.includes("application/json")) {
             const responseBody = await response.json();
-            addMessage([`✅ Response for SKU ${row["sku"]}: Status ${response.status}`]);
-  
+            addMessage([
+              `✅ Response for SKU ${row["sku"]}: Status ${response.status}`,
+            ]);
+
             if (responseBody.tasks && responseBody.tasks.length > 0) {
-              addMessage([`Task Created: ${responseBody.tasks[0].campaign_name} - Status: ${responseBody.tasks[0].status} - Message: ${JSON.stringify(responseBody.tasks[0])}`]);
+              addMessage([
+                `Task Created: ${
+                  responseBody.tasks[0].campaign_name
+                } - Status: ${
+                  responseBody.tasks[0].status
+                } - Message: ${JSON.stringify(responseBody.tasks[0])}`,
+              ]);
             } else {
-              addMessage([`⚠️ No task information available for SKU ${row["sku"]}.`]);
+              addMessage([
+                `⚠️ No task information available for SKU ${row["sku"]}.`,
+              ]);
             }
           } else {
             const textResponse = await response.text();
-            addMessage([`Error: Expected JSON but received for SKU ${row["sku"]}: ${JSON.stringify(textResponse)}`]);
+            addMessage([
+              `Error: Expected JSON but received for SKU ${
+                row["sku"]
+              }: ${JSON.stringify(textResponse)}`,
+            ]);
           }
         } catch (error) {
           if (error instanceof Error) {
@@ -778,38 +819,37 @@ const CampaignCreationPage = () => {
           }
         }
       }
-  
+
       setIsRunning(false);
       isRunningRef.current = false;
-  
+
       addMessage(["✅ All valid campaigns have been created successfully!"]);
-  
     } catch (error) {
       console.error("Error validating campaign codes:", error);
       addMessage(["❌ Error occurred while validating campaign codes."]);
       setIsRunning(false);
       isRunningRef.current = false;
     }
-  };    
+  };
 
   const parseInterestsList = (interestsString) => {
     if (!interestsString || interestsString.trim() === "") return [[]];
-  
+
     console.log("📌 Raw interests_list before processing:", interestsString);
-  
+
     try {
       const groups = interestsString.split("/").map((group) => group.trim());
-  
+
       const parsedArray = groups.map((group) => {
         // Preserve "[]" as empty array to represent Broad
         if (group === "[]" || group === "") return [];
-  
+
         return group
           .split(",")
           .map((interest) => interest.trim())
           .filter(Boolean);
       });
-  
+
       console.log("✅ Final parsed interests_list:", parsedArray);
       return parsedArray.length ? parsedArray : [[]];
     } catch (error) {
@@ -861,21 +901,23 @@ const CampaignCreationPage = () => {
           body: JSON.stringify({ user_id: 1, campaigns: campaignsData }),
         }
       );
-  
+
       const result = await response.json();
-      console.log(`RESULT: ${JSON.stringify(result,null,2)}`);
-  
+      console.log(`RESULT: ${JSON.stringify(result, null, 2)}`);
+
       if (response.ok && result.verified_accounts) {
         compareCsvWithJson(
           campaignsData,
           result.verified_accounts,
           setTableData
         ); // 🔹 Now updates table data!
-  
+
         // ✅ Enhanced message logging
         if (addMessage) {
           addMessage([
-            `[${getCurrentTime()}] Verification completed for ${result.verified_accounts.length} accounts`,
+            `[${getCurrentTime()}] Verification completed for ${
+              result.verified_accounts.length
+            } accounts`,
           ]);
         }
       } else {
@@ -902,7 +944,7 @@ const CampaignCreationPage = () => {
           json.access_token === csvRow.access_token &&
           json.facebook_page_id === csvRow.facebook_page_id // <- 🔥 match on page ID too
       );
-  
+
       if (!jsonRow) {
         return {
           ...csvRow,
@@ -913,26 +955,28 @@ const CampaignCreationPage = () => {
           ad_account_error: "Account not found",
           access_token_error: "Account not found",
           facebook_page_error: "Account not found",
-          page_name: ""
+          page_name: "",
         };
       }
-  
+
       return {
         ...csvRow,
         ad_account_status: jsonRow.ad_account_status,
         access_token_status: jsonRow.access_token_status,
         facebook_page_status: jsonRow.facebook_page_status,
-        status: jsonRow.ad_account_status === "Verified" && 
-               jsonRow.access_token_status === "Verified" &&
-               jsonRow.facebook_page_status === "Verified"
-               ? "Verified" : "Not Verified",
+        status:
+          jsonRow.ad_account_status === "Verified" &&
+          jsonRow.access_token_status === "Verified" &&
+          jsonRow.facebook_page_status === "Verified"
+            ? "Verified"
+            : "Not Verified",
         ad_account_error: jsonRow.ad_account_error || null,
         access_token_error: jsonRow.access_token_error || null,
         facebook_page_error: jsonRow.facebook_page_error || null,
-        page_name: jsonRow.facebook_page_name || ""
+        page_name: jsonRow.facebook_page_name || "",
       };
     });
-  
+
     setTableData(updatedData);
   };
 
@@ -950,7 +994,11 @@ const CampaignCreationPage = () => {
     status: (value, row) => (
       <StatusWithIcon
         status={value}
-        error={[row?.ad_account_error, row?.access_token_error, row?.facebook_page_error]
+        error={[
+          row?.ad_account_error,
+          row?.access_token_error,
+          row?.facebook_page_error,
+        ]
           .filter(Boolean)
           .join("<br />")}
       />
@@ -959,17 +1007,15 @@ const CampaignCreationPage = () => {
 
   const StatusWithIcon = ({ status, error }) => {
     if (!status) return null;
-  
+
     if (status === "Verified") {
       return <CheckIcon style={{ color: "green" }} />;
     }
-  
+
     if (status === "Not Verified") {
       return error ? (
         <Tooltip
-          title={
-            <span dangerouslySetInnerHTML={{ __html: error }} />
-          }
+          title={<span dangerouslySetInnerHTML={{ __html: error }} />}
           arrow
         >
           <CancelIcon style={{ color: "red" }} />
@@ -978,43 +1024,54 @@ const CampaignCreationPage = () => {
         <CancelIcon style={{ color: "red" }} />
       );
     }
-  
+
     return <span>{status}</span>;
   };
 
   const verifyCampaignCodes = async (campaignCodes, addMessage) => {
     try {
+      const user = getUserData(); // <-- First, safely get user
+      if (!user || !user.id) {
+        throw new Error("User is not logged in or user ID is missing.");
+      }
+      const user_id = user.id; // Now safe to use
+
       const response = await fetch(`${apiUrl}/api/v1/verify/campaign-code`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ user_id: 1, campaign_codes: campaignCodes }), // Pass in the user_id and the campaign_codes
+        body: JSON.stringify({ user_id, campaign_codes: campaignCodes }),
       });
-  
+
       const result = await response.json();
       console.log(`RESULT: ${JSON.stringify(result, null, 2)}`);
-  
+
       if (response.ok) {
         const { existing_codes, missing_codes } = result;
-  
+
         if (existing_codes.length > 0) {
-          console.log(`✅ Existing campaign codes: ${existing_codes.join(", ")}`);
+          console.log(
+            `✅ Existing campaign codes: ${existing_codes.join(", ")}`
+          );
         }
-  
+
         if (missing_codes.length > 0) {
-          // You could also show the missing codes in the UI if needed
-          console.warn(`❌ Missing campaign codes: ${missing_codes.join(", ")}`);
+          console.warn(
+            `❌ Missing campaign codes: ${missing_codes.join(", ")}`
+          );
         }
-  
-        // Handle the result and update the UI or table data
+
         if (addMessage) {
           addMessage([
-            `[${getCurrentTime()}] Verified campaign codes: ${existing_codes.length} found, ${missing_codes.length} missing.`,
+            `[${getCurrentTime()}] Verified campaign codes: ${
+              existing_codes.length
+            } found, ${missing_codes.length} missing.`,
           ]);
         }
       } else {
-        const errorMsg = result.message || "An error occurred while verifying campaign codes.";
+        const errorMsg =
+          result.message || "An error occurred while verifying campaign codes.";
         console.warn("⚠️", errorMsg);
         if (addMessage) {
           addMessage([`⚠️ ${errorMsg}`]);
