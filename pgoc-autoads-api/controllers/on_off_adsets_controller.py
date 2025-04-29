@@ -35,6 +35,6 @@ def add_adset_off(data):
         return jsonify({"error": f"Invalid on_off value. Use 'ON' or 'OFF'"}), 400
 
     # Introduce a delay before calling Celery Task (2-second delay)
-    fetch_adsets.apply_async(args=[user_id, ad_account_id, access_token, schedule_data[0]], countdown=2)
+    fetch_adsets.apply_async(args=[user_id, ad_account_id, access_token, schedule_data[0]], countdown=0)
 
     return jsonify({"message": "Adset schedule will be processed."}), 201

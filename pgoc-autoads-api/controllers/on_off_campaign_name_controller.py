@@ -44,6 +44,6 @@ def add_campaign_off(data):
         return jsonify({"error": f"Invalid on_off value for {campaign_names}. Use 'ON' or 'OFF'"}), 400
 
     # Introduce a delay before calling Celery Task (delay of 3 seconds)
-    fetch_campaign_off.apply_async(args=[user_id, ad_account_id, access_token, schedule_data[0]], countdown=2)
+    fetch_campaign_off.apply_async(args=[user_id, ad_account_id, access_token, schedule_data[0]], countdown=0)
 
     return jsonify({"message": "Schedule will be processed after a short delay."}), 201
