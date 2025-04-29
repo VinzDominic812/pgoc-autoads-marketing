@@ -88,7 +88,7 @@ def add_schedule_logic(data):
 
 def append_schedule_logic(data):
     ad_account_id = data.get("ad_account_id")
-    user_id = data.get("id")
+    user_id = data.get("user_id") or data.get("id")
     access_token = data.get("access_token")
     new_schedule_data = data.get("schedule_data")
 
