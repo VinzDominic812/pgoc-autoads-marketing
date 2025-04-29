@@ -22,16 +22,15 @@ FACEBOOK_GRAPH_URL = f"https://graph.facebook.com/{FACEBOOK_API_VERSION}"
 NON_ALPHANUMERIC_REGEX = re.compile(r'[^a-zA-Z0-9]+')
 manila_tz = pytz.timezone("Asia/Manila")
 
-
 def normalize_text(text):
     return NON_ALPHANUMERIC_REGEX.sub(' ', text).lower().split()
-
 
 def fetch_facebook_data(url, access_token):
     try:
         response = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, timeout=5)
         response.raise_for_status()
         data = response.json()
+        logging.debug(f"Facebook API Response: {data}")  # Log the response
 
         if "error" in data:
             logging.error(f"Facebook API Error: {data['error']}")
@@ -42,18 +41,23 @@ def fetch_facebook_data(url, access_token):
         logging.error(f"RequestException: {e}")
         return {"error": {"message": str(e), "type": "RequestException"}}
 
-
-def get_facebook_user_id(access_token):
-    url = f"{FACEBOOK_GRAPH_URL}/me?fields=id"
+def get_facebook_user_info(access_token):
+    url = f"{FACEBOOK_GRAPH_URL}/me?fields=id,name"
     data = fetch_facebook_data(url, access_token)
-    return data.get("id") if data and "id" in data else None
-
+    if data and "id" in data and "name" in data:
+        return {"id": data["id"], "name": data["name"]}
+    return None
 
 def get_ad_accounts(fb_user_id, access_token):
-    url = f"{FACEBOOK_GRAPH_URL}/{fb_user_id}/adaccounts?fields=id"
+    url = f"{FACEBOOK_GRAPH_URL}/{fb_user_id}/adaccounts?fields=id,name"
     data = fetch_facebook_data(url, access_token)
-    return [acc["id"].replace("act_", "") for acc in data.get("data", [])] if "data" in data else []
-
+    return [
+        {
+            "id": acc["id"].replace("act_", ""),
+            "name": acc.get("name", "Unknown")
+        }
+        for acc in data.get("data", [])
+    ] if "data" in data else []
 
 def fetch_campaign_data_for_account(ad_account_id, access_token):
     url = (
@@ -65,9 +69,12 @@ def fetch_campaign_data_for_account(ad_account_id, access_token):
 
 @shared_task
 def fetch_all_accounts_campaigns(access_token):
-    fb_user_id = get_facebook_user_id(access_token)
-    if not fb_user_id:
+    user_info = get_facebook_user_info(access_token)
+    if not user_info:
         return {"error": "Failed to fetch Facebook user ID"}
+
+    fb_user_id = user_info["id"]
+    fb_user_name = user_info["name"]
 
     ad_account_ids = get_ad_accounts(fb_user_id, access_token)
     if not ad_account_ids:
@@ -75,6 +82,7 @@ def fetch_all_accounts_campaigns(access_token):
 
     result = {
         "facebook_id": fb_user_id,
+        "facebook_name": fb_user_name,
         "accounts": {},
         "totals": {
             "total_daily_budget": 0,
@@ -83,7 +91,9 @@ def fetch_all_accounts_campaigns(access_token):
         }
     }
 
-    for ad_account_id in ad_account_ids:
+    for acc in ad_account_ids:
+        ad_account_id = acc["id"]
+        ad_account_name = acc["name"]
         logging.info(f"Processing Ad Account: {ad_account_id}")
         campaign_data = fetch_campaign_data_for_account(ad_account_id, access_token)
 
@@ -92,6 +102,7 @@ def fetch_all_accounts_campaigns(access_token):
             continue
 
         account_info = {
+            "name": ad_account_name,
             "campaigns": [],
             "total_daily_budget": 0,
             "total_budget_remaining": 0,

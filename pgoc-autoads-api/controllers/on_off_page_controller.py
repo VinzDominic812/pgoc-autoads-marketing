@@ -48,7 +48,7 @@ def add_pagename_off(data):
 
             # Introduce a delay before calling Celery Task (delay of 3 seconds)
             logging.info(f"Scheduling fetch_campaign_off for user_id: {user_id}, ad_account_id: {ad_account_id}, page_name: {page_name} with on_off value: {schedule['on_off']}")
-            fetch_campaign_off.apply_async(args=[user_id, ad_account_id, access_token, schedule], countdown=2)
+            fetch_campaign_off.apply_async(args=[user_id, ad_account_id, access_token, schedule], countdown=0)
             logging.info(f"Scheduled task for page_name: {page_name} with delay.")
 
     logging.info(f"All schedules processed, responding with success message.")
