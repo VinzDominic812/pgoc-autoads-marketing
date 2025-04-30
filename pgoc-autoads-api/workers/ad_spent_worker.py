@@ -66,7 +66,6 @@ def fetch_campaign_data_for_account(ad_account_id, access_token):
     )
     return fetch_facebook_data(url, access_token)
 
-
 @shared_task
 def fetch_all_accounts_campaigns(access_token):
     user_info = get_facebook_user_info(access_token)
