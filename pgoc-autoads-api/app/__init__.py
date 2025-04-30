@@ -159,5 +159,8 @@ def create_app():
     app.register_blueprint(ad_spent_bp, url_prefix='/api/v1')
     app.register_blueprint(user_routes, url_prefix='/api/v1')
     
-
     return app
+
+if __name__ == "__main__":
+    app = create_app()
+    app.run(host="0.0.0.0", port=5095, debug=True, threaded=True)

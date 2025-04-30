@@ -148,10 +148,10 @@ def process_adsets(user_id, ad_account_id, access_token, schedule_data, campaign
         # Loop through each campaign in campaigns_data
         for campaign_id, campaign_info in campaigns_data.items():
             campaign_name = campaign_info.get("campaign_name", "")
-            
-            # Only process campaigns whose name contains the campaign_code
-            if campaign_code not in campaign_name:
-                continue  # Skip this campaign if the code is not in the name
+
+            # ✅ STRICT match by campaign code (e.g., ends with "-A1")
+            if not campaign_name.endswith(f"-{campaign_code}"):
+                continue  # Skip this campaign if it does not match exactly
 
             adsets = campaign_info.get("ADSETS", {})
 
@@ -160,24 +160,50 @@ def process_adsets(user_id, ad_account_id, access_token, schedule_data, campaign
                 adset_status = adset_info.get("STATUS", "")
                 adset_name = adset_info.get("NAME", "Unknown")
 
-                # Determine if we need to update the AdSet status based on CPP metric
-                should_update = (on_off == "ON" and adset_cpp < cpp_metric) or (on_off == "OFF" and adset_cpp >= cpp_metric)
+                # ✅ Log before evaluation
+                logging.info(
+                    f"Evaluating AdSet: {adset_name} ({adset_id}) | CPP: {adset_cpp} | "
+                    f"Current: {adset_status} | Target: {new_status}"
+                )
+
+                # ✅ Determine if status update is needed
+                if cpp_metric > 0:
+                    should_update = (
+                        (on_off == "ON" and adset_cpp < cpp_metric) or
+                        (on_off == "OFF" and adset_cpp >= cpp_metric)
+                    )
+                else:
+                    should_update = adset_status != new_status
 
                 if should_update and adset_status != new_status:
                     success = update_facebook_status(user_id, ad_account_id, adset_id, new_status, access_token)
                     if success:
                         adset_info["STATUS"] = new_status
                         update_success = True
-                        append_redis_message_adsets(user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Updated AdSet {adset_name} ({adset_id}) to {new_status}")
+                        append_redis_message_adsets(
+                            user_id,
+                            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Updated AdSet {adset_name} ({adset_id}) to {new_status}"
+                        )
+                        logging.info(f"✅ Updated {adset_name} to {new_status}")
                 else:
-                    append_redis_message_adsets(user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] AdSet {adset_name} ({adset_id}) remains {adset_status}")
+                    append_redis_message_adsets(
+                        user_id,
+                        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] AdSet {adset_name} ({adset_id}) remains {adset_status}"
+                    )
+                    logging.info(f"⏭ Skipped update for {adset_name}; status already {adset_status}")
 
         if update_success:
-            append_redis_message_adsets(user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing {ad_account_id} completed")
+            append_redis_message_adsets(
+                user_id,
+                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing {ad_account_id} completed"
+            )
 
         return f"Processing {ad_account_id} completed"
 
     except Exception as e:
         logging.error(f"Error processing schedule: {e}")
-        append_redis_message_adsets(user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error processing schedule: {e}")
+        append_redis_message_adsets(
+            user_id,
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error processing schedule: {e}"
+        )
         return f"Error processing schedule: {e}"
