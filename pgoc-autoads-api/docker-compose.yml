@@ -2,19 +2,19 @@ services:
   flask:
     build:
       context: .
-      dockerfile: Dockerfile.api  # Ensure this matches the correct Dockerfile
+      dockerfile: Dockerfile.api
     container_name: ads-automation-api
     volumes:
-      - .:/app
+      - .:/app 
     ports:
-      - "5095:5095"  # Map container port to host port
+      - "5095:5095"
     environment:
       TZ: Asia/Manila
     depends_on:
       - redis
       - postgresdb
     healthcheck:
-      test: ["CMD", "curl", "--silent", "--fail", "http://localhost:5095/health"]
+      test: ["CMD", "mysql", "-h", "mysql", "-u", "pgoc_marketing_admin", "-p@_AdsEncrypted2025", "-e", "SELECT 1;"]
       retries: 5
       interval: 10s
       start_period: 10s
@@ -27,8 +27,8 @@ services:
       context: .
       dockerfile: Dockerfile.api
     volumes:
-      - .:/app
-    command: celery -A make_celery.celery_app worker --loglevel=INFO
+      - .:/app 
+    command: celery -A make_celery.celery_app worker --loglevel=INFO 
     environment:
       TZ: Asia/Manila
     depends_on:
@@ -42,8 +42,8 @@ services:
       context: .
       dockerfile: Dockerfile.api
     volumes:
-      - .:/app
-    command: celery -A make_celery.celery_app beat --loglevel=INFO
+      - .:/app 
+    command: celery -A make_celery.celery_app beat --loglevel=INFO 
     environment:
       TZ: Asia/Manila
     depends_on:
@@ -59,7 +59,6 @@ services:
     healthcheck:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
     restart: always
-
   postgresdb:
     image: postgres:15
     container_name: db_postgres_ads
@@ -67,7 +66,7 @@ services:
       POSTGRES_DB: adsmarketing_users
       POSTGRES_USER: pgoc_marketing_admin
       POSTGRES_PASSWORD: "@_AdsEncrypted2025"
-      TZ: Asia/Manila
+      TZ: Asia/Manila  # Set timezone environment variable for container
     ports:
       - 5432:5432
     volumes:

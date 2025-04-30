@@ -14,24 +14,22 @@ RUN apk add --no-cache \
     linux-headers \
     postgresql-dev
 
-# Set working directory
+# Set the working directory inside the container
 WORKDIR /app
 
-# Copy requirements and install
 COPY requirements.txt .
 
-# Install Python dependencies (including gevent)
-RUN pip install --no-cache-dir -r requirements.txt \
-    && pip install gevent
+RUN pip install --no-cache-dir -r requirements.txt
+# Copy the entire project into the container
+# This copies everything from the current directory (where Dockerfile is located) into /app
+COPY . . 
 
-# Copy the rest of the application
-COPY . .
-
-# Set environment
-ENV FLASK_ENV=production
-
-# Expose port
+# Set environment variables for Flask
+ENV FLASK_APP=app.py
+ENV FLASK_RUN_PORT=5095
+ENV FLASK_ENV=development
+# Expose the Flask app port
 EXPOSE 5095
 
-# Use Gunicorn with gevent and no timeout (for SSE & long tasks)
-CMD ["gunicorn", "-w", "4", "-k", "gevent", "-b", "0.0.0.0:5095", "--timeout", "0", "app:create_app()"]
+# Set the entry point for the Flask app
+CMD ["flask", "run", "--host=0.0.0.0", "--port=5095"]
