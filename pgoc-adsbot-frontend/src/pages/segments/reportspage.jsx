@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import Box from "@mui/material/Box";
 import notify from "../components/toast.jsx";
 import { TextField, Button, Typography } from "@mui/material";
@@ -6,8 +6,13 @@ import DynamicTable from "../components/dynamic_table";
 import WidgetCard from "../components/widget_card.jsx";
 import ReportTerminal from "../widgets/reports/reports_terminal.jsx";
 import SummaryTable from "../widgets/reports/summary_table.jsx";
-import CustomButton from "../components/buttons.jsx"; // Import your CustomButton
+import CustomButton from "../components/buttons.jsx";
 import CloudExportIcon from "@mui/icons-material/BackupRounded";
+import {
+  getUserData,
+  encryptData,
+  decryptData,
+} from "../../services/user_data.js";
 
 const ReportsPage = () => {
   const apiUrl = import.meta.env.VITE_API_URL;
@@ -30,20 +35,21 @@ const ReportsPage = () => {
   const [autoFetchInterval, setAutoFetchInterval] = useState(null);
   const [currentPage, setCurrentPage] = useState(0); // Track the current page of the table
   const [messages, setMessages] = useState([]);
+  const eventSourceRef = useRef(null);
 
   const summaryData = React.useMemo(() => {
     const active = adspentData.filter((row) => row.status === "ACTIVE");
-  
+
     const calcTotals = (rows) => {
       const totalBudget = rows.reduce((sum, row) => sum + Number(row.daily_budget || 0), 0);
       const budgetRemaining = rows.reduce((sum, row) => sum + Number(row.budget_remaining || 0), 0);
       const spent = totalBudget - budgetRemaining;
       return { totalBudget, budgetRemaining, spent };
     };
-  
+
     const activeTotals = calcTotals(active);
     const overallTotals = calcTotals(adspentData);
-  
+
     return [
       { label: "Active - Total Budget", value: `₱${activeTotals.totalBudget.toFixed(2)}` },
       { label: "Active - Budget Remaining", value: `₱${activeTotals.budgetRemaining.toFixed(2)}` },
@@ -60,6 +66,9 @@ const ReportsPage = () => {
 
     try {
       setFetching(true);
+
+      const { id: user_id } = getUserData();
+      console.log("User ID inside fetchAdSpendData:", user_id);
       const response = await fetch(`${apiUrl}/api/v1/adspent`, {
         method: "POST",
         headers: {
@@ -67,7 +76,10 @@ const ReportsPage = () => {
           skip_zrok_interstitial: "true",
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ access_token: accessToken }),
+        body: JSON.stringify({ 
+          user_id,
+          access_token: accessToken 
+        }),
       });
 
       if (response.ok) {
@@ -125,11 +137,10 @@ const ReportsPage = () => {
       const interval = setInterval(() => {
         fetchAdSpendData();
       }, 180000); // 3 minutes in milliseconds
-  
+
       setAutoFetchInterval(interval);
-      return () => clearInterval(interval); // Cleanup on unmount
     }
-  
+
     // Cleanup if token becomes invalid or is cleared
     return () => {
       if (autoFetchInterval) {
@@ -137,23 +148,66 @@ const ReportsPage = () => {
         setAutoFetchInterval(null);
       }
     };
-  }, [accessToken, fetchAdSpendData]);
+  }, [accessToken, fetchAdSpendData, autoFetchInterval]);
 
   useEffect(() => {
     if (accessToken && accessToken.length >= 100) {
       // Reset the timer to 180 on token set
       setTimer(180);
-  
+
       const countdownInterval = setInterval(() => {
         setTimer((prevTimer) => {
           if (prevTimer <= 1) return 180; // Reset after reaching 0
           return prevTimer - 1;
         });
       }, 1000);
-  
+
       return () => clearInterval(countdownInterval);
     }
   }, [accessToken]);
+
+  useEffect(() => {
+    const { id: user_id } = getUserData();
+    console.log("User ID:", user_id);
+
+    const eventSourceUrl = `${apiUrl}/api/v1/messageevents-adspentreport?keys=${user_id}-key`;
+
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close(); // Close any existing connection
+    }
+
+    const eventSource = new EventSource(eventSourceUrl);
+
+    eventSource.onmessage = (event) => {
+      console.log("SSE Message:", event.data);
+      try {
+        const parsedData = JSON.parse(event.data); // if data is in JSON format
+        // Make sure we're adding a string or number, not an object
+        if (typeof parsedData === 'object') {
+          // Convert object to string representation if needed
+          setMessages((prevMessages) => [...prevMessages, JSON.stringify(parsedData)]);
+        } else {
+          setMessages((prevMessages) => [...prevMessages, parsedData]);
+        }
+      } catch (e) {
+        console.error("Error parsing SSE data:", e);
+        setMessages((prevMessages) => [...prevMessages, event.data]);
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      console.error("SSE connection error:", error);
+      eventSource.close();
+    };
+
+    eventSourceRef.current = eventSource;
+
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+    };
+  }, [apiUrl]);
 
   const handleFetchUser = () => {
     if (!accessToken) {
@@ -179,7 +233,7 @@ const ReportsPage = () => {
       notify("No data to export.", "error");
       return;
     }
-  
+
     const csvHeaders = [
       "ad_account_id",
       "ad_account_name",
@@ -189,7 +243,7 @@ const ReportsPage = () => {
       "budget_remaining",
       "spent",
     ];
-  
+
     // Convert table data to CSV rows
     const csvRows = [
       csvHeaders.join(","),
@@ -202,10 +256,10 @@ const ReportsPage = () => {
         `"${item.label}","${item.value}"`
       ),
     ];
-  
+
     const csvContent =
       "data:text/csv;charset=utf-8,\uFEFF" + csvRows.join("\n");
-  
+
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -213,7 +267,7 @@ const ReportsPage = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  
+
     notify("Data exported successfully!", "success");
   };
 
@@ -234,9 +288,9 @@ const ReportsPage = () => {
               REPORT PAGE
             </Typography>
           </Box>
-  
+
           <Box sx={{ flex: 1 }} />
-  
+
           <Box sx={{ display: "flex", flexDirection: "column", gap: "15px" }}>
             {/* Access Token Text Field */}
             <TextField
@@ -246,7 +300,7 @@ const ReportsPage = () => {
               helperText="Enter your Meta Ads Manager Access Token"
               disabled={accessToken && accessToken.length >= 100}
             />
-  
+
             {/* Row with Fetch and Export Buttons */}
             <Box sx={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
               {/* Custom Fetch or Stop Fetching Button */}
@@ -256,7 +310,6 @@ const ReportsPage = () => {
                 type="tertiary"
                 icon={null}
                 disabled={!accessToken || accessToken.length < 100}
-
               />
               {/* Custom Export Button */}
               <CustomButton
@@ -272,7 +325,7 @@ const ReportsPage = () => {
             </Typography>
           </Box>
         </Box>
-  
+
         {/* Middle Column - Summary Table */}
         <Box
           sx={{
@@ -292,13 +345,13 @@ const ReportsPage = () => {
           </Typography>
           <SummaryTable data={summaryData} />
         </Box>
-  
+
         {/* Terminal */}
         <Box sx={{ width: "50%" }}>
           <ReportTerminal messages={messages} setMessages={setMessages} />
         </Box>
       </Box>
-  
+
       {/* Second Row (Dynamic Table) */}
       <Box sx={{ flex: 1 }}>
         {userName && (
@@ -306,7 +359,7 @@ const ReportsPage = () => {
             WELCOME {userName}!!
           </Typography>
         )}
-  
+
         {adspentData.length > 0 ? (
           <WidgetCard title="Main Section" height="95.5%">
             <DynamicTable
@@ -327,6 +380,6 @@ const ReportsPage = () => {
       </Box>
     </Box>
   );
-}
+};
 
 export default ReportsPage;
