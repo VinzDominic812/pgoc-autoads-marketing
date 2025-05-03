@@ -680,7 +680,7 @@ const CampaignCreationPage = () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          user_id, // assuming user_id is 1 or get the correct user_id
+          user_id,
           campaign_codes: campaignCodes,
         }),
       });

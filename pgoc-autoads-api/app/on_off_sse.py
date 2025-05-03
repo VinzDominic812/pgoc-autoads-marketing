@@ -16,10 +16,12 @@ redis_websocket_only = redis.Redis(host="redisAds", port=6379, db=11, decode_res
 redis_websocket_off = redis.Redis(host="redisAds", port=6379, db=13, decode_responses=True)  # Redis DB 13
 # Redis connection for Create Campaigns
 redis_websocket_cc = redis.Redis(host="redisAds", port=6379, db=14, decode_responses=True)
-# Redis connection for Create Campaigns
+# Redis connection for AdSets
 redis_websocket_as = redis.Redis(host="redisAds",port=6379,db=15,decode_responses=True)
-# Redis connection for Create Campaigns
+# Redis connection for Page name on/off
 redis_websocket_pn = redis.Redis(host="redisAds", port=6379, db=12, decode_responses=True)
+# Redis connection for Create Campaigns
+redis_websocket_asr = redis.Redis(host="redisAds", port=6379, db=9, decode_responses=True)
 
 # Ensure Redis keyspace notifications are enabled
 redis_websocket.config_set("notify-keyspace-events", "KEA")
@@ -28,6 +30,7 @@ redis_websocket_off.config_set("notify-keyspace-events", "KEA")
 redis_websocket_cc.config_set("notify-keyspace-events", "KEA")
 redis_websocket_as.config_set("notify-keyspace-events", "KEA")
 redis_websocket_pn.config_set("notify-keyspace-events", "KEA")
+redis_websocket_asr.config_set("notify-keyspace-events", "KEA")
 
 def send_initial_data(redis_instance, specific_key):
     """Fetch and send the latest Redis key data when client connects."""
@@ -167,3 +170,15 @@ def messageevents_pagename():
     logging.info(f"Client connected to SSE for key: {room} on DB 12")
     
     return Response(send_sse_signal(redis_websocket_pn, room, 12), content_type="text/event-stream")
+
+@message_events_blueprint.route("/messageevents-adspentreport")
+def messageevents_adspentreport():
+    """SSE endpoint that streams Redis key updates from DB 12."""
+    room = request.args.get("keys")
+
+    if not room:
+        return "Missing 'keys' query parameter", 400
+    
+    logging.info(f"Client connected to SSE for key: {room} on DB 9")
+    
+    return Response(send_sse_signal(redis_websocket_asr, room, 9), content_type="text/event-stream")
