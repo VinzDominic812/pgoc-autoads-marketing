@@ -174,8 +174,8 @@ const SettingsPage = () => {
           onChange={(e) => {
             setNewCode(e.target.value);
           }}
-          inputProps={{ maxLength: 5 }} // Limit to 5 characters only
-          helperText="Up to 5 characters"
+          inputProps={{ maxLength: 10 }} // Limit to 5 characters only
+          helperText="Up to 10 characters"
         />
         <Button variant="contained" onClick={handleAddCode}>
           Save

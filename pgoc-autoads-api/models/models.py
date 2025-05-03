@@ -113,6 +113,6 @@ class CampaignCode(db.Model):
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     user_id = db.Column(db.BigInteger, ForeignKey('marketing_users.id'), nullable=False)  # Foreign key to marketing_users table
-    campaign_code = db.Column(db.String(5), nullable=False)  # Campaign code with a maximum length of 5 characters
+    campaign_code = db.Column(db.String(255), nullable=False)  # Campaign code with a maximum length of 5 characters
 
     user = db.relationship('User', backref=db.backref('campaign_codes', lazy=True))  # Relationship with User model
