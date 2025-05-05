@@ -181,13 +181,19 @@ const ReportsPage = () => {
     eventSource.onmessage = (event) => {
       console.log("SSE Message:", event.data);
       try {
-        const parsedData = JSON.parse(event.data); // if data is in JSON format
-        // Make sure we're adding a string or number, not an object
-        if (typeof parsedData === 'object') {
-          // Convert object to string representation if needed
-          setMessages((prevMessages) => [...prevMessages, JSON.stringify(parsedData)]);
-        } else {
-          setMessages((prevMessages) => [...prevMessages, parsedData]);
+        const parsedData = JSON.parse(event.data); // Parse the JSON data
+
+        // Extract and format the desired message
+        if (parsedData.data && parsedData.data.message) {
+          const rawMessage = parsedData.data.message.join(" ");
+
+          // Check if the message already contains a timestamp
+          const timestampRegex = /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]/;
+          const formattedMessage = timestampRegex.test(rawMessage)
+            ? rawMessage // Use the message as is if it already has a timestamp
+            : `[${new Date().toISOString().replace('T', ' ').split('.')[0]}] ${rawMessage}`;
+
+          setMessages((prevMessages) => [...prevMessages, formattedMessage]);
         }
       } catch (e) {
         console.error("Error parsing SSE data:", e);

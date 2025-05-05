@@ -7,12 +7,13 @@ import redis
 import requests
 from celery import shared_task
 from datetime import datetime
+from workers.on_off_functions.ad_spent_message import append_redis_message_adspent
 
 # Redis client
-redis_client_ads = redis.Redis(
+redis_client_asr = redis.Redis(
     host="redisAds",
     port=6379,
-    db=15,
+    db=9,
     decode_responses=True
 )
 
@@ -67,7 +68,7 @@ def fetch_campaign_data_for_account(ad_account_id, access_token):
     return fetch_facebook_data(url, access_token)
 
 @shared_task
-def fetch_all_accounts_campaigns(access_token):
+def fetch_all_accounts_campaigns(user_id,access_token):
     user_info = get_facebook_user_info(access_token)
     if not user_info:
         return {"error": "Failed to fetch Facebook user ID"}
@@ -94,10 +95,11 @@ def fetch_all_accounts_campaigns(access_token):
         ad_account_id = acc["id"]
         ad_account_name = acc["name"]
         logging.info(f"Processing Ad Account: {ad_account_id}")
+        append_redis_message_adspent(user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing Ad Account: {ad_account_id}")
         campaign_data = fetch_campaign_data_for_account(ad_account_id, access_token)
 
         if "error" in campaign_data:
-            result["ad_accounts_id"][ad_account_id] = {"error": campaign_data["error"]}
+            result["accounts"][ad_account_id] = {"error": campaign_data["error"]}
             continue
 
         account_info = {
@@ -121,17 +123,30 @@ def fetch_all_accounts_campaigns(access_token):
                 "spent": spent,
             })
 
-            # Add to ad account totals
             account_info["total_daily_budget"] += daily_budget
             account_info["total_budget_remaining"] += budget_remaining
             account_info["total_spent"] += spent
 
-        # Add account totals to global totals
+        # Append to Redis message
+        try:
+            message = {
+                "account_name": ad_account_name,
+                "total_daily_budget": account_info["total_daily_budget"],
+                "total_budget_remaining": account_info["total_budget_remaining"],
+                "total_spent": account_info["total_spent"],
+                "timestamp": datetime.now(manila_tz).isoformat()
+            }
+            append_redis_message_adspent(user_id, message)
+        except Exception as e:
+            logging.error(f"Failed to append Redis ad spent message for {ad_account_id}: {e}")
+
         result["totals"]["total_daily_budget"] += account_info["total_daily_budget"]
         result["totals"]["total_budget_remaining"] += account_info["total_budget_remaining"]
         result["totals"]["total_spent"] += account_info["total_spent"]
 
-        # Store account info
         result["accounts"][ad_account_id] = account_info
+
+    # Log completion message
+    append_redis_message_adspent(user_id, "Fetching report completed for all ad accounts.")
 
     return result
