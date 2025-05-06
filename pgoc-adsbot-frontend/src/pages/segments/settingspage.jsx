@@ -393,7 +393,7 @@ const SettingsPage = () => {
               rowsPerPage={8}
               compact={true}
               customRenderers={accessTokenRenderers}
-              nonEditableHeaders={"Actions,is_expire,expiring_at"}
+              nonEditableHeaders={"access_token,facebook_name,Actions,is_expire,expiring_at"}
             />
             {accessTokens.length === 0 && (
               <Typography 
