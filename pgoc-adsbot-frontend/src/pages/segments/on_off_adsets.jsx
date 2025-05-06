@@ -7,6 +7,7 @@ import CustomButton from "../components/buttons";
 import SpaceBg from "../../assets/adset.png";
 import Papa from "papaparse";
 import { getUserData, encryptData, decryptData } from "../../services/user_data.js";
+import axios from "axios";
 
 // ICONS
 import ExportIcon from "@mui/icons-material/FileUpload";
@@ -63,6 +64,7 @@ const OnOffAdsets = () => {
   const [verifiedCampaignCodes, setVerifiedCampaignCodes] = useState([]);
   const fileInputRef = useRef(null);
   const eventSourceRef = useRef(null);
+  const [accessTokenMap, setAccessTokenMap] = useState({});
 
   // Retrieve persisted state from cookies
   const getPersistedState = (key, defaultValue) => {
@@ -331,7 +333,7 @@ const OnOffAdsets = () => {
       ],
       [
         "SAMPLE_AD_ACCOUNT_ID",
-        "SAMPLE_ACCESS_TOKEN",
+        "SAMPLE_ACCESS_TOKEN or Facebook name",
         "CAMPAIGN_CODE",
         "ADSETS/CAMPAIGNS",
         "1",
@@ -396,6 +398,32 @@ const OnOffAdsets = () => {
     notify("Data exported successfully!", "success");
   };
 
+  // Fetch access tokens when component mounts
+  useEffect(() => {
+    fetchAccessTokens();
+  }, []);
+
+  // Function to fetch access tokens from API
+  const fetchAccessTokens = async () => {
+    try {
+      const { id: userId } = getUserData();
+      const response = await axios.get(`${apiUrl}/api/v1/user/${userId}/access-tokens`);
+      
+      if (response.data && response.data.data) {
+        // Create a mapping of facebook_name -> access_token
+        const tokenMap = {};
+        response.data.data.forEach(token => {
+          if (token.facebook_name) {
+            tokenMap[token.facebook_name] = token.access_token;
+          }
+        });
+        setAccessTokenMap(tokenMap);
+      }
+    } catch (error) {
+      //console.error("Error fetching access tokens:", error);
+    }
+  };
+
   const handleFileChange = (event) => {
     const file = event.target.files[0];
   
@@ -405,6 +433,14 @@ const OnOffAdsets = () => {
     }
   
     const { id: user_id } = getUserData(); // Get user ID
+    
+    // Add debug message about available Facebook names
+    const availableFacebookNames = Object.keys(accessTokenMap);
+    if (availableFacebookNames.length > 0) {
+      addAdsetsMessage([`[${getCurrentTime()}] Available Facebook names: ${availableFacebookNames.join(", ")}`]);
+    } else {
+      addAdsetsMessage([`[${getCurrentTime()}] Warning: No Facebook names loaded. Make sure to set them up in Settings.`]);
+    }
   
     Papa.parse(file, {
       complete: (result) => {
@@ -426,18 +462,45 @@ const OnOffAdsets = () => {
         const processedData = result.data
           .slice(1)
           .filter((row) => row.some((cell) => cell)) // Remove empty rows
-          .map((row) =>
-            fileHeaders.reduce((acc, header, index) => {
+          .map((row, i) => {
+            const entry = fileHeaders.reduce((acc, header, index) => {
               acc[header] = row[index] ? row[index].trim() : "";
               return acc;
-            }, { status: "Ready" }) // Add default status here
-          );
+            }, { status: "Ready" }); // Add default status here
+            
+            // Debug: Log each row's access token before conversion
+            if (entry["access_token"]) {
+              addAdsetsMessage([
+                `[${getCurrentTime()}] Row ${i + 1}: Found access_token "${entry["access_token"]}"${
+                  accessTokenMap[entry["access_token"]] ? " (matches a Facebook name)" : ""
+                }`
+              ]);
+            }
+            
+            // Check if access_token is a Facebook name and convert if needed
+            if (entry["access_token"] && accessTokenMap[entry["access_token"]]) {
+              const facebookName = entry["access_token"];
+              const actualToken = accessTokenMap[facebookName];
+              
+              // Add a message about the conversion
+              addAdsetsMessage([
+                `[${getCurrentTime()}] 🔑 Row ${i + 1}: Using Facebook name "${facebookName}" (access token will be used for API calls)`,
+              ]);
+              
+              // Store actual token in a separate property for API calls
+              // Keep the user-friendly Facebook name as the display value
+              entry["_actual_access_token"] = actualToken;
+            }
+            
+            return entry;
+          });
   
         // Convert processed data to API request format
         const requestData = processedData.map((entry) => ({
           ad_account_id: entry.ad_account_id,
           user_id,
-          access_token: entry.access_token,
+          // Use the actual access token for API calls if it exists
+          access_token: entry._actual_access_token || entry.access_token,
           schedule_data: [
             {
               campaign_code: entry.campaign_code,
@@ -515,7 +578,8 @@ const OnOffAdsets = () => {
     const requestData = validAdsetsData.map((entry) => ({
       ad_account_id: entry.ad_account_id,
       user_id: id,
-      access_token: entry.access_token,
+      // Use the actual access token for API calls if it exists
+      access_token: entry._actual_access_token || entry.access_token,
       schedule_data: [
         {
           campaign_code: entry.campaign_code,
@@ -635,12 +699,34 @@ const OnOffAdsets = () => {
   };
 
   const compareCsvWithJson = (csvData, jsonData, setTableAdsetsData) => {
+    // Log the number of records being compared
+    addAdsetsMessage([`[${getCurrentTime()}] Comparing ${csvData.length} CSV rows with ${jsonData.length} API results`]);
+    
     const updatedData = csvData.map((csvRow) => {
+      // Find the matching row from API results by using the actual token if available
+      const csvAccessToken = csvRow._actual_access_token || csvRow.access_token;
+      
       const jsonRow = jsonData.find(
-        (json) =>
-          json.ad_account_id === csvRow.ad_account_id &&
-          json.access_token === csvRow.access_token
+        (json) => {
+          return json.ad_account_id === csvRow.ad_account_id &&
+                 json.access_token === csvAccessToken;
+        }
       );
+      
+      // Log details about each comparison to help debug
+      if (!jsonRow) {
+        addAdsetsMessage([
+          `[${getCurrentTime()}] ❌ No match found for ad_account_id: ${csvRow.ad_account_id}, check if access token is correct`
+        ]);
+        
+        // Try to find if there's at least an ad account match
+        const adAccountMatch = jsonData.find(json => json.ad_account_id === csvRow.ad_account_id);
+        if (adAccountMatch) {
+          addAdsetsMessage([
+            `[${getCurrentTime()}] 📌 Found ad_account_id ${csvRow.ad_account_id} but access token doesn't match`
+          ]);
+        }
+      }
   
       if (!jsonRow) {
         return {
@@ -648,8 +734,12 @@ const OnOffAdsets = () => {
           ad_account_status: "Not Verified",
           access_token_status: "Not Verified",
           status: "Not Verified",
-          ad_account_error: "Account not found",
-          access_token_error: "Account not found"
+          ad_account_error: csvRow._actual_access_token ? 
+            "Access token converted from Facebook name not recognized" : 
+            "Account or access token not found",
+          access_token_error: csvRow._actual_access_token ? 
+            "Converted token may be incorrect or expired" : 
+            "Token not recognized"
         };
       }
   
@@ -670,6 +760,9 @@ const OnOffAdsets = () => {
 
   const verifyAdAccounts = async (campaignsData, originalCsvData, addAdsetsMessage) => {
     try {
+      // Make a deep copy of the data - campaignsData should already have the correct tokens
+      // since it's generated in handleFileChange with the correct access tokens
+      
       const response = await fetch(`${apiUrl}/api/v1/verify/adsets`, {
         method: "POST",
         headers: {

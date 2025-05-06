@@ -11,6 +11,7 @@ import {
   encryptData,
   decryptData,
 } from "../../services/user_data.js";
+import axios from "axios";
 
 // ICONS
 import ExportIcon from "@mui/icons-material/FileUpload";
@@ -57,6 +58,7 @@ const PageOnOFFPage = () => {
   const [messages, setMessages] = useState([]); // Ensure it's an array
   const fileInputRef = useRef(null);
   const eventSourceRef = useRef(null);
+  const [accessTokenMap, setAccessTokenMap] = useState({});
 
   // Retrieve persisted state from cookies
   const getPersistedState = (key, defaultValue) => {
@@ -274,11 +276,37 @@ const PageOnOFFPage = () => {
     }
   };
 
+  // Fetch access tokens when component mounts
+  useEffect(() => {
+    fetchAccessTokens();
+  }, []);
+
+  // Function to fetch access tokens from API
+  const fetchAccessTokens = async () => {
+    try {
+      const { id: userId } = getUserData();
+      const response = await axios.get(`${apiUrl}/api/v1/user/${userId}/access-tokens`);
+      
+      if (response.data && response.data.data) {
+        // Create a mapping of facebook_name -> access_token
+        const tokenMap = {};
+        response.data.data.forEach(token => {
+          if (token.facebook_name) {
+            tokenMap[token.facebook_name] = token.access_token;
+          }
+        });
+        setAccessTokenMap(tokenMap);
+      }
+    } catch (error) {
+      console.error("Error fetching access tokens:", error);
+    }
+  };
+
   const handleDownloadTemplate = () => {
     const sampleData = [
       ["ad_account_id", "access_token", "page_name", "on_off"],
-      ["SAMPLE_AD_ACCOUNT_ID", "SAMPLE_ACCESS_TOKEN", "page_name", "ON"],
-      ["ANOTHER_AD_ACCOUNT", "ANOTHER_ACCESS_TOKEN", "page_name", "ON"],
+      ["SAMPLE_AD_ACCOUNT_ID", "SAMPLE_ACCESS_TOKEN or Facebook name", "page_name", "ON"],
+      ["ANOTHER_AD_ACCOUNT", "ANOTHER_ACCESS_TOKEN or Facebook name", "page_name", "ON"],
     ];
 
     const csvContent =
@@ -342,6 +370,14 @@ const PageOnOFFPage = () => {
     }
   
     const { id: user_id } = getUserData(); // Get user ID
+    
+    // Add debug message about available Facebook names
+    const availableFacebookNames = Object.keys(accessTokenMap);
+    if (availableFacebookNames.length > 0) {
+      addMessage([`[${getCurrentTime()}] Available Facebook names: ${availableFacebookNames.join(", ")}`]);
+    } else {
+      addMessage([`[${getCurrentTime()}] Warning: No Facebook names loaded. Make sure to set them up in Settings.`]);
+    }
   
     Papa.parse(file, {
       complete: (result) => {
@@ -364,12 +400,38 @@ const PageOnOFFPage = () => {
         const rawData = result.data
           .slice(1)
           .filter((row) => row.some((cell) => cell)) // Remove empty rows
-          .map((row) =>
-            fileHeaders.reduce((acc, header, index) => {
+          .map((row, i) => {
+            const entry = fileHeaders.reduce((acc, header, index) => {
               acc[header] = row[index] ? row[index].trim() : "";
               return acc;
-            }, {})
-          );
+            }, {});
+            
+            // Debug: Log each row's access token before conversion
+            if (entry["access_token"]) {
+              addMessage([
+                `[${getCurrentTime()}] Row ${i + 1}: Found access_token "${entry["access_token"]}"${
+                  accessTokenMap[entry["access_token"]] ? " (matches a Facebook name)" : ""
+                }`
+              ]);
+            }
+            
+            // Check if access_token is a Facebook name and convert if needed
+            if (entry["access_token"] && accessTokenMap[entry["access_token"]]) {
+              const facebookName = entry["access_token"];
+              const actualToken = accessTokenMap[facebookName];
+              
+              // Add a message about the conversion
+              addMessage([
+                `[${getCurrentTime()}] 🔑 Row ${i + 1}: Using Facebook name "${facebookName}" (access token will be used for API calls)`,
+              ]);
+              
+              // Store actual token in a separate property for API calls
+              // Keep the user-friendly Facebook name as the display value
+              entry["_actual_access_token"] = actualToken;
+            }
+            
+            return entry;
+          });
   
         // Step 1: Group by ad_account_id, access_token, and on_off
         const groupedData = rawData.reduce((acc, current) => {
@@ -379,6 +441,7 @@ const PageOnOFFPage = () => {
             acc[key] = {
               ad_account_id: current.ad_account_id,
               access_token: current.access_token,
+              _actual_access_token: current._actual_access_token, // Preserve the actual token
               on_off: current.on_off,
               page_names: new Set(), // Using Set to avoid duplicates
               originalEntries: []
@@ -420,6 +483,7 @@ const PageOnOFFPage = () => {
             finalData.push({
               ad_account_id: group.ad_account_id,
               access_token: group.access_token,
+              _actual_access_token: group._actual_access_token, // Include actual token
               page_name: Array.from(group.page_names), // Convert Set to array
               on_off: group.on_off,
               status: "Ready"
@@ -439,7 +503,8 @@ const PageOnOFFPage = () => {
         const requestData = finalData.map((entry) => ({
           ad_account_id: entry.ad_account_id,
           user_id,
-          access_token: entry.access_token,
+          // Use the actual access token for API calls if it exists
+          access_token: entry._actual_access_token || entry.access_token,
           schedule_data: [
             {
               page_name: entry.page_name, // This is now an array
@@ -474,18 +539,21 @@ const PageOnOFFPage = () => {
       addMessage([`[${getCurrentTime()}] ❌ No campaigns to process.`]);
       return;
     }
-  
-    const { id: user_id } = getUserData();
-  
+
+    const uniqueAdsetsData = [];
+
+    // Filter and create the uniqueAdsetsData
     for (let i = 0; i < tablePageNameData.length; i++) {
       const row = tablePageNameData[i];
-      const { ad_account_id, access_token, page_name, on_off } = row;
-  
+      const { ad_account_id, page_name, on_off } = row;
+      // Use the actual access token for API calls if it exists
+      const access_token = row._actual_access_token || row.access_token;
+
       const requestData = [
         {
           ad_account_id,
-          user_id,
-          access_token,
+          user_id: getUserData().id,
+          access_token, // Use the resolved token
           schedule_data: [
             {
               page_name: Array.isArray(page_name) ? page_name : [page_name],
@@ -494,7 +562,7 @@ const PageOnOFFPage = () => {
           ],
         },
       ];
-  
+
       try {
         addMessage([
           `[${getCurrentTime()}] ⏳ Processing campaign for page: ${page_name}`,
@@ -619,12 +687,26 @@ const PageOnOFFPage = () => {
   };
 
   const compareCsvWithJson = (csvData, jsonData, setTablePageNameData) => {
+    // Log the number of records being compared
+    addMessage([`[${getCurrentTime()}] Comparing ${csvData.length} CSV rows with ${jsonData.length} API results`]);
+    
     const updatedData = csvData.map((csvRow) => {
+      // Find the matching row from API results by using the actual token if available
+      const csvAccessToken = csvRow._actual_access_token || csvRow.access_token;
+      
       const jsonRow = jsonData.find(
-        (json) =>
-          json.ad_account_id === csvRow.ad_account_id &&
-          json.access_token === csvRow.access_token
+        (json) => {
+          return json.ad_account_id === csvRow.ad_account_id &&
+                 json.access_token === csvAccessToken;
+        }
       );
+      
+      // Log details about each comparison to help debug
+      if (!jsonRow) {
+        addMessage([
+          `[${getCurrentTime()}] ❌ No match found for ad_account_id: ${csvRow.ad_account_id}`
+        ]);
+      }
 
       if (!jsonRow) {
         return {
@@ -632,8 +714,12 @@ const PageOnOFFPage = () => {
           ad_account_status: "Not Verified",
           access_token_status: "Not Verified",
           status: "Not Verified",
-          ad_account_error: "Account not found",
-          access_token_error: "Account not found",
+          ad_account_error: csvRow._actual_access_token ? 
+            "Access token converted from Facebook name not recognized" : 
+            "Account or access token not found",
+          access_token_error: csvRow._actual_access_token ? 
+            "Converted token may be incorrect or expired" : 
+            "Token not recognized"
         };
       }
 
@@ -660,6 +746,8 @@ const PageOnOFFPage = () => {
     addMessage
   ) => {
     try {
+      // campaignsData should already contain the correct access tokens
+      
       const response = await fetch(`${apiUrl}/api/v1/verify/pagename`, {
         method: "POST",
         headers: {
