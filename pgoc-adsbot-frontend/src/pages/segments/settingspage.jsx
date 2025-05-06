@@ -45,15 +45,22 @@ const SettingsPage = () => {
 
   useEffect(() => {
     if (user_id) {
-      fetchCampaignCodes(user_id); // initial load
-
+      fetchCampaignCodes(user_id);
+      // Only fetch access tokens if the user has permission to see them
+      if (showAccessTokenManagement) {
+        fetchAccessTokens(user_id);
+      }
       const interval = setInterval(() => {
-        fetchCampaignCodes(user_id); // refresh every 10s
+        fetchCampaignCodes(user_id);
+        // Only fetch access tokens if the user has permission to see them
+        if (showAccessTokenManagement) {
+          fetchAccessTokens(user_id);
+        }
       }, 10000);
-
-      return () => clearInterval(interval); // clean up when component unmounts
+  
+      return () => clearInterval(interval);
     }
-  }, [user_id]);
+  }, [user_id, showAccessTokenManagement]);
 
   const fetchCampaignCodes = async (uid) => {
     try {
@@ -162,6 +169,49 @@ const SettingsPage = () => {
     setSelectedCodeId(null); // Reset the selected code ID
   };
 
+  const handleAddAccessToken = async () => {
+    const { id: userId } = getUserData();
+  
+    if (!userId || !newAccessToken) {
+      alert("Please provide a valid access token.");
+      return;
+    }
+  
+    const payload = {
+      user_id: userId,
+      access_token: newAccessToken,
+      // Optionally: facebook_name: 'Example Name'  // Add this if your UI allows input
+    };
+  
+    try {
+      await axios.post(`${apiUrl}/api/v1/user/access-tokens`, payload, {
+        headers: { "Content-Type": "application/json" },
+      });
+  
+      setNewAccessToken("");
+      fetchAccessTokens(userId); // refresh the list
+    } catch (err) {
+      console.error("Failed to add access token:", err);
+    }
+  };
+
+  const fetchAccessTokens = async (uid) => {
+    try {
+      const res = await axios.get(`${apiUrl}/api/v1/user/${uid}/access-tokens`);
+      console.log("Access tokens API response:", res.data);
+      if (res.data && res.data.data) {
+        setAccessTokens(res.data.data);
+        console.log("Access tokens after setting state:", res.data.data);
+      } else {
+        console.error("Unexpected API response format:", res.data);
+        setAccessTokens([]);
+      }
+    } catch (err) {
+      console.error("Failed to fetch access tokens:", err);
+      setAccessTokens([]);
+    }
+  };
+
   const customRenderers = useMemo(
     () => ({
       // Custom renderer for the "Actions" column
@@ -200,6 +250,11 @@ const SettingsPage = () => {
     }),
     []
   );
+
+  // Add debug logging to check the state values
+  console.log("Current accessTokens state:", accessTokens);
+  console.log("showAccessTokenManagement:", showAccessTokenManagement);
+  console.log("isSuperAdmin:", isSuperAdmin, "user_level:", user_level);
 
   return (
     <Box>
@@ -247,10 +302,9 @@ const SettingsPage = () => {
                 label="New Access Token"
                 value={newAccessToken}
                 onChange={(e) => setNewAccessToken(e.target.value)}
-                fullWidth
+                sx={{ width: '300px' }}
               />
-              <Button variant="contained" 
-                onClick={() => console.log("Save token:", newAccessToken)}>
+              <Button variant="contained" onClick={handleAddAccessToken}>
                 Save
               </Button>
             </Box>
@@ -265,6 +319,14 @@ const SettingsPage = () => {
               customRenderers={accessTokenRenderers}
               nonEditableHeaders={"Actions,is_expire,expiring_at"}
             />
+            {accessTokens.length === 0 && (
+              <Typography 
+                variant="body1" 
+                sx={{ textAlign: 'center', py: 3, color: 'text.secondary' }}
+              >
+                No access tokens found. Add a new token using the form above.
+              </Typography>
+            )}
           </WidgetCard>
         </>
       )}
