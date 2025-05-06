@@ -30,12 +30,16 @@ const SettingsPage = () => {
   const { id: user_id, user_level, user_role } = userData;
   const [campaignCodes, setCampaignCodes] = useState([]);
   const [newCode, setNewCode] = useState("");
-  const [openDialog, setOpenDialog] = useState(false); // State for Dialog visibility
-  const [selectedCodeId, setSelectedCodeId] = useState(null); // Selected code ID to delete
+  const [openDialog, setOpenDialog] = useState(false); 
+  const [selectedCodeId, setSelectedCodeId] = useState(null); 
   
   // Access Token States
   const [accessTokens, setAccessTokens] = useState([]);
   const [newAccessToken, setNewAccessToken] = useState("");
+  
+  // New state for access token deletion dialog
+  const [openTokenDialog, setOpenTokenDialog] = useState(false);
+  const [selectedTokenId, setSelectedTokenId] = useState(null);
 
   // Check if user is superadmin
   const isSuperAdmin = user_role === "superadmin";
@@ -159,14 +163,51 @@ const SettingsPage = () => {
     setSelectedCodeId(null);
   };
 
+  // NEW: Handle deletion of access token
+  const handleDeleteToken = async (tokenId) => {
+    const { id: userId } = getUserData();
+
+    try {
+      // Make DELETE request for access token
+      await axios.delete(
+        `${apiUrl}/api/v1/user/access-tokens/${tokenId}?user_id=${userId}`,
+        {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      console.log("Access token deleted:", tokenId);
+      fetchAccessTokens(userId); // Refresh the access tokens list
+    } catch (err) {
+      console.error(`Failed to delete access token with ID ${tokenId}:`, err);
+    }
+
+    // Close the confirmation dialog after deletion
+    setOpenTokenDialog(false);
+    setSelectedTokenId(null);
+  };
+
+  // Open dialog handlers for campaign codes
   const handleOpenDialog = (codeId) => {
-    setSelectedCodeId(codeId); // Store the code ID to delete
-    setOpenDialog(true); // Open the dialog
+    setSelectedCodeId(codeId);
+    setOpenDialog(true);
   };
 
   const handleCloseDialog = () => {
-    setOpenDialog(false); // Close the dialog
-    setSelectedCodeId(null); // Reset the selected code ID
+    setOpenDialog(false);
+    setSelectedCodeId(null);
+  };
+
+  // NEW: Open dialog handlers for access tokens
+  const handleOpenTokenDialog = (tokenId) => {
+    setSelectedTokenId(tokenId);
+    setOpenTokenDialog(true);
+  };
+
+  const handleCloseTokenDialog = () => {
+    setOpenTokenDialog(false);
+    setSelectedTokenId(null);
   };
 
   const handleAddAccessToken = async () => {
@@ -195,6 +236,40 @@ const SettingsPage = () => {
     }
   };
 
+  // NEW: Function to handle editing access token rows
+  const handleEditAccessToken = async (updatedRow) => {
+    const { id: userId } = getUserData();
+    const originalRow = accessTokens.find((row) => row.id === updatedRow.id);
+
+    // Check if actual changes were made
+    if (originalRow && 
+        originalRow.access_token === updatedRow.access_token &&
+        originalRow.facebook_name === updatedRow.facebook_name) {
+      console.log("No changes detected in access token, skipping update for row ID:", updatedRow.id);
+      return;
+    }
+
+    const payload = {
+      user_id: userId,
+      access_token: updatedRow.access_token,
+      facebook_name: updatedRow.facebook_name || ""
+    };
+
+    try {
+      await axios.put(
+        `${apiUrl}/api/v1/user/access-tokens/${updatedRow.id}`,
+        payload,
+        {
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+      console.log("Access token updated:", updatedRow);
+      fetchAccessTokens(userId); // Refresh the table
+    } catch (err) {
+      console.error(`Failed to update access token for ID ${updatedRow.id}:`, err);
+    }
+  };
+
   const fetchAccessTokens = async (uid) => {
     try {
       const res = await axios.get(`${apiUrl}/api/v1/user/${uid}/access-tokens`);
@@ -217,7 +292,7 @@ const SettingsPage = () => {
       // Custom renderer for the "Actions" column
       Actions: (value, row) => (
         <IconButton
-          onClick={() => handleOpenDialog(row.id)} // Open dialog when delete icon is clicked
+          onClick={() => handleOpenDialog(row.id)}
           color="error"
         >
           <CancelIcon />
@@ -227,13 +302,13 @@ const SettingsPage = () => {
     []
   );
 
-  // Access Token custom renderer
+  // Access Token custom renderer - UPDATED to use handleOpenTokenDialog
   const accessTokenRenderers = useMemo(
     () => ({
-      // Custom renderer for the "Actions" column
+      // Custom renderer for the "Actions" column - Now connects to the delete function
       Actions: (value, row) => (
         <IconButton
-          onClick={() => console.log("Delete token:", row.id)} // Just placeholder, no functionality yet
+          onClick={() => handleOpenTokenDialog(row.id)}
           color="error"
         >
           <CancelIcon />
@@ -250,11 +325,6 @@ const SettingsPage = () => {
     }),
     []
   );
-
-  // Add debug logging to check the state values
-  console.log("Current accessTokens state:", accessTokens);
-  console.log("showAccessTokenManagement:", showAccessTokenManagement);
-  console.log("isSuperAdmin:", isSuperAdmin, "user_level:", user_level);
 
   return (
     <Box>
@@ -313,7 +383,13 @@ const SettingsPage = () => {
             <DynamicTable
               headers={["access_token", "facebook_name", "is_expire", "expiring_at", "Actions"]}
               data={accessTokens}
-              onDataChange={(updatedData) => setAccessTokens(updatedData)}
+              onDataChange={(updatedData) => {
+                // Update the local state (UI)
+                setAccessTokens(updatedData);
+                
+                // Send updated data to backend
+                updatedData.forEach((row) => handleEditAccessToken(row));
+              }}
               rowsPerPage={8}
               compact={true}
               customRenderers={accessTokenRenderers}
@@ -331,7 +407,7 @@ const SettingsPage = () => {
         </>
       )}
 
-      {/* Delete Confirmation Dialog */}
+      {/* Delete Confirmation Dialog for Campaign Codes */}
       <Dialog open={openDialog} onClose={handleCloseDialog}>
         <DialogTitle>Confirm Delete</DialogTitle>
         <DialogContent>
@@ -343,6 +419,25 @@ const SettingsPage = () => {
           </Button>
           <Button
             onClick={() => handleDeleteCode(selectedCodeId)}
+            color="secondary"
+          >
+            Confirm
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* NEW: Delete Confirmation Dialog for Access Tokens */}
+      <Dialog open={openTokenDialog} onClose={handleCloseTokenDialog}>
+        <DialogTitle>Confirm Delete</DialogTitle>
+        <DialogContent>
+          <p>Are you sure you want to delete this access token?</p>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseTokenDialog} color="primary">
+            Cancel
+          </Button>
+          <Button
+            onClick={() => handleDeleteToken(selectedTokenId)}
             color="secondary"
           >
             Confirm
