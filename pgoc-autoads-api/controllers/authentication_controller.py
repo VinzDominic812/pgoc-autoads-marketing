@@ -50,6 +50,10 @@ def register():
     manila_tz = pytz.timezone("Asia/Manila")
     current_time_manila = datetime.now(manila_tz)
 
+    # Get user_level and user_role from data or set defaults
+    user_level = data.get('user_level', 3)
+    user_role = data.get('user_role', 'staff')
+
     # Create a new user instance
     new_user = User(
         user_id=user_id,  # Set the unique user_id
@@ -61,7 +65,9 @@ def register():
         profile_image=image_data,
         full_name=data['full_name'],
         user_status='active',
-        created_at=current_time_manila
+        created_at=current_time_manila,
+        user_level=user_level,
+        user_role=user_role
     )
 
     # Save the user to the database
@@ -173,7 +179,9 @@ def get_user_data_by_id():
             'gender': user.gender,
             'last_active': last_active,  # Already in local time (+08:00)
             'status': user.user_status,
-            'profile_image': profile_image_base64
+            'profile_image': profile_image_base64,
+            'user_level': user.user_level,
+            'user_role': user.user_role
         }
 
         return jsonify({

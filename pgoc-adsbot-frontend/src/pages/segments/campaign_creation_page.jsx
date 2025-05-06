@@ -137,7 +137,7 @@ const CampaignCreationPage = () => {
 
       return defaultValue;
     } catch (error) {
-      // console.error(`Error loading ${key}:`, error);
+      // // console.error(`Error loading ${key}:`, error);
       return defaultValue;
     }
   };
@@ -148,6 +148,8 @@ const CampaignCreationPage = () => {
     return Array.isArray(data) ? data : [];
   });
 
+  const [accessTokenMap, setAccessTokenMap] = useState({});
+
   // Save to localStorage with array validation
   useEffect(() => {
     try {
@@ -155,7 +157,7 @@ const CampaignCreationPage = () => {
       const encryptedData = encryptData(dataToStore);
       localStorage.setItem("campaignCreationTableData", encryptedData);
     } catch (error) {
-      // console.error("Error saving table data:", error);
+      // // console.error("Error saving table data:", error);
     }
   }, [tableData]);
 
@@ -165,7 +167,7 @@ const CampaignCreationPage = () => {
       const encryptedMessages = encryptData(messages);
       localStorage.setItem("adsetsMessages", encryptedMessages);
     } catch (error) {
-      console.error("Error saving messages:", error);
+      // console.error("Error saving messages:", error);
       notify("Failed to save messages", "error");
     }
   }, [messages]);
@@ -423,6 +425,32 @@ const CampaignCreationPage = () => {
     };
   }, []);
 
+  // Fetch access tokens when component mounts
+  useEffect(() => {
+    fetchAccessTokens();
+  }, []);
+
+  // Function to fetch access tokens from API
+  const fetchAccessTokens = async () => {
+    try {
+      const { id: userId } = getUserData();
+      const response = await axios.get(`${apiUrl}/api/v1/user/${userId}/access-tokens`);
+      
+      if (response.data && response.data.data) {
+        // Create a mapping of facebook_name -> access_token
+        const tokenMap = {};
+        response.data.data.forEach(token => {
+          if (token.facebook_name) {
+            tokenMap[token.facebook_name] = token.access_token;
+          }
+        });
+        setAccessTokenMap(tokenMap);
+      }
+    } catch (error) {
+      // console.error("Error fetching access tokens:", error);
+    }
+  };
+
   const handleClearAll = () => {
     try {
       setTableData([]); // Clear state
@@ -502,7 +530,7 @@ const CampaignCreationPage = () => {
       ],
       [
         "'",
-        "'",
+        "' (Enter full access token OR Facebook name)",
         "'",
         "'",
         "'",
@@ -595,13 +623,13 @@ const CampaignCreationPage = () => {
       Papa.parse(fileContent, {
         complete: async (result) => {
           const csvData = result.data;
-          console.log(`formattedData:\n${JSON.stringify(csvData, null, 2)}`);
+          // console.log(`formattedData:\n${JSON.stringify(csvData, null, 2)}`);
 
           if (csvData.length > 1) {
             const headers = csvData[0].map((header) =>
               header.trim().toLowerCase().replace(/\s+/g, "_")
             );
-            console.log("🧠 Headers:", headers);
+            // console.log("🧠 Headers:", headers);
             const formattedData = csvData.slice(1).map((row) =>
               headers.reduce((acc, header, index) => {
                 acc[header] = row[index]?.trim() || "";
@@ -611,7 +639,24 @@ const CampaignCreationPage = () => {
 
             // Pre-process fields
             formattedData.forEach((item, i) => {
-              console.log(`Row ${i}:`, item.campaign_code);
+              // console.log(`Row ${i}:`, item.campaign_code);
+              
+              // Convert facebook_name to access_token if needed
+              if (item["access_token"] && accessTokenMap[item["access_token"]]) {
+                const facebookName = item["access_token"];
+                const actualToken = accessTokenMap[facebookName];
+                
+                // Add a more detailed message about the conversion
+                addMessage([
+                  `[${getCurrentTime()}] 🔑 Row ${i + 1}: Using Facebook name "${facebookName}" (access token will be used for API calls)`,
+                ]);
+                
+                // Store actual token in a separate property only for API calls
+                // Keep the user-friendly Facebook name as the display value in access_token
+                item["_actual_access_token"] = actualToken;
+                // Leave the access_token as the display name for the UI
+              }
+              
               item["interests_list"] = parseInterestsList(
                 item["interests_list"]
               );
@@ -633,10 +678,10 @@ const CampaignCreationPage = () => {
 
             verifyCampaignCodes(campaignCodes, addMessage);
             verifyAdAccounts(formattedData);
-            console.log(
-              "🚀 Final Payload Preview:",
-              JSON.stringify(formattedData, null, 2)
-            );
+            // console.log(
+            //   "🚀 Final Payload Preview:",
+            //   JSON.stringify(formattedData, null, 2)
+            // );
           }
         },
         header: false,
@@ -729,23 +774,26 @@ const CampaignCreationPage = () => {
           try {
             parsedInterests = JSON.parse(parsedInterests);
           } catch (error) {
-            console.error(
-              "❌ Error parsing interests_list:",
-              parsedInterests,
-              error
-            );
+            // console.error(
+            //   "❌ Error parsing interests_list:",
+            //   parsedInterests,
+            //   error
+            // );
             parsedInterests = [[]]; // Default to an empty array if parsing fails
           }
         }
 
         const { id } = getUserData();
 
+        // Use the actual access token for API calls if it exists
+        const accessToken = row["_actual_access_token"] || row["access_token"];
+
         const requestBody = {
           user_id: id,
           campaigns: [
             {
               ad_account_id: row["ad_account_id"],
-              access_token: row["access_token"],
+              access_token: accessToken,
               page_name: row["page_name"],
               sku: row["sku"],
               material_code: row["material_code"],
@@ -825,7 +873,7 @@ const CampaignCreationPage = () => {
 
       addMessage(["✅ All valid campaigns have been created successfully!"]);
     } catch (error) {
-      console.error("Error validating campaign codes:", error);
+      // console.error("Error validating campaign codes:", error);
       addMessage(["❌ Error occurred while validating campaign codes."]);
       setIsRunning(false);
       isRunningRef.current = false;
@@ -835,7 +883,7 @@ const CampaignCreationPage = () => {
   const parseInterestsList = (interestsString) => {
     if (!interestsString || interestsString.trim() === "") return [[]];
 
-    console.log("📌 Raw interests_list before processing:", interestsString);
+    //console.log("📌 Raw interests_list before processing:", interestsString);
 
     try {
       const groups = interestsString.split("/").map((group) => group.trim());
@@ -850,10 +898,10 @@ const CampaignCreationPage = () => {
           .filter(Boolean);
       });
 
-      console.log("✅ Final parsed interests_list:", parsedArray);
+      // console.log("✅ Final parsed interests_list:", parsedArray);
       return parsedArray.length ? parsedArray : [[]];
     } catch (error) {
-      console.error("❌ Error parsing interests_list:", error);
+      // console.error("❌ Error parsing interests_list:", error);
       return [[]]; // fallback
     }
   };
@@ -890,6 +938,16 @@ const CampaignCreationPage = () => {
 
   const verifyAdAccounts = async (campaignsData, addMessage) => {
     try {
+      // Make a deep copy of the data and replace Facebook names with actual tokens for API call
+      const processedData = campaignsData.map(row => {
+        const processingRow = {...row};
+        // Use the actual access token for API calls if it exists
+        if (processingRow["_actual_access_token"]) {
+          processingRow["access_token"] = processingRow["_actual_access_token"];
+        }
+        return processingRow;
+      });
+      
       const response = await fetch(
         `${apiUrl}/api/v1/verify-ads-account/verify`,
         {
@@ -898,12 +956,12 @@ const CampaignCreationPage = () => {
             "Content-Type": "application/json",
             skip_zrok_interstitial: "true",
           },
-          body: JSON.stringify({ user_id: 1, campaigns: campaignsData }),
+          body: JSON.stringify({ user_id: 1, campaigns: processedData }),
         }
       );
 
       const result = await response.json();
-      console.log(`RESULT: ${JSON.stringify(result, null, 2)}`);
+      // console.log(`RESULT: ${JSON.stringify(result, null, 2)}`);
 
       if (response.ok && result.verified_accounts) {
         compareCsvWithJson(
@@ -938,12 +996,13 @@ const CampaignCreationPage = () => {
 
   const compareCsvWithJson = (csvData, jsonData, setTableData) => {
     const updatedData = csvData.map((csvRow) => {
-      const jsonRow = jsonData.find(
-        (json) =>
-          json.ad_account_id === csvRow.ad_account_id &&
-          json.access_token === csvRow.access_token &&
-          json.facebook_page_id === csvRow.facebook_page_id // <- 🔥 match on page ID too
-      );
+      // Find the matching row from API results
+      const jsonRow = jsonData.find(json => {
+        const csvAccessToken = csvRow._actual_access_token || csvRow.access_token;
+        return json.ad_account_id === csvRow.ad_account_id &&
+               json.access_token === csvAccessToken &&
+               json.facebook_page_id === csvRow.facebook_page_id;
+      });
 
       if (!jsonRow) {
         return {
@@ -1045,21 +1104,21 @@ const CampaignCreationPage = () => {
       });
 
       const result = await response.json();
-      console.log(`RESULT: ${JSON.stringify(result, null, 2)}`);
+      // console.log(`RESULT: ${JSON.stringify(result, null, 2)}`);
 
       if (response.ok) {
         const { existing_codes, missing_codes } = result;
 
         if (existing_codes.length > 0) {
-          console.log(
-            `✅ Existing campaign codes: ${existing_codes.join(", ")}`
-          );
+          // console.log(
+          //   `✅ Existing campaign codes: ${existing_codes.join(", ")}`
+          // );
         }
 
         if (missing_codes.length > 0) {
-          console.warn(
-            `❌ Missing campaign codes: ${missing_codes.join(", ")}`
-          );
+          // console.warn(
+          //   `❌ Missing campaign codes: ${missing_codes.join(", ")}`
+          // );
         }
 
         if (addMessage) {
@@ -1072,13 +1131,13 @@ const CampaignCreationPage = () => {
       } else {
         const errorMsg =
           result.message || "An error occurred while verifying campaign codes.";
-        console.warn("⚠️", errorMsg);
+        //console.warn("⚠️", errorMsg);
         if (addMessage) {
           addMessage([`⚠️ ${errorMsg}`]);
         }
       }
     } catch (error) {
-      console.error("Error verifying campaign codes:", error);
+      //console.error("Error verifying campaign codes:", error);
       if (addMessage) {
         addMessage([`❌ Failed to verify campaign codes: ${error.message}`]);
       }
@@ -1236,6 +1295,11 @@ const CampaignCreationPage = () => {
             <li>
               📂 <strong>Import</strong> the filled CSV using "Import CSV"
               before running.
+            </li>
+            <li>
+              🔑 <strong>Access Token Simplification:</strong> In the <code>access_token</code> column, 
+              you can enter either the full access token OR the Facebook name exactly as it appears 
+              in your Settings page.
             </li>
             <li>
               🔀{" "}

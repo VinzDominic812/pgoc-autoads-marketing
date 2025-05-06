@@ -23,6 +23,10 @@ class User(db.Model):
     userdomain = db.Column(db.String(100), nullable=False)
     profile_image = db.Column(BYTEA)
     user_status = db.Column(ENUM('active', 'inactive', name='status_enum'), default='active')
+    user_level = db.Column(db.Integer, default=3)
+    user_role = db.Column(db.String(50), default='staff')
+
+    access_tokens = db.relationship("AccessToken", back_populates="user", cascade="all, delete-orphan")
     
     # Set timezone-aware timestamp columns
     created_at = db.Column(
@@ -116,3 +120,33 @@ class CampaignCode(db.Model):
     campaign_code = db.Column(db.String(255), nullable=False)  # Campaign code with a maximum length of 5 characters
 
     user = db.relationship('User', backref=db.backref('campaign_codes', lazy=True))  # Relationship with User model
+
+class AccessToken(db.Model):
+    __tablename__ = 'access_tokens'
+    
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.BigInteger, ForeignKey('marketing_users.id', ondelete='CASCADE'), nullable=False)
+    access_token = db.Column(db.String(255), unique=True, nullable=False)
+    facebook_name = db.Column(db.String(100))
+    is_expire = db.Column(db.Boolean, default=False)
+    expiring_at = db.Column(TIMESTAMP(timezone=True), nullable=False)
+    
+    # Metadata
+    created_at = db.Column(
+        TIMESTAMP(timezone=True),
+        default=lambda: datetime.now(manila_tz)
+    )
+    last_used_at = db.Column(
+        TIMESTAMP(timezone=True),
+        default=lambda: datetime.now(manila_tz),
+        onupdate=lambda: datetime.now(manila_tz)
+    )
+    
+    # Relationship with User
+    user = db.relationship("User", back_populates="access_tokens")
+    
+    @validates('access_token')
+    def validate_token(self, key, access_token):
+        if not access_token or len(access_token) < 32:
+            raise ValueError("Access token must be at least 32 characters long")
+        return access_token

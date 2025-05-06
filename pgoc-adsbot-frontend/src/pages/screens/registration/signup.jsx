@@ -180,6 +180,8 @@ const Signup = ({ setSignupVisible }) => {
       email,
       gender,
       domain: domainWithPort,
+      user_level: 3,
+      user_role: "staff"
     };
 
     register(userData);
