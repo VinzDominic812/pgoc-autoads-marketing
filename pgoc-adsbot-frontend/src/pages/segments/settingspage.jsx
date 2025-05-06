@@ -14,6 +14,8 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Divider,
+  Typography,
 } from "@mui/material";
 import { getUserData } from "../../services/user_data.js";
 import axios from "axios";
@@ -24,11 +26,22 @@ import CancelIcon from "@mui/icons-material/Cancel";
 const apiUrl = import.meta.env.VITE_API_URL;
 
 const SettingsPage = () => {
-  const { id: user_id } = getUserData();
+  const userData = getUserData();
+  const { id: user_id, user_level, user_role } = userData;
   const [campaignCodes, setCampaignCodes] = useState([]);
   const [newCode, setNewCode] = useState("");
   const [openDialog, setOpenDialog] = useState(false); // State for Dialog visibility
   const [selectedCodeId, setSelectedCodeId] = useState(null); // Selected code ID to delete
+  
+  // Access Token States
+  const [accessTokens, setAccessTokens] = useState([]);
+  const [newAccessToken, setNewAccessToken] = useState("");
+
+  // Check if user is superadmin
+  const isSuperAdmin = user_role === "superadmin";
+  
+  // Determine if access token management should be visible (must be superadmin regardless of level)
+  const showAccessTokenManagement = isSuperAdmin && user_level !== 3;
 
   useEffect(() => {
     if (user_id) {
@@ -164,6 +177,30 @@ const SettingsPage = () => {
     []
   );
 
+  // Access Token custom renderer
+  const accessTokenRenderers = useMemo(
+    () => ({
+      // Custom renderer for the "Actions" column
+      Actions: (value, row) => (
+        <IconButton
+          onClick={() => console.log("Delete token:", row.id)} // Just placeholder, no functionality yet
+          color="error"
+        >
+          <CancelIcon />
+        </IconButton>
+      ),
+      // Format the expiring_at date
+      expiring_at: (value) => (
+        value ? new Date(value).toLocaleString() : 'N/A'
+      ),
+      // Show yes/no for is_expire
+      is_expire: (value) => (
+        value ? 'Yes' : 'No'
+      ),
+    }),
+    []
+  );
+
   return (
     <Box>
       <h2>Campaign Codes</h2>
@@ -174,14 +211,14 @@ const SettingsPage = () => {
           onChange={(e) => {
             setNewCode(e.target.value);
           }}
-          inputProps={{ maxLength: 10 }} // Limit to 5 characters only
+          inputProps={{ maxLength: 10 }} // Limit to 10 characters
           helperText="Up to 10 characters"
         />
         <Button variant="contained" onClick={handleAddCode}>
           Save
         </Button>
       </Box>
-      <WidgetCard title="Main Section" height="95.5%">
+      <WidgetCard title="Campaign Codes" height="auto" mb={4}>
         <DynamicTable
           headers={["campaign_code", "Actions"]} // Adding a column for actions (delete)
           data={campaignCodes}
@@ -198,6 +235,39 @@ const SettingsPage = () => {
           nonEditableHeaders={"Actions"}
         />
       </WidgetCard>
+
+      {/* Access Tokens Section - Only visible to superadmins with proper level */}
+      {showAccessTokenManagement && (
+        <>
+          <Divider sx={{ my: 4 }} />
+          <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+            <Typography variant="h5">Access Tokens</Typography>
+            <Box display="flex" gap={2}>
+              <TextField
+                label="New Access Token"
+                value={newAccessToken}
+                onChange={(e) => setNewAccessToken(e.target.value)}
+                fullWidth
+              />
+              <Button variant="contained" 
+                onClick={() => console.log("Save token:", newAccessToken)}>
+                Save
+              </Button>
+            </Box>
+          </Box>
+          <WidgetCard title="Access Token Management" height="auto">
+            <DynamicTable
+              headers={["access_token", "facebook_name", "is_expire", "expiring_at", "Actions"]}
+              data={accessTokens}
+              onDataChange={(updatedData) => setAccessTokens(updatedData)}
+              rowsPerPage={8}
+              compact={true}
+              customRenderers={accessTokenRenderers}
+              nonEditableHeaders={"Actions,is_expire,expiring_at"}
+            />
+          </WidgetCard>
+        </>
+      )}
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={openDialog} onClose={handleCloseDialog}>

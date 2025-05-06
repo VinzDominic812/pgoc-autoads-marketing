@@ -43,12 +43,14 @@ export const getUserData = () => {
     username: decryptData(getStoredData("username")), // New: Get username
     email: decryptData(getStoredData("email")),      // New: Get email
     status: decryptData(getStoredData("status")),    // New: Get status (active/inactive)
-    profile_image: decryptData(getStoredData("profile_image")) // New: Get profile image (Base64)
+    profile_image: decryptData(getStoredData("profile_image")), // New: Get profile image (Base64)
+    user_level: decryptData(getStoredData("user_level")), // Get user_level 
+    user_role: decryptData(getStoredData("user_role"))    // Get user_role
   };
 };
 
 export const migrateCookiesToLocalStorage = () => {
-  const keys = ["xsid_g", "xsid", "usr", "rsid", "username", "email", "status", "profile_image"];
+  const keys = ["xsid_g", "xsid", "usr", "rsid", "username", "email", "status", "profile_image", "user_level", "user_role"];
   keys.forEach(key => {
     const cookieValue = Cookies.get(key);
     if (cookieValue && !localStorage.getItem(key)) {

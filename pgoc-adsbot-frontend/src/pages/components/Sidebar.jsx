@@ -200,6 +200,14 @@ const Sidebar = ({
                     // Clear localStorage
                     localStorage.removeItem("selectedSegment");
                     localStorage.removeItem("authToken");
+                    
+                    // Also clear the additional user data from localStorage
+                    localStorage.removeItem("username");
+                    localStorage.removeItem("email");
+                    localStorage.removeItem("status");
+                    localStorage.removeItem("profile_image");
+                    localStorage.removeItem("user_level");
+                    localStorage.removeItem("user_role");
 
                     // List of cookies to remove
                     const cookiesToRemove = [
@@ -208,6 +216,12 @@ const Sidebar = ({
                       "usr",
                       "rsid",
                       "isxd",
+                      "username",
+                      "email",
+                      "status",
+                      "profile_image",
+                      "user_level",
+                      "user_role"
                     ];
 
                     // Delete cookies
