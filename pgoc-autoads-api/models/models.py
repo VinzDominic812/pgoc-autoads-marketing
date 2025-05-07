@@ -25,8 +25,6 @@ class User(db.Model):
     user_status = db.Column(ENUM('active', 'inactive', name='status_enum'), default='active')
     user_level = db.Column(db.Integer, default=3)
     user_role = db.Column(db.String(50), default='staff')
-
-    access_tokens = db.relationship("AccessToken", back_populates="user", cascade="all, delete-orphan")
     
     # Set timezone-aware timestamp columns
     created_at = db.Column(
@@ -125,7 +123,6 @@ class AccessToken(db.Model):
     __tablename__ = 'access_tokens'
     
     id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
-    user_id = db.Column(db.BigInteger, ForeignKey('marketing_users.id', ondelete='CASCADE'), nullable=False)
     access_token = db.Column(db.String(255), unique=True, nullable=False)
     facebook_name = db.Column(db.String(100))
     is_expire = db.Column(db.Boolean, default=False)
@@ -141,9 +138,6 @@ class AccessToken(db.Model):
         default=lambda: datetime.now(manila_tz),
         onupdate=lambda: datetime.now(manila_tz)
     )
-    
-    # Relationship with User
-    user = db.relationship("User", back_populates="access_tokens")
     
     @validates('access_token')
     def validate_token(self, key, access_token):

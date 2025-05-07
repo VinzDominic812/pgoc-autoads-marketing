@@ -11,16 +11,9 @@ manila_tz = pytz.timezone("Asia/Manila")
 FACEBOOK_API_VERSION = "v22.0"
 FACEBOOK_GRAPH_URL = f"https://graph.facebook.com/{FACEBOOK_API_VERSION}"
 
-def create_access_token(user_id, access_token):
+def create_access_token(access_token):
     try:
-        print(f"[DEBUG] Received user_id: {user_id} ({type(user_id)})")
         print(f"[DEBUG] Received access_token: {access_token[:10]}...")
-
-        user = User.query.filter_by(id=int(user_id)).first()
-
-        if not user:
-            print("[ERROR] User not found with ID:", user_id)
-            return jsonify({'error': 'User not found'}), 404
 
         # Check if token exists
         existing_token = AccessToken.query.filter_by(access_token=access_token).first()
@@ -45,7 +38,6 @@ def create_access_token(user_id, access_token):
             expiry_date = datetime.now(manila_tz) + timedelta(days=60)
 
         new_token = AccessToken(
-            user_id=user.id,
             access_token=access_token,
             facebook_name=facebook_name,
             is_expire=is_expire,
@@ -59,7 +51,6 @@ def create_access_token(user_id, access_token):
             'message': 'Access token added successfully',
             'data': {
                 'id': new_token.id,
-                'user_id': user.id,
                 'facebook_name': new_token.facebook_name,
                 'is_expire': new_token.is_expire,
                 'expiring_at': new_token.expiring_at.isoformat()
@@ -70,29 +61,16 @@ def create_access_token(user_id, access_token):
         print("[EXCEPTION]", str(e))
         return jsonify({'error': 'Internal Server Error'}), 500
 
-def get_access_tokens(user_id):
-    # Convert user_id to integer (if it's passed as a string)
-    try:
-        user_id = int(user_id)
-    except ValueError:
-        return jsonify({'error': 'Invalid user_id format'}), 400
+def get_access_tokens():
+    # Query ALL access tokens
+    tokens = AccessToken.query.all()
 
-    # Find the user by user_id
-    user = User.query.filter_by(id=user_id).first()
-
-    if not user:
-        return jsonify({'error': 'User not found'}), 404
-
-    # Query the AccessToken table for the given user_id
-    tokens = AccessToken.query.filter_by(user_id=user.id).all()
-
-    # Return empty array instead of error when no tokens found
+    # Return all tokens
     return jsonify({
         'message': 'Access tokens retrieved successfully',
         'data': [
             {
                 'id': token.id,
-                'user_id': token.user_id,
                 'access_token': token.access_token,
                 'facebook_name': token.facebook_name,
                 'is_expire': token.is_expire,
@@ -114,7 +92,6 @@ def get_access_token(token_id):
             'message': 'Access token retrieved successfully',
             'data': {
                 'id': token.id,
-                'user_id': token.user_id,
                 'access_token': token.access_token,
                 'facebook_name': token.facebook_name,
                 'is_expire': token.is_expire,
@@ -165,7 +142,6 @@ def update_access_token(token_id):
             'message': 'Access token updated successfully',
             'data': {
                 'id': token.id,
-                'user_id': token.user_id,
                 'facebook_name': token.facebook_name,
                 'is_expire': token.is_expire,
                 'expiring_at': token.expiring_at.isoformat(),
@@ -177,10 +153,10 @@ def update_access_token(token_id):
         print("[EXCEPTION]", str(e))
         return jsonify({'error': 'Internal Server Error'}), 500
     
-def delete_access_token(token_id, user_id):
+def delete_access_token(token_id):
     try:
-        # Find the access token by ID and user_id
-        token = AccessToken.query.filter_by(id=token_id, user_id=user_id).first()
+        # Find the access token by ID
+        token = AccessToken.query.filter_by(id=token_id).first()
 
         if not token:
             return jsonify({'error': 'Access token not found'}), 404
@@ -192,8 +168,7 @@ def delete_access_token(token_id, user_id):
         return jsonify({
             'message': 'Access token deleted successfully',
             'data': {
-                'id': token.id,
-                'user_id': token.user_id
+                'id': token.id
             }
         }), 200
 
