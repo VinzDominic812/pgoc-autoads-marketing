@@ -230,7 +230,7 @@ def create_simple_campaign_task(self, ad_account_id, user_id, access_token, camp
         # Handle video upload if a URL is provided
         if video_url:
             logging.info(f" Uploading video for campaign: {campaign_name}...")
-            append_redis_message_create_campaigns(user_id, f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] Uploading video for {campaign_name}...")
+            append_redis_message_create_campaigns(user_id, f"[{datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')}] 🎥⬆️ Uploading video for {campaign_name}...")
 
             downloadable_video_url = get_downloadable_drive_url(video_url)
             video_data = {
