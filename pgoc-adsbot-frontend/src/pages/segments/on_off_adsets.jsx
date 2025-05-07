@@ -24,7 +24,7 @@ import Cookies from "js-cookie";
 
 const REQUIRED_HEADERS = [
   "ad_account_id",
-  "access_token",
+  "facebook_name",
   "campaign_code",
   "what_to_watch",
   "cpp_metric",
@@ -46,7 +46,7 @@ const OnOffAdsets = () => {
   const headers = [
     "ad_account_id",
     "ad_account_status",
-    "access_token",
+    "facebook_name",
     "access_token_status",
     "campaign_code",
     "what_to_watch",
@@ -257,7 +257,7 @@ const OnOffAdsets = () => {
             );
 
             addAdsetsMessage([
-              `[${getCurrentTime()}] ❌ 401 Unauthorized Error for Ad Account ${adAccountId} (${onOffStatus}). Check access token or permissions.`,
+              `[${getCurrentTime()}] ❌ 401 Unauthorized Error for Ad Account ${adAccountId} (${onOffStatus}). Check facebook name or permissions.`,
             ]);
           }
 
@@ -323,7 +323,7 @@ const OnOffAdsets = () => {
     const sampleData = [
       [
         "ad_account_id",
-        "access_token",
+        "facebook_name",
         "campaign_code",
         "what_to_watch",
         "cpp_metric",
@@ -333,7 +333,7 @@ const OnOffAdsets = () => {
       ],
       [
         "SAMPLE_AD_ACCOUNT_ID",
-        "SAMPLE_ACCESS_TOKEN or Facebook name",
+        "Facebook Name",
         "CAMPAIGN_CODE",
         "ADSETS/CAMPAIGNS",
         "1",
@@ -366,7 +366,7 @@ const OnOffAdsets = () => {
     // Define CSV headers
     const csvHeaders = [
       "ad_account_id",
-      "access_token",
+      "facebook_name",
       "campaign_code",
       "what_to_watch",
       "cpp_metric",
@@ -453,7 +453,7 @@ const OnOffAdsets = () => {
   
         if (!validateCSVHeaders(fileHeaders)) {
           notify(
-            "Invalid CSV headers. Required: ad_account_id, access_token, campaign_code, what_to_watch, cpp_metric, on_off.",
+            "Invalid CSV headers. Required: ad_account_id, facebook_name, campaign_code, what_to_watch, cpp_metric, on_off.",
             "error"
           );
           return;
@@ -468,18 +468,18 @@ const OnOffAdsets = () => {
               return acc;
             }, { status: "Ready" }); // Add default status here
             
-            // Debug: Log each row's access token before conversion
-            if (entry["access_token"]) {
+            // Debug: Log each row's facebook_name before conversion
+            if (entry["facebook_name"]) {
               addAdsetsMessage([
-                `[${getCurrentTime()}] Row ${i + 1}: Found access_token "${entry["access_token"]}"${
-                  accessTokenMap[entry["access_token"]] ? " (matches a Facebook name)" : ""
+                `[${getCurrentTime()}] Row ${i + 1}: Found facebook_name "${entry["facebook_name"]}"${
+                  accessTokenMap[entry["facebook_name"]] ? " (matches a Facebook name)" : ""
                 }`
               ]);
             }
             
-            // Check if access_token is a Facebook name and convert if needed
-            if (entry["access_token"] && accessTokenMap[entry["access_token"]]) {
-              const facebookName = entry["access_token"];
+            // Check if facebook_name exists in our mapping and convert if needed
+            if (entry["facebook_name"] && accessTokenMap[entry["facebook_name"]]) {
+              const facebookName = entry["facebook_name"];
               const actualToken = accessTokenMap[facebookName];
               
               // Add a message about the conversion
@@ -500,7 +500,7 @@ const OnOffAdsets = () => {
           ad_account_id: entry.ad_account_id,
           user_id,
           // Use the actual access token for API calls if it exists
-          access_token: entry._actual_access_token || entry.access_token,
+          access_token: entry._actual_access_token || entry.facebook_name,
           schedule_data: [
             {
               campaign_code: entry.campaign_code,
@@ -579,7 +579,7 @@ const OnOffAdsets = () => {
       ad_account_id: entry.ad_account_id,
       user_id: id,
       // Use the actual access token for API calls if it exists
-      access_token: entry._actual_access_token || entry.access_token,
+      access_token: entry._actual_access_token || entry.facebook_name,
       schedule_data: [
         {
           campaign_code: entry.campaign_code,
@@ -704,7 +704,7 @@ const OnOffAdsets = () => {
     
     const updatedData = csvData.map((csvRow) => {
       // Find the matching row from API results by using the actual token if available
-      const csvAccessToken = csvRow._actual_access_token || csvRow.access_token;
+      const csvAccessToken = csvRow._actual_access_token || csvRow.facebook_name;
       
       const jsonRow = jsonData.find(
         (json) => {
@@ -716,14 +716,14 @@ const OnOffAdsets = () => {
       // Log details about each comparison to help debug
       if (!jsonRow) {
         addAdsetsMessage([
-          `[${getCurrentTime()}] ❌ No match found for ad_account_id: ${csvRow.ad_account_id}, check if access token is correct`
+          `[${getCurrentTime()}] ❌ No match found for ad_account_id: ${csvRow.ad_account_id}, check if facebook name is correct`
         ]);
         
         // Try to find if there's at least an ad account match
         const adAccountMatch = jsonData.find(json => json.ad_account_id === csvRow.ad_account_id);
         if (adAccountMatch) {
           addAdsetsMessage([
-            `[${getCurrentTime()}] 📌 Found ad_account_id ${csvRow.ad_account_id} but access token doesn't match`
+            `[${getCurrentTime()}] 📌 Found ad_account_id ${csvRow.ad_account_id} but facebook name doesn't match`
           ]);
         }
       }
@@ -736,10 +736,10 @@ const OnOffAdsets = () => {
           status: "Not Verified",
           ad_account_error: csvRow._actual_access_token ? 
             "Access token converted from Facebook name not recognized" : 
-            "Account or access token not found",
+            "Account or facebook name not found",
           access_token_error: csvRow._actual_access_token ? 
             "Converted token may be incorrect or expired" : 
-            "Token not recognized"
+            "Facebook name not recognized"
         };
       }
   
