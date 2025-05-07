@@ -41,7 +41,7 @@ import CampaignCreationTerminal from "../widgets/campaign_creation_widgets/campa
 
 const REQUIRED_HEADERS = [
   "ad_account_id",
-  "access_token",
+  "facebook_name",
   "facebook_page_id",
   "sku",
   "material_code",
@@ -71,7 +71,7 @@ const CampaignCreationPage = () => {
   const headers = [
     "ad_account_id",
     "ad_account_status",
-    "access_token",
+    "facebook_name",
     "access_token_status",
     "facebook_page_id",
     "facebook_page_status",
@@ -512,7 +512,7 @@ const CampaignCreationPage = () => {
     const sampleData = [
       [
         "ad_account_id",
-        "access_token",
+        "facebook_name",
         "facebook_page_id",
         "sku",
         "material_code",
@@ -530,7 +530,7 @@ const CampaignCreationPage = () => {
       ],
       [
         "'",
-        "' (Enter full access token OR Facebook name)",
+        "' (Enter Facebook name from Settings page)",
         "'",
         "'",
         "'",
@@ -570,7 +570,7 @@ const CampaignCreationPage = () => {
     // Define CSV headers
     const csvHeaders = [
       "ad_account_id",
-      "access_token",
+      "facebook_name",
       "page_name",
       "sku",
       "material_code",
@@ -593,9 +593,16 @@ const CampaignCreationPage = () => {
       "data:text/csv;charset=utf-8,\uFEFF" + // UTF-8 BOM for proper encoding
       [csvHeaders.join(",")] // Add headers
         .concat(
-          tableData.map((row) =>
-            csvHeaders.map((header) => `"${row[header] || ""}"`).join(",")
-          )
+          tableData.map((row) => {
+            // For each row, map columns to their values
+            return csvHeaders.map((header) => {
+              // For facebook_name column, use access_token value
+              if (header === "facebook_name") {
+                return `"${row["access_token"] || ""}"`;
+              }
+              return `"${row[header] || ""}"`;
+            }).join(",");
+          })
         )
         .join("\n");
 
@@ -641,9 +648,9 @@ const CampaignCreationPage = () => {
             formattedData.forEach((item, i) => {
               // console.log(`Row ${i}:`, item.campaign_code);
               
-              // Convert facebook_name to access_token if needed
-              if (item["access_token"] && accessTokenMap[item["access_token"]]) {
-                const facebookName = item["access_token"];
+              // Handle facebook_name column and map to access_token
+              if (item["facebook_name"] && accessTokenMap[item["facebook_name"]]) {
+                const facebookName = item["facebook_name"];
                 const actualToken = accessTokenMap[facebookName];
                 
                 // Add a more detailed message about the conversion
@@ -652,9 +659,23 @@ const CampaignCreationPage = () => {
                 ]);
                 
                 // Store actual token in a separate property only for API calls
-                // Keep the user-friendly Facebook name as the display value in access_token
                 item["_actual_access_token"] = actualToken;
-                // Leave the access_token as the display name for the UI
+                // Also set access_token to match facebook_name for internal use
+                item["access_token"] = facebookName;
+              }
+              
+              // For backward compatibility with existing files that use access_token column
+              if (item["access_token"] && !item["facebook_name"] && accessTokenMap[item["access_token"]]) {
+                const facebookName = item["access_token"];
+                const actualToken = accessTokenMap[facebookName];
+                
+                addMessage([
+                  `[${getCurrentTime()}] 🔑 Row ${i + 1}: Using access_token as Facebook name "${facebookName}" (for backward compatibility)`,
+                ]);
+                
+                item["_actual_access_token"] = actualToken;
+                // Keep the display name in both places for consistency
+                item["facebook_name"] = facebookName;
               }
               
               item["interests_list"] = parseInterestsList(
@@ -1297,9 +1318,8 @@ const CampaignCreationPage = () => {
               before running.
             </li>
             <li>
-              🔑 <strong>Access Token Simplification:</strong> In the <code>access_token</code> column, 
-              you can enter either the full access token OR the Facebook name exactly as it appears 
-              in your Settings page.
+              🔑 <strong>Facebook Name:</strong> In the <code>facebook_name</code> column, 
+              enter the Facebook name exactly as it appears in your Settings page.
             </li>
             <li>
               🔀{" "}

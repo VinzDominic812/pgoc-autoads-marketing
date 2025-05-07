@@ -387,7 +387,7 @@ const SettingsPage = () => {
           </Box>
           <WidgetCard title="Access Token Management" height="auto">
             <DynamicTable
-              headers={["access_token", "facebook_name", "is_expire", "expiring_at", "Actions"]}
+              headers={["facebook_name", "access_token", "is_expire", "expiring_at", "Actions"]}
               data={accessTokens}
               onDataChange={(updatedData) => {
                 // Update the local state (UI)
@@ -399,7 +399,7 @@ const SettingsPage = () => {
               rowsPerPage={8}
               compact={true}
               customRenderers={accessTokenRenderers}
-              nonEditableHeaders={"access_token,facebook_name,Actions,is_expire,expiring_at"}
+              nonEditableHeaders={"facebook_name,access_token,Actions,is_expire,expiring_at"}
             />
             {accessTokens.length === 0 && (
               <Typography 

@@ -28,7 +28,7 @@ import Cookies from "js-cookie";
 
 const REQUIRED_HEADERS = [
   "ad_account_id",
-  "access_token",
+  "facebook_name",
   "page_name",
   "on_off",
 ];
@@ -46,7 +46,7 @@ const PageOnOFFPage = () => {
   const headers = [
     "ad_account_id",
     "ad_account_status",
-    "access_token",
+    "facebook_name",
     "access_token_status",
     "page_name",
     "on_off",
@@ -304,9 +304,9 @@ const PageOnOFFPage = () => {
 
   const handleDownloadTemplate = () => {
     const sampleData = [
-      ["ad_account_id", "access_token", "page_name", "on_off"],
-      ["SAMPLE_AD_ACCOUNT_ID", "SAMPLE_ACCESS_TOKEN or Facebook name", "page_name", "ON"],
-      ["ANOTHER_AD_ACCOUNT", "ANOTHER_ACCESS_TOKEN or Facebook name", "page_name", "ON"],
+      ["ad_account_id", "facebook_name", "page_name", "on_off"],
+      ["SAMPLE_AD_ACCOUNT_ID", "Facebook Name", "page_name", "ON"],
+      ["ANOTHER_AD_ACCOUNT", "Another Facebook Name", "page_name", "ON"],
     ];
 
     const csvContent =
@@ -332,7 +332,7 @@ const PageOnOFFPage = () => {
     // Define CSV headers
     const csvHeaders = [
       "ad_account_id",
-      "access_token",
+      "facebook_name",
       "page_name",
       "on_off",
       "status",
@@ -390,7 +390,7 @@ const PageOnOFFPage = () => {
   
         if (!validateCSVHeaders(fileHeaders)) {
           notify(
-            "Invalid CSV headers. Required: ad_account_id, access_token, page_name, on_off.",
+            "Invalid CSV headers. Required: ad_account_id, facebook_name, page_name, on_off.",
             "error"
           );
           return;
@@ -406,18 +406,18 @@ const PageOnOFFPage = () => {
               return acc;
             }, {});
             
-            // Debug: Log each row's access token before conversion
-            if (entry["access_token"]) {
+            // Debug: Log each row's facebook_name before conversion
+            if (entry["facebook_name"]) {
               addMessage([
-                `[${getCurrentTime()}] Row ${i + 1}: Found access_token "${entry["access_token"]}"${
-                  accessTokenMap[entry["access_token"]] ? " (matches a Facebook name)" : ""
+                `[${getCurrentTime()}] Row ${i + 1}: Found facebook_name "${entry["facebook_name"]}"${
+                  accessTokenMap[entry["facebook_name"]] ? " (matches a Facebook name)" : ""
                 }`
               ]);
             }
             
-            // Check if access_token is a Facebook name and convert if needed
-            if (entry["access_token"] && accessTokenMap[entry["access_token"]]) {
-              const facebookName = entry["access_token"];
+            // Check if facebook_name is a Facebook name and convert if needed
+            if (entry["facebook_name"] && accessTokenMap[entry["facebook_name"]]) {
+              const facebookName = entry["facebook_name"];
               const actualToken = accessTokenMap[facebookName];
               
               // Add a message about the conversion
@@ -433,14 +433,14 @@ const PageOnOFFPage = () => {
             return entry;
           });
   
-        // Step 1: Group by ad_account_id, access_token, and on_off
+        // Step 1: Group by ad_account_id, facebook_name, and on_off
         const groupedData = rawData.reduce((acc, current) => {
-          const key = `${current.ad_account_id}_${current.access_token}_${current.on_off}`;
+          const key = `${current.ad_account_id}_${current.facebook_name}_${current.on_off}`;
           
           if (!acc[key]) {
             acc[key] = {
               ad_account_id: current.ad_account_id,
-              access_token: current.access_token,
+              facebook_name: current.facebook_name,
               _actual_access_token: current._actual_access_token, // Preserve the actual token
               on_off: current.on_off,
               page_names: new Set(), // Using Set to avoid duplicates
@@ -461,11 +461,11 @@ const PageOnOFFPage = () => {
         const seenPageAccounts = new Set();
   
         Object.values(groupedData).forEach(group => {
-          // Check for page_name conflicts (same ad_account_id + access_token + page_name but different on_off)
+          // Check for page_name conflicts (same ad_account_id + facebook_name + page_name but different on_off)
           let hasConflict = false;
           
           group.originalEntries.forEach(entry => {
-            const pageAccountKey = `${entry.ad_account_id}_${entry.access_token}_${entry.page_name}`;
+            const pageAccountKey = `${entry.ad_account_id}_${entry.facebook_name}_${entry.page_name}`;
             
             if (seenPageAccounts.has(pageAccountKey)) {
               // This page_name already exists with a different on_off status
@@ -482,7 +482,7 @@ const PageOnOFFPage = () => {
           if (!hasConflict) {
             finalData.push({
               ad_account_id: group.ad_account_id,
-              access_token: group.access_token,
+              facebook_name: group.facebook_name,
               _actual_access_token: group._actual_access_token, // Include actual token
               page_name: Array.from(group.page_names), // Convert Set to array
               on_off: group.on_off,
@@ -504,7 +504,7 @@ const PageOnOFFPage = () => {
           ad_account_id: entry.ad_account_id,
           user_id,
           // Use the actual access token for API calls if it exists
-          access_token: entry._actual_access_token || entry.access_token,
+          access_token: entry._actual_access_token || entry.facebook_name,
           schedule_data: [
             {
               page_name: entry.page_name, // This is now an array
@@ -547,7 +547,7 @@ const PageOnOFFPage = () => {
       const row = tablePageNameData[i];
       const { ad_account_id, page_name, on_off } = row;
       // Use the actual access token for API calls if it exists
-      const access_token = row._actual_access_token || row.access_token;
+      const access_token = row._actual_access_token || row.facebook_name;
 
       const requestData = [
         {
@@ -692,7 +692,7 @@ const PageOnOFFPage = () => {
     
     const updatedData = csvData.map((csvRow) => {
       // Find the matching row from API results by using the actual token if available
-      const csvAccessToken = csvRow._actual_access_token || csvRow.access_token;
+      const csvAccessToken = csvRow._actual_access_token || csvRow.facebook_name;
       
       const jsonRow = jsonData.find(
         (json) => {
@@ -716,10 +716,10 @@ const PageOnOFFPage = () => {
           status: "Not Verified",
           ad_account_error: csvRow._actual_access_token ? 
             "Access token converted from Facebook name not recognized" : 
-            "Account or access token not found",
+            "Account or facebook name not found",
           access_token_error: csvRow._actual_access_token ? 
             "Converted token may be incorrect or expired" : 
-            "Token not recognized"
+            "Facebook name not recognized"
         };
       }
 
