@@ -334,30 +334,34 @@ const SettingsPage = () => {
 
   return (
     <Box>
-      <h2>Campaign Codes</h2>
-      <Box display="flex" gap={2} mb={2}>
-        <TextField
-          label="New Campaign Code"
-          value={newCode}
-          onChange={(e) => {
-            setNewCode(e.target.value);
-          }}
-          inputProps={{ maxLength: 10 }} // Limit to 10 characters
-          helperText="Up to 10 characters"
-        />
-        <Button variant="contained" onClick={handleAddCode}>
-          Save
-        </Button>
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+        <Typography variant="h5">Campaign Codes</Typography>
+        <Box display="flex" gap={2}>
+          <TextField
+            label="New Campaign Code"
+            value={newCode}
+            onChange={(e) => {
+              setNewCode(e.target.value);
+            }}
+            inputProps={{ maxLength: 10 }}
+            helperText="Up to 10 characters"
+            sx={{ width: '300px' }}
+          />
+          <Button 
+            variant="contained" 
+            onClick={handleAddCode}
+            sx={{ height: '56px' }}  // Match TextField height including label
+          >
+            Save
+          </Button>
+        </Box>
       </Box>
-      <WidgetCard title="Campaign Codes" height="auto" mb={4}>
+      <WidgetCard title="Campaign Code Management" height="auto" mb={4}>
         <DynamicTable
-          headers={["campaign_code", "Actions"]} // Adding a column for actions (delete)
+          headers={["campaign_code", "Actions"]}
           data={campaignCodes}
           onDataChange={(updatedData) => {
-            // Update the local state (UI)
             setCampaignCodes(updatedData);
-
-            // Send the updated data to the backend
             updatedData.forEach((row) => handleEditRow(row));
           }}
           rowsPerPage={8}
@@ -365,6 +369,14 @@ const SettingsPage = () => {
           customRenderers={customRenderers}
           nonEditableHeaders={"Actions"}
         />
+        {campaignCodes.length === 0 && (
+          <Typography 
+            variant="body1" 
+            sx={{ textAlign: 'center', py: 3, color: 'text.secondary' }}
+          >
+            No campaign codes found. Add a new code using the form above.
+          </Typography>
+        )}
       </WidgetCard>
 
       {/* Access Tokens Section - Only visible to superadmins with level 1 */}
