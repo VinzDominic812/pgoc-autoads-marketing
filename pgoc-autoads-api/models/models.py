@@ -4,7 +4,7 @@ from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy import func, ForeignKey
 from sqlalchemy.dialects.postgresql import JSON, BYTEA, ENUM, TIMESTAMP
 from sqlalchemy.orm import validates
-from datetime import datetime
+from datetime import datetime, timedelta
 
 db = SQLAlchemy()
 
@@ -123,6 +123,7 @@ class AccessToken(db.Model):
     __tablename__ = 'access_tokens'
     
     id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.BigInteger, ForeignKey('marketing_users.id'), nullable=False)
     access_token = db.Column(db.String(255), unique=True, nullable=False)
     facebook_name = db.Column(db.String(100))
     is_expire = db.Column(db.Boolean, default=False)
@@ -139,8 +140,142 @@ class AccessToken(db.Model):
         onupdate=lambda: datetime.now(manila_tz)
     )
     
+    # Relationship with User model
+    user = db.relationship('User', backref=db.backref('access_tokens', lazy=True))
+    
     @validates('access_token')
     def validate_token(self, key, access_token):
         if not access_token or len(access_token) < 32:
             raise ValueError("Access token must be at least 32 characters long")
         return access_token
+
+    @classmethod
+    def get_superadmin_tokens_for_client(cls, client_id):
+        """
+        Get access tokens from the client's managing superadmin
+        Example: If client ID 2 is managed by superadmin ID 1, this will return all tokens belonging to superadmin ID 1
+        """
+        # Get the relationship with superadmin
+        relationship = UserRelationship.query.filter_by(
+            client_id=client_id,
+            is_active=True
+        ).first()
+        
+        if not relationship:
+            return []
+            
+        # Get all tokens from the managing superadmin
+        return cls.query.filter_by(user_id=relationship.superadmin_id).all()
+
+    @classmethod
+    def get_client_accessible_tokens(cls, client_id):
+        """
+        Get all tokens that a client can access (only from their managing superadmin)
+        Example: If client ID 2 is managed by superadmin ID 1, this will return all tokens belonging to superadmin ID 1
+        """
+        return cls.get_superadmin_tokens_for_client(client_id)
+
+class UserRelationship(db.Model):
+    __tablename__ = 'user_relationships'
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    superadmin_id = db.Column(db.BigInteger, ForeignKey('marketing_users.id'), nullable=False)
+    client_id = db.Column(db.BigInteger, ForeignKey('marketing_users.id'), nullable=False)
+    is_active = db.Column(db.Boolean, default=True)
+    
+    # Metadata
+    created_at = db.Column(
+        TIMESTAMP(timezone=True),
+        default=lambda: datetime.now(manila_tz)
+    )
+    updated_at = db.Column(
+        TIMESTAMP(timezone=True),
+        default=lambda: datetime.now(manila_tz),
+        onupdate=lambda: datetime.now(manila_tz)
+    )
+
+    # Relationships
+    superadmin = db.relationship('User', 
+                               foreign_keys=[superadmin_id],
+                               backref=db.backref('managed_clients', lazy=True))
+    client = db.relationship('User',
+                           foreign_keys=[client_id],
+                           backref=db.backref('managing_superadmin', lazy=True))
+
+    @validates('superadmin_id', 'client_id')
+    def validate_user_roles(self, key, user_id):
+        user = User.query.get(user_id)
+        if not user:
+            raise ValueError(f"User with ID {user_id} does not exist")
+        
+        if key == 'superadmin_id':
+            if user.user_level != 1 or user.user_role != 'superadmin':
+                raise ValueError("Superadmin must have user_level 1 and user_role 'superadmin'")
+        elif key == 'client_id':
+            if user.user_level == 1 or user.user_level == 2:  # superadmin or admin
+                raise ValueError("Client cannot be a superadmin or admin")
+            if user.user_level == 3 and user.user_role != 'staff':
+                raise ValueError("Level 3 users must have role 'staff'")
+            if user.user_level == 4 and user.user_role != 'client':
+                raise ValueError("Level 4 users must have role 'client'")
+        
+        return user_id
+
+    __table_args__ = (
+        db.UniqueConstraint('superadmin_id', 'client_id', name='unique_superadmin_client'),
+    )
+
+class InviteCode(db.Model):
+    __tablename__ = 'invite_codes'
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    superadmin_id = db.Column(db.BigInteger, ForeignKey('marketing_users.id'), nullable=False)
+    invite_code = db.Column(db.String(10), unique=True, nullable=False)  # Short, unique code
+    is_used = db.Column(db.Boolean, default=False)
+    used_by = db.Column(db.BigInteger, ForeignKey('marketing_users.id'), nullable=True)
+    
+    # Metadata
+    created_at = db.Column(
+        TIMESTAMP(timezone=True),
+        default=lambda: datetime.now(manila_tz)
+    )
+    used_at = db.Column(
+        TIMESTAMP(timezone=True),
+        nullable=True
+    )
+    expires_at = db.Column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(manila_tz) + timedelta(days=7)  # Codes expire in 7 days
+    )
+
+    # Relationships
+    superadmin = db.relationship('User', 
+                               foreign_keys=[superadmin_id],
+                               backref=db.backref('generated_invites', lazy=True))
+    used_by_user = db.relationship('User',
+                                 foreign_keys=[used_by],
+                                 backref=db.backref('used_invite', lazy=True))
+
+    @validates('superadmin_id')
+    def validate_superadmin(self, key, superadmin_id):
+        user = User.query.get(superadmin_id)
+        if not user:
+            raise ValueError(f"User with ID {superadmin_id} does not exist")
+        if user.user_level != 1 or user.user_role != 'superadmin':
+            raise ValueError("Invite code can only be generated by a level 1 superadmin")
+        return superadmin_id
+
+    @validates('used_by')
+    def validate_client(self, key, used_by):
+        if used_by:
+            user = User.query.get(used_by)
+            if not user:
+                raise ValueError(f"User with ID {used_by} does not exist")
+            if user.user_level == 1 or user.user_level == 2:  # superadmin or admin
+                raise ValueError("Superadmins and admins cannot use invite codes")
+            if user.user_level == 3 and user.user_role != 'staff':
+                raise ValueError("Level 3 users must have role 'staff'")
+            if user.user_level == 4 and user.user_role != 'client':
+                raise ValueError("Level 4 users must have role 'client'")
+        return used_by
