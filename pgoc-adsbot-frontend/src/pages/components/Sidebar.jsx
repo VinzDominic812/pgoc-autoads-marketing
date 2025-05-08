@@ -6,8 +6,13 @@ import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemText from "@mui/material/ListItemText";
 import Typography from "@mui/material/Typography";
 import Divider from "@mui/material/Divider";
-import { Avatar, Box, Chip } from "@mui/material";
+import { Avatar, Box, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Button } from "@mui/material";
 import Logo from "../../assets/icon.png"; // Your logo path
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import notify from "../components/toast.jsx";
+
+const apiUrl = import.meta.env.VITE_API_URL;
 
 const Sidebar = ({
   open: propOpen,
@@ -31,6 +36,11 @@ const Sidebar = ({
     ? `data:image/jpeg;base64,${userData.profile_image}`
     : null;
 
+  const [openInviteDialog, setOpenInviteDialog] = useState(false);
+  const [inviteCode, setInviteCode] = useState("");
+  const [expiryDate, setExpiryDate] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+
   const handleMouseEnter = () => {
     const timeout = setTimeout(() => {
       setOpen(true);
@@ -44,6 +54,88 @@ const Sidebar = ({
       setHoverTimeout(null);
     }
     setOpen(false);
+  };
+
+  const handleOpenInviteDialog = async () => {
+    setOpenInviteDialog(true);
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/user/${userData.id}/invite-codes`, {
+        headers: {
+          'Content-Type': 'application/json',
+          skip_zrok_interstitial: 'true'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch invite code');
+      }
+
+      const data = await response.json();
+      if (data.data && data.data.length > 0) {
+        // Get the most recent unused code
+        const unusedCode = data.data.find(code => !code.is_used);
+        if (unusedCode) {
+          setInviteCode(unusedCode.invite_code);
+          setExpiryDate(new Date(unusedCode.expires_at).toLocaleString());
+        } else {
+          // If no unused code exists, generate a new one
+          await handleRenewInviteCode();
+        }
+      } else {
+        // If no codes exist, generate a new one
+        await handleRenewInviteCode();
+      }
+    } catch (error) {
+      notify('Failed to fetch invite code', 'error');
+      console.error('Error fetching invite code:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCloseInviteDialog = () => {
+    setOpenInviteDialog(false);
+  };
+
+  const handleCopyInviteCode = () => {
+    if (inviteCode) {
+      navigator.clipboard.writeText(inviteCode);
+      notify('Invite code copied to clipboard!', 'success');
+      handleCloseInviteDialog();
+    }
+  };
+
+  const handleRenewInviteCode = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/user/invite-codes`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          skip_zrok_interstitial: 'true'
+        },
+        body: JSON.stringify({
+          superadmin_id: userData.id
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate new invite code');
+      }
+
+      const data = await response.json();
+      if (data.data && data.data.invite_code) {
+        setInviteCode(data.data.invite_code);
+        setExpiryDate(new Date(data.data.expires_at).toLocaleString());
+        notify('New invite code generated successfully!', 'success');
+      }
+    } catch (error) {
+      notify('Failed to generate new invite code', 'error');
+      console.error('Error generating invite code:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -177,11 +269,81 @@ const Sidebar = ({
             >
               {userData?.email || "No Email"}
             </Typography>
+
+            {/* Superadmin Button */}
+            {open && userData?.user_level === 1 && userData?.user_role === "superadmin" && (
+              <Typography
+                sx={{
+                  fontSize: "11px",
+                  color: "#1976d2",
+                  cursor: "pointer",
+                  marginTop: "4px",
+                  "&:hover": {
+                    textDecoration: "underline",
+                  },
+                }}
+                onClick={handleOpenInviteDialog}
+              >
+                Invite Code
+              </Typography>
+            )}
           </Box>
         )}
       </Box>
 
       <Divider />
+
+      {/* Invite Code Dialog */}
+      <Dialog
+        open={openInviteDialog}
+        onClose={handleCloseInviteDialog}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Invite Code</DialogTitle>
+        <DialogContent>
+          <Box sx={{ 
+            display: 'flex', 
+            flexDirection: 'column',
+            alignItems: 'center', 
+            justifyContent: 'center',
+            padding: '20px',
+            backgroundColor: '#f5f5f5',
+            borderRadius: '4px',
+            marginTop: '10px',
+            gap: '8px'
+          }}>
+            <Typography variant="h6" sx={{ fontFamily: 'monospace' }}>
+              {isLoading ? 'Loading...' : inviteCode || 'No invite code available'}
+            </Typography>
+            {!isLoading && inviteCode && (
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                Expires: {expiryDate}
+              </Typography>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ padding: '16px' }}>
+          <Button
+            startIcon={<RefreshIcon />}
+            onClick={handleRenewInviteCode}
+            variant="outlined"
+            color="primary"
+            disabled={isLoading}
+          >
+            Renew
+          </Button>
+          <Button
+            startIcon={<ContentCopyIcon />}
+            onClick={handleCopyInviteCode}
+            variant="contained"
+            color="primary"
+            disabled={isLoading || !inviteCode}
+          >
+            Copy & Exit
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Navigation List */}
       <List>

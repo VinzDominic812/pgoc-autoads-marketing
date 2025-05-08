@@ -215,26 +215,31 @@ const SettingsPage = () => {
 
   const handleAddAccessToken = async () => {
     const { id: userId } = getUserData();
-  
+
     if (!newAccessToken) {
       alert("Please provide a valid access token.");
       return;
     }
   
     const payload = {
-      user_id: userId, // Still need user_id for permission checks only
+      user_id: userId,
       access_token: newAccessToken,
     };
   
     try {
-      await axios.post(`${apiUrl}/api/v1/user/access-tokens`, payload, {
+      const response = await axios.post(`${apiUrl}/api/v1/user/access-tokens`, payload, {
         headers: { "Content-Type": "application/json" },
       });
-  
-      setNewAccessToken("");
-      fetchAccessTokens(); // refresh the list
+      
+      if (response.data && response.data.message) {
+        console.log("Success:", response.data.message);
+        setNewAccessToken("");
+        fetchAccessTokens(); // refresh the list
+      }
     } catch (err) {
       console.error("Failed to add access token:", err);
+      const errorMessage = err.response?.data?.error || "Failed to add access token. Please try again.";
+      alert(errorMessage);
     }
   };
 
