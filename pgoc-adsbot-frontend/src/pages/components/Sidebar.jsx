@@ -6,11 +6,14 @@ import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemText from "@mui/material/ListItemText";
 import Typography from "@mui/material/Typography";
 import Divider from "@mui/material/Divider";
-import { Avatar, Box, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Button } from "@mui/material";
+import { Avatar, Box, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, CircularProgress } from "@mui/material";
 import Logo from "../../assets/icon.png"; // Your logo path
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ErrorIcon from '@mui/icons-material/Error';
 import notify from "../components/toast.jsx";
+import { getUserData, decryptData } from "../../services/user_data";
 
 const apiUrl = import.meta.env.VITE_API_URL;
 
@@ -41,6 +44,13 @@ const Sidebar = ({
   const [expiryDate, setExpiryDate] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
+  const [openInviteInputDialog, setOpenInviteInputDialog] = useState(false);
+  const [inputInviteCode, setInputInviteCode] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [openRelationshipDialog, setOpenRelationshipDialog] = useState(false);
+  const [superadminName, setSuperadminName] = useState("");
+
   const handleMouseEnter = () => {
     const timeout = setTimeout(() => {
       setOpen(true);
@@ -57,40 +67,92 @@ const Sidebar = ({
   };
 
   const handleOpenInviteDialog = async () => {
-    setOpenInviteDialog(true);
-    setIsLoading(true);
-    try {
-      const response = await fetch(`${apiUrl}/api/v1/user/${userData.id}/invite-codes`, {
-        headers: {
-          'Content-Type': 'application/json',
-          skip_zrok_interstitial: 'true'
+    if (userData?.user_level === 1 && userData?.user_role === "superadmin") {
+      setOpenInviteDialog(true);
+      setIsLoading(true);
+      try {
+        const response = await fetch(`${apiUrl}/api/v1/user/${userData.id}/invite-codes`, {
+          headers: {
+            'Content-Type': 'application/json',
+            skip_zrok_interstitial: 'true'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch invite code');
         }
-      });
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch invite code');
-      }
-
-      const data = await response.json();
-      if (data.data && data.data.length > 0) {
-        // Get the most recent unused code
-        const unusedCode = data.data.find(code => !code.is_used);
-        if (unusedCode) {
-          setInviteCode(unusedCode.invite_code);
-          setExpiryDate(new Date(unusedCode.expires_at).toLocaleString());
+        const data = await response.json();
+        if (data.data && data.data.length > 0) {
+          const unusedCode = data.data.find(code => !code.is_used);
+          if (unusedCode) {
+            setInviteCode(unusedCode.invite_code);
+            setExpiryDate(new Date(unusedCode.expires_at).toLocaleString());
+          } else {
+            await handleRenewInviteCode();
+          }
         } else {
-          // If no unused code exists, generate a new one
           await handleRenewInviteCode();
         }
-      } else {
-        // If no codes exist, generate a new one
-        await handleRenewInviteCode();
+      } catch (error) {
+        notify('Failed to fetch invite code', 'error');
+        //console.error('Error fetching invite code:', error);
+      } finally {
+        setIsLoading(false);
       }
-    } catch (error) {
-      notify('Failed to fetch invite code', 'error');
-      console.error('Error fetching invite code:', error);
-    } finally {
-      setIsLoading(false);
+    } else {
+      // For non-superadmin users, check their relationship status
+      try {
+        // Get the token using the getUserData function
+        const userDataObj = getUserData();
+        // console.log('User data object:', userDataObj); // Debug log
+
+        if (!userDataObj || !userDataObj.accessToken) {
+          console.error('No user data or access token found');
+          notify('Please log in to continue', 'error');
+          return;
+        }
+
+        // console.log('Checking relationship for user:', userData.id); // Debug log
+        const response = await fetch(`${apiUrl}/api/v1/check-relationship?user_id=${userData.id}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${userDataObj.accessToken}`,
+            skip_zrok_interstitial: 'true'
+          }
+        });
+
+        const data = await response.json();
+        // console.log('Relationship check response:', data); // Debug log
+
+        if (response.ok) {
+          if (data.relationship) {
+            // User has a relationship, show the relationship dialog
+            setSuperadminName(data.superadmin_name);
+            setOpenRelationshipDialog(true);
+          } else {
+            // No relationship, show invite code input dialog
+            setOpenInviteInputDialog(true);
+          }
+        } else {
+          // console.error('Error response:', data); // Debug log
+          if (data.msg === 'Not enough segments') {
+            notify('Session expired. Please log in again.', 'error');
+            // Only redirect if we're sure the token is invalid
+            if (response.status === 401) {
+              window.location.href = '/';
+            }
+          } else {
+            notify(data.message || 'Error checking relationship', 'error');
+            setOpenInviteInputDialog(true);
+          }
+        }
+      } catch (error) {
+        // console.error('Error checking relationship:', error);
+        notify('Error checking relationship status', 'error');
+        setOpenInviteInputDialog(true);
+      }
     }
   };
 
@@ -132,10 +194,66 @@ const Sidebar = ({
       }
     } catch (error) {
       notify('Failed to generate new invite code', 'error');
-      console.error('Error generating invite code:', error);
+      // console.error('Error generating invite code:', error);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleOpenInviteInputDialog = () => {
+    setOpenInviteInputDialog(true);
+  };
+
+  const handleCloseInviteInputDialog = () => {
+    setOpenInviteInputDialog(false);
+    setInputInviteCode("");
+  };
+
+  const handleSubmitInviteCode = async () => {
+    if (!inputInviteCode.trim()) {
+      notify('Please enter an invite code', 'error');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/user/invite-codes/use`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          skip_zrok_interstitial: 'true'
+        },
+        body: JSON.stringify({
+          invite_code: inputInviteCode.trim(),
+          user_id: userData.id
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        notify(data.message || 'Invalid invite code', 'error');
+        return;
+      }
+
+      notify('Successfully linked with superadmin!', 'success');
+      handleCloseInviteInputDialog();
+      
+      // Update the UI state locally
+      if (data.superadmin_name) {
+        setSuperadminName(data.superadmin_name);
+        setOpenRelationshipDialog(true);
+      }
+    } catch (error) {
+      notify('Error processing invite code', 'error');
+      // console.error('Error:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCloseRelationshipDialog = () => {
+    setOpenRelationshipDialog(false);
   };
 
   return (
@@ -270,8 +388,8 @@ const Sidebar = ({
               {userData?.email || "No Email"}
             </Typography>
 
-            {/* Superadmin Button */}
-            {open && userData?.user_level === 1 && userData?.user_role === "superadmin" && (
+            {/* Invite Code Button for all users */}
+            {open && (
               <Typography
                 sx={{
                   fontSize: "11px",
@@ -284,7 +402,9 @@ const Sidebar = ({
                 }}
                 onClick={handleOpenInviteDialog}
               >
-                Invite Code
+                {userData?.user_level === 1 && userData?.user_role === "superadmin" 
+                  ? "Invite Code" 
+                  : "Enter Invite Code"}
               </Typography>
             )}
           </Box>
@@ -341,6 +461,143 @@ const Sidebar = ({
             disabled={isLoading || !inviteCode}
           >
             Copy & Exit
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add Relationship Dialog */}
+      <Dialog
+        open={openRelationshipDialog}
+        onClose={handleCloseRelationshipDialog}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ 
+          fontSize: '1.2rem',
+          fontWeight: 'bold',
+          color: '#1976d2',
+          borderBottom: '1px solid #e0e0e0',
+          padding: '16px 24px'
+        }}>
+          Account Management
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ 
+            display: 'flex', 
+            flexDirection: 'column',
+            alignItems: 'center', 
+            justifyContent: 'center',
+            padding: '20px',
+            backgroundColor: '#f5f5f5',
+            borderRadius: '4px',
+            marginTop: '10px',
+            gap: '8px'
+          }}>
+            <Typography variant="h6" sx={{ 
+              fontFamily: 'monospace',
+              color: '#1976d2',
+              fontWeight: 'bold'
+            }}>
+              {superadminName || 'Loading...'}
+            </Typography>
+            <Typography variant="body2" sx={{ 
+              color: 'text.secondary',
+              textAlign: 'center',
+              marginTop: '8px'
+            }}>
+              You are currently under the management of this superadmin.
+              All your activities and campaigns will be monitored and managed by them.
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ padding: '16px' }}>
+          <Button
+            onClick={handleCloseRelationshipDialog}
+            variant="contained"
+            color="primary"
+            fullWidth
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add Invite Code Input Dialog */}
+      <Dialog
+        open={openInviteInputDialog}
+        onClose={handleCloseInviteInputDialog}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ 
+          fontSize: '1.2rem',
+          fontWeight: 'bold',
+          color: '#1976d2',
+          borderBottom: '1px solid #e0e0e0',
+          padding: '16px 24px'
+        }}>
+          Enter Invite Code
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ 
+            display: 'flex', 
+            flexDirection: 'column',
+            alignItems: 'center', 
+            justifyContent: 'center',
+            padding: '20px',
+            backgroundColor: '#f5f5f5',
+            borderRadius: '4px',
+            marginTop: '10px',
+            gap: '8px'
+          }}>
+            <TextField
+              fullWidth
+              label="Invite Code"
+              value={inputInviteCode}
+              onChange={(e) => setInputInviteCode(e.target.value.toUpperCase())}
+              disabled={isSubmitting}
+              placeholder="Enter the invite code provided by superadmin"
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  backgroundColor: '#fff',
+                  '&.Mui-focused fieldset': {
+                    borderColor: '#1976d2',
+                  },
+                },
+              }}
+              InputProps={{
+                endAdornment: isSubmitting && (
+                  <CircularProgress size={20} color="primary" />
+                ),
+              }}
+            />
+            <Typography variant="body2" sx={{ 
+              color: 'text.secondary',
+              textAlign: 'center',
+              marginTop: '8px'
+            }}>
+              Enter the 8-character invite code provided by your superadmin.
+              This will link your account to their management.
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ padding: '16px' }}>
+          <Button
+            onClick={handleCloseInviteInputDialog}
+            variant="outlined"
+            disabled={isSubmitting}
+            sx={{ flex: 1 }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSubmitInviteCode}
+            variant="contained"
+            color="primary"
+            disabled={isSubmitting || !inputInviteCode.trim()}
+            sx={{ flex: 1 }}
+          >
+            {isSubmitting ? 'Processing...' : 'Submit'}
           </Button>
         </DialogActions>
       </Dialog>

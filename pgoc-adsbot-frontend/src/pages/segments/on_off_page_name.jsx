@@ -157,89 +157,110 @@ const PageOnOFFPage = () => {
                 const messageText = data.data.message[0];
                 addMessage(data.data.message);
 
-                // ✅ Match "Fetching Campaign Data for PAGE_NAME (ON|OFF)"
+                // ✅ Match "Fetching Campaign Data for page: PAGE_NAME in account PAGE_NAME (ON|OFF)"
                 const fetchingMatch = messageText.match(
-                    /\[(.*?)\] Fetching Campaign Data for (.*?) \((ON|OFF)\)/
+                    /\[(.*?)\] Fetching Campaign Data for page: (.*?) in account (.*?) \((ON|OFF)\)/
                 );
 
                 if (fetchingMatch) {
-                    const pageNames = fetchingMatch[2].split(',').map(name => name.trim());
-                    const onOffStatus = fetchingMatch[3];
+                    const pageName = fetchingMatch[2];
+                    const adAccountId = fetchingMatch[3];
+                    const onOffStatus = fetchingMatch[4];
 
-                    pageNames.forEach((pageName) => {
-                        setTablePageNameData((prevData) =>
-                            prevData.map((entry) =>
-                                entry.page_name === pageName && entry.on_off === onOffStatus
-                                    ? { ...entry, status: "Fetching ⏳" }
-                                    : entry
-                            )
-                        );
-                    });
+                    setTablePageNameData((prevData) =>
+                        prevData.map((entry) => {
+                            // Check if this entry has the page_name in its array
+                            if (
+                                entry.ad_account_id === adAccountId &&
+                                ((Array.isArray(entry.page_name) && entry.page_name.includes(pageName)) ||
+                                entry.page_name === pageName) &&
+                                entry.on_off === onOffStatus
+                            ) {
+                                return { ...entry, status: "Fetching ⏳" };
+                            }
+                            return entry;
+                        })
+                    );
                 }
 
-                // ✅ Match success message for campaign updates completed
+                // ✅ Match success message for campaign updates completed for a specific page
                 const successMatch = messageText.match(
-                    /\[(.*?)\] Campaign updates completed for (.*?) \((ON|OFF)\)/
+                    /\[(.*?)\] Campaign updates completed for page: (.*?) in account (.*?) \((ON|OFF)\)/
                 );
 
                 if (successMatch) {
-                    const pageNames = successMatch[2].split(',').map(name => name.trim());
-                    const onOffStatus = successMatch[3];
+                    const pageName = successMatch[2];
+                    const adAccountId = successMatch[3];
+                    const onOffStatus = successMatch[4];
 
-                    pageNames.forEach((pageName) => {
-                        setTablePageNameData((prevData) =>
-                            prevData.map((entry) =>
-                                entry.page_name === pageName && entry.on_off === onOffStatus
-                                    ? { ...entry, status: `Success ✅ (${onOffStatus})` }
-                                    : entry
-                            )
-                        );
-                    });
+                    setTablePageNameData((prevData) =>
+                        prevData.map((entry) => {
+                            // Check if this entry has the page_name in its array
+                            if (
+                                entry.ad_account_id === adAccountId &&
+                                ((Array.isArray(entry.page_name) && entry.page_name.includes(pageName)) ||
+                                entry.page_name === pageName) &&
+                                entry.on_off === onOffStatus
+                            ) {
+                                return { ...entry, status: `Success ✅ (${onOffStatus})` };
+                            }
+                            return entry;
+                        })
+                    );
                 }
 
-                // ✅ Match error message for campaign fetch failure
+                // ✅ Match error message for campaign fetch failure for a specific page
                 const errorMatch = messageText.match(
-                    /\[(.*?)\] ❌ Error fetching campaigns for (.*?) \((ON|OFF)\): (.*)/
+                    /\[(.*?)\] ❌ Error fetching campaigns for page: (.*?) in account (.*?) \((ON|OFF)\): (.*)/
                 );
 
                 if (errorMatch) {
-                    const pageNames = errorMatch[2].split(',').map(name => name.trim());
-                    const onOffStatus = errorMatch[3];
+                    const pageName = errorMatch[2];
+                    const adAccountId = errorMatch[3];
+                    const onOffStatus = errorMatch[4];
+                    const errorMsg = errorMatch[5];
 
-                    pageNames.forEach((pageName) => {
-                        console.log(`❌ Error detected for ${pageName} (${onOffStatus})`);
+                    console.log(`❌ Error detected for ${pageName} (${onOffStatus}): ${errorMsg}`);
 
-                        setTablePageNameData((prevData) =>
-                            prevData.map((entry) =>
-                                entry.page_name === pageName && entry.on_off === onOffStatus
-                                    ? { ...entry, status: `Failed ❌ (${onOffStatus})` }
-                                    : entry
-                            )
-                        );
-                    });
+                    setTablePageNameData((prevData) =>
+                        prevData.map((entry) => {
+                            // Check if this entry has the page_name in its array
+                            if (
+                                entry.ad_account_id === adAccountId &&
+                                ((Array.isArray(entry.page_name) && entry.page_name.includes(pageName)) ||
+                                entry.page_name === pageName) &&
+                                entry.on_off === onOffStatus
+                            ) {
+                                return { ...entry, status: `Failed ❌ (${onOffStatus})` };
+                            }
+                            return entry;
+                        })
+                    );
                 }
 
-                // ✅ Optional: update lastMessage based on page name
+                // ✅ Update lastMessage based on page name
                 const lastMessageMatch = messageText.match(/\[(.*?)\] (.*)/);
                 if (lastMessageMatch) {
                     const timestamp = lastMessageMatch[1];
                     const messageContent = lastMessageMatch[2];
 
-                    // Try to extract the page_name from the messageContent (heuristic)
-                    const possiblePageMatch = messageContent.match(/for (.*?) \((ON|OFF)\)/);
-                    const pageNames = possiblePageMatch ? possiblePageMatch[1].split(',').map(name => name.trim()) : [];
-
-                    pageNames.forEach((pageName) => {
-                        if (pageName) {
-                            setTablePageNameData((prevData) =>
-                                prevData.map((entry) =>
+                    // Try to extract the page_name from the messageContent
+                    const possiblePageMatch = messageContent.match(/for page: (.*?)( in account|\s|$)/);
+                    if (possiblePageMatch && possiblePageMatch[1]) {
+                        const pageName = possiblePageMatch[1];
+                        
+                        setTablePageNameData((prevData) =>
+                            prevData.map((entry) => {
+                                if (
+                                    (Array.isArray(entry.page_name) && entry.page_name.includes(pageName)) ||
                                     entry.page_name === pageName
-                                        ? { ...entry, lastMessage: `${timestamp} - ${messageContent}` }
-                                        : entry
-                                )
-                            );
-                        }
-                    });
+                                ) {
+                                    return { ...entry, lastMessage: `${timestamp} - ${messageContent}` };
+                                }
+                                return entry;
+                            })
+                        );
+                    }
                 }
             }
         } catch (error) {
@@ -565,7 +586,7 @@ const PageOnOFFPage = () => {
 
       try {
         addMessage([
-          `[${getCurrentTime()}] ⏳ Processing campaign for page: ${page_name}`,
+          `[${getCurrentTime()}] ⏳ Processing campaign for page(s): ${Array.isArray(page_name) ? page_name.join(", ") : page_name}`,
         ]);
   
         const response = await fetch(`${apiUrl}/api/v1/onoff/pagename`, {
@@ -596,7 +617,7 @@ const PageOnOFFPage = () => {
         );
   
         addMessage([
-          `[${getCurrentTime()}] ✅ Campaign processed for ${page_name}.`,
+          `[${getCurrentTime()}] ✅ Campaign processed for page(s): ${Array.isArray(page_name) ? page_name.join(", ") : page_name}`,
         ]);
   
         // Optional delay
@@ -615,7 +636,7 @@ const PageOnOFFPage = () => {
         );
   
         addMessage([
-          `[${getCurrentTime()}] ❌ Error for ${page_name}: ${error.message}`,
+          `[${getCurrentTime()}] ❌ Error for page(s): ${Array.isArray(page_name) ? page_name.join(", ") : page_name}: ${error.message}`,
         ]);
       }
     }

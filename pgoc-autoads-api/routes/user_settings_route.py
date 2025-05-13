@@ -1,8 +1,11 @@
 from flask import Blueprint, request, jsonify
 from controllers.campaign_code_controller import create_campaign_code, get_campaign_code, update_campaign_code, delete_campaign_code
 from controllers.access_token_controller import create_access_token, get_access_tokens, update_access_token, delete_access_token
-from controllers.invite_code_controller import generate_invite_code, use_invite_code, get_invite_codes
-from models.models import User
+from controllers.invite_code_controller import generate_invite_code, get_invite_codes, use_invite_code, verify_invite_code
+from controllers.user_relationship_controller import get_relationships, delete_relationship, check_relationship
+from models.models import User, UserRelationship, manila_tz, db
+from flask_jwt_extended import jwt_required, get_jwt_identity
+from datetime import datetime
 
 user_routes = Blueprint('user_routes', __name__)
 
@@ -93,3 +96,61 @@ def redeem_invite_code():
         return jsonify({"error": "Missing invite_code or user_id"}), 400
         
     return use_invite_code(invite_code, user_id)
+
+@user_routes.route('/user/invite-codes/verify', methods=['POST'])
+def verify_invite_code_route():
+    invite_code = request.json.get('invite_code')
+    
+    if not invite_code:
+        return jsonify({"error": "Missing invite_code"}), 400
+        
+    return verify_invite_code(invite_code)
+
+# === User Relationship Routes ===
+
+@user_routes.route('/user/relationships', methods=['GET'])
+def fetch_relationships():
+    try:
+        # Get superadmin_id from query parameters
+        superadmin_id = request.args.get('superadmin_id')
+        if not superadmin_id:
+            return jsonify({'error': 'superadmin_id is required'}), 400
+            
+        return get_relationships(int(superadmin_id))
+    except Exception as e:
+        print("[EXCEPTION]", str(e))
+        return jsonify({'error': 'Internal Server Error'}), 500
+
+@user_routes.route('/user/relationships/<int:relationship_id>', methods=['DELETE'])
+def remove_relationship(relationship_id):
+    try:
+        # Get superadmin_id from query parameters
+        superadmin_id = request.args.get('superadmin_id')
+        if not superadmin_id:
+            return jsonify({'error': 'superadmin_id is required'}), 400
+            
+        return delete_relationship(relationship_id, int(superadmin_id))
+    except Exception as e:
+        print("[EXCEPTION]", str(e))
+        return jsonify({'error': 'Internal Server Error'}), 500
+
+@user_routes.route('/relationships', methods=['GET'])
+def get_user_relationships():
+    superadmin_id = request.args.get('superadmin_id')
+    if not superadmin_id:
+        return jsonify({'error': 'superadmin_id is required'}), 400
+    return get_relationships(superadmin_id)
+
+@user_routes.route('/relationships/<int:relationship_id>', methods=['DELETE'])
+def delete_user_relationship(relationship_id):
+    superadmin_id = request.args.get('superadmin_id')
+    if not superadmin_id:
+        return jsonify({'error': 'superadmin_id is required'}), 400
+    return delete_relationship(relationship_id, superadmin_id)
+
+@user_routes.route('/check-relationship', methods=['GET'])
+def check_user_relationship():
+    user_id = request.args.get('user_id')
+    if not user_id:
+        return jsonify({'error': 'user_id is required'}), 400
+    return check_relationship(user_id)

@@ -29,7 +29,7 @@ def add_pagename_off(data):
         if not (ad_account_id and user_id and access_token and schedule_data):
             return jsonify({"error": "Missing required fields in one of the schedule entries."}), 400
 
-        # Create WebSocket Redis key if it doesn’t exist
+        # Create WebSocket Redis key if it doesn't exist
         websocket_key = f"{user_id}-key"
         if not redis_websocket_pn.exists(websocket_key):
             redis_websocket_pn.set(websocket_key, json.dumps({"message": ["User-Id Created"]}))
@@ -37,19 +37,28 @@ def add_pagename_off(data):
 
         # Process each schedule in the schedule_data array
         for schedule in schedule_data:
-            page_name = schedule.get("page_name")
-            logging.info(f"Processing page_names: {page_name}")
+            page_names = schedule.get("page_name")
+            logging.info(f"Processing page_names: {page_names}")
 
-            if not page_name or not isinstance(page_name, list) or len(page_name) == 0:
+            if not page_names or not isinstance(page_names, list) or len(page_names) == 0:
                 return jsonify({"error": "Invalid or missing 'page_name'. It should be a non-empty list of strings."}), 400
 
             if schedule["on_off"] not in ["ON", "OFF"]:
-                return jsonify({"error": f"Invalid on_off value for '{page_name}'. Use 'ON' or 'OFF'."}), 400
+                return jsonify({"error": f"Invalid on_off value for '{page_names}'. Use 'ON' or 'OFF'."}), 400
 
-            # Introduce a delay before calling Celery Task (delay of 3 seconds)
-            logging.info(f"Scheduling fetch_campaign_off for user_id: {user_id}, ad_account_id: {ad_account_id}, page_name: {page_name} with on_off value: {schedule['on_off']}")
+            # Log the number of pages being processed
+            page_count = len(page_names)
+            if page_count > 1:
+                logging.info(f"Processing {page_count} page names: {', '.join(page_names)}")
+                redis_websocket_pn.set(
+                    websocket_key, 
+                    json.dumps({"message": [f"Processing {page_count} page names for {ad_account_id}: {', '.join(page_names)}"]})
+                )
+
+            # Introduce a delay before calling Celery Task
+            logging.info(f"Scheduling fetch_campaign_off for user_id: {user_id}, ad_account_id: {ad_account_id}, page_names: {page_names} with on_off value: {schedule['on_off']}")
             fetch_campaign_off.apply_async(args=[user_id, ad_account_id, access_token, schedule], countdown=0)
-            logging.info(f"Scheduled task for page_name: {page_name} with delay.")
+            logging.info(f"Scheduled task for page_names: {page_names} with delay.")
 
     logging.info(f"All schedules processed, responding with success message.")
     return jsonify({"message": "Schedules will be processed after a short delay."}), 201

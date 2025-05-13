@@ -8,7 +8,7 @@ export const encryptData = (data) => {
     if (!data) return null;
     return CryptoJS.AES.encrypt(JSON.stringify(data), SECRET_KEY).toString();
   } catch (error) {
-    console.error("Encryption failed:", error);
+    //console.error("Encryption failed:", error);
     return null;
   }
 };
@@ -32,20 +32,42 @@ export const decryptData = (encrypted) => {
 export const getUserData = () => {
   // Check localStorage first, fallback to cookies if not migrated yet
   const getStoredData = (key) => {
-    return localStorage.getItem(key) || Cookies.get(key);
+    const storedValue = localStorage.getItem(key) || Cookies.get(key);
+    if (!storedValue) {
+      // console.log(`No value found for key: ${key}`);
+      return null;
+    }
+    return storedValue;
   };
+
+  // Get and decrypt the access token first
+  const accessToken = getStoredData("xsid");
+  // console.log("Raw access token:", accessToken); // Debug log
+
+  if (!accessToken) {
+    // console.error("No access token found in storage");
+    return null;
+  }
+
+  const decryptedToken = decryptData(accessToken);
+  // console.log("Decrypted token:", decryptedToken); // Debug log
+
+  if (!decryptedToken) {
+    // console.error("Failed to decrypt access token");
+    return null;
+  }
 
   return {
     id: decryptData(getStoredData("xsid_g")),
-    accessToken: decryptData(getStoredData("xsid")),
+    accessToken: decryptedToken,
     userId: decryptData(getStoredData("usr")),
     redisKey: decryptData(getStoredData("rsid")),
-    username: decryptData(getStoredData("username")), // New: Get username
-    email: decryptData(getStoredData("email")),      // New: Get email
-    status: decryptData(getStoredData("status")),    // New: Get status (active/inactive)
-    profile_image: decryptData(getStoredData("profile_image")), // New: Get profile image (Base64)
-    user_level: decryptData(getStoredData("user_level")), // Get user_level 
-    user_role: decryptData(getStoredData("user_role"))    // Get user_role
+    username: decryptData(getStoredData("username")),
+    email: decryptData(getStoredData("email")),
+    status: decryptData(getStoredData("status")),
+    profile_image: decryptData(getStoredData("profile_image")),
+    user_level: decryptData(getStoredData("user_level")),
+    user_role: decryptData(getStoredData("user_role"))
   };
 };
 

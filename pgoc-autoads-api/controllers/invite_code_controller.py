@@ -276,4 +276,137 @@ def regenerate_expired_code(superadmin_id, old_code):
 
     except Exception as e:
         print("[EXCEPTION]", str(e))
-        return jsonify({'error': 'Internal Server Error'}), 500 
+        return jsonify({'error': 'Internal Server Error'}), 500
+
+def verify_invite_code(invite_code):
+    try:
+        print(f"[DEBUG] Verifying invite code: {invite_code}")
+        
+        # Find the invite code
+        invite = InviteCode.query.filter_by(invite_code=invite_code).first()
+        if not invite:
+            print(f"[ERROR] Invite code {invite_code} not found")
+            return jsonify({
+                'valid': False,
+                'message': 'Invalid invite code'
+            }), 404
+            
+        if invite.is_used:
+            print(f"[ERROR] Invite code {invite_code} already used by user {invite.used_by}")
+            return jsonify({
+                'valid': False,
+                'message': 'Invite code has already been used',
+                'details': {
+                    'used_by': invite.used_by,
+                    'used_at': invite.used_at.isoformat() if invite.used_at else None
+                }
+            }), 400
+            
+        if datetime.now(manila_tz) > invite.expires_at:
+            print(f"[ERROR] Invite code {invite_code} expired at {invite.expires_at}")
+            return jsonify({
+                'valid': False,
+                'message': 'Invite code has expired',
+                'details': {
+                    'expired_at': invite.expires_at.isoformat()
+                }
+            }), 400
+
+        # If we get here, the code is valid
+        print(f"[DEBUG] Invite code {invite_code} is valid")
+        return jsonify({
+            'valid': True,
+            'message': 'Invite code is valid',
+            'data': {
+                'superadmin_id': invite.superadmin_id,
+                'created_at': invite.created_at.isoformat(),
+                'expires_at': invite.expires_at.isoformat()
+            }
+        }), 200
+
+    except Exception as e:
+        print(f"[EXCEPTION] Error in verify_invite_code: {str(e)}")
+        return jsonify({
+            'valid': False,
+            'message': 'Internal Server Error',
+            'details': str(e)
+        }), 500
+
+def use_invite_code_during_signup(invite_code, user_data):
+    try:
+        print(f"[DEBUG] Attempting to use invite code during signup: {invite_code}")
+        
+        # Find and validate invite code
+        invite = InviteCode.query.filter_by(invite_code=invite_code).first()
+        if not invite:
+            print(f"[ERROR] Invite code {invite_code} not found")
+            return jsonify({'error': 'Invalid invite code'}), 404
+            
+        if invite.is_used:
+            print(f"[ERROR] Invite code {invite_code} already used by user {invite.used_by}")
+            return jsonify({
+                'error': 'Invite code has already been used',
+                'details': {
+                    'used_by': invite.used_by,
+                    'used_at': invite.used_at.isoformat() if invite.used_at else None
+                }
+            }), 400
+            
+        if datetime.now(manila_tz) > invite.expires_at:
+            print(f"[ERROR] Invite code {invite_code} expired at {invite.expires_at}")
+            return jsonify({
+                'error': 'Invite code has expired',
+                'details': {
+                    'expired_at': invite.expires_at.isoformat()
+                }
+            }), 400
+
+        # Create the user
+        new_user = User(
+            username=user_data['username'],
+            full_name=user_data['full_name'],
+            email=user_data['email'],
+            password=user_data['password'],  # Make sure this is hashed in your actual implementation
+            gender=user_data['gender'],
+            user_level=user_data['user_level'],
+            user_role=user_data['user_role']
+        )
+        db.session.add(new_user)
+        db.session.flush()  # This will get us the new user's ID without committing
+
+        print(f"[DEBUG] Creating relationship between superadmin {invite.superadmin_id} and new user {new_user.id}")
+        
+        # Create relationship
+        relationship = UserRelationship(
+            superadmin_id=invite.superadmin_id,
+            client_id=new_user.id
+        )
+
+        # Mark invite as used
+        invite.is_used = True
+        invite.used_by = new_user.id
+        invite.used_at = datetime.now(manila_tz)
+
+        db.session.add(relationship)
+        db.session.commit()
+
+        print(f"[DEBUG] Successfully created user, relationship and marked invite code as used")
+        
+        return jsonify({
+            'message': 'User registered and invite code used successfully',
+            'data': {
+                'user_id': new_user.id,
+                'superadmin_id': invite.superadmin_id,
+                'user_level': new_user.user_level,
+                'user_role': new_user.user_role,
+                'relationship_created_at': relationship.created_at.isoformat()
+            }
+        }), 201
+
+    except Exception as e:
+        print(f"[EXCEPTION] Error in use_invite_code_during_signup: {str(e)}")
+        db.session.rollback()  # Rollback any failed transaction
+        return jsonify({
+            'error': 'Internal Server Error',
+            'details': str(e)
+        }), 500 

@@ -40,10 +40,10 @@ def celery_init_app(app: Flask) -> Celery:
                 "task": "workers.delete_campaign_data_auto.delete_old_campaigns",
                 "schedule": crontab(hour=0, minute=0),
             },
-            "fetch_campaigns_every_3_minutes": {
-                "task": "workers.ad_spent_worker.fetch_all_accounts_campaigns",
-                "schedule": crontab(minute="*/3"),  # Run every 3 minutes
-            },
+            # "fetch_campaigns_every_3_minutes": {
+            #     "task": "workers.ad_spent_worker.fetch_all_accounts_campaigns",
+            #     "schedule": crontab(minute="*/3"),  # Run every 3 minutes
+            # },
         },
     )
 
