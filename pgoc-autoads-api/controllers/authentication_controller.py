@@ -8,7 +8,7 @@ import pytz
 import redis
 from werkzeug.utils import secure_filename
 from PIL import Image
-from models.models import User, db
+from models.models import User, db, InviteCode, UserRelationship
 
 
 bcrypt = Bcrypt()
@@ -54,27 +54,82 @@ def register():
     user_level = data.get('user_level', 3)
     user_role = data.get('user_role', 'staff')
 
-    # Create a new user instance
-    new_user = User(
-        user_id=user_id,  # Set the unique user_id
-        username=data['username'],
-        email=data['email'],
-        password=hashed_password,
-        gender=gender,
-        userdomain=data['domain'],
-        profile_image=image_data,
-        full_name=data['full_name'],
-        user_status='active',
-        created_at=current_time_manila,
-        user_level=user_level,
-        user_role=user_role
-    )
+    # Start a transaction
+    try:
+        # Create a new user instance
+        new_user = User(
+            user_id=user_id,
+            username=data['username'],
+            email=data['email'],
+            password=hashed_password,
+            gender=gender,
+            userdomain=data['domain'],
+            profile_image=image_data,
+            full_name=data['full_name'],
+            user_status='active',
+            created_at=current_time_manila,
+            user_level=user_level,
+            user_role=user_role
+        )
 
-    # Save the user to the database
-    db.session.add(new_user)
-    db.session.commit()
+        # Save the user to the database
+        db.session.add(new_user)
+        db.session.flush()  # This will get us the new user's ID without committing
 
-    return jsonify({'message': 'User registered successfully', 'user_id': user_id}), 201
+        # If invite code is provided, validate and use it
+        invite_code = data.get('invite_code')
+        if invite_code:
+            # Find and validate invite code
+            invite = InviteCode.query.filter_by(invite_code=invite_code).first()
+            if not invite:
+                db.session.rollback()
+                return jsonify({'message': 'Invalid invite code'}), 400
+                
+            if invite.is_used:
+                db.session.rollback()
+                return jsonify({
+                    'message': 'Invite code has already been used',
+                    'details': {
+                        'used_by': invite.used_by,
+                        'used_at': invite.used_at.isoformat() if invite.used_at else None
+                    }
+                }), 400
+                
+            if datetime.now(manila_tz) > invite.expires_at:
+                db.session.rollback()
+                return jsonify({
+                    'message': 'Invite code has expired',
+                    'details': {
+                        'expired_at': invite.expires_at.isoformat()
+                    }
+                }), 400
+
+            # Create relationship
+            relationship = UserRelationship(
+                superadmin_id=invite.superadmin_id,
+                client_id=new_user.id
+            )
+
+            # Mark invite as used
+            invite.is_used = True
+            invite.used_by = new_user.id
+            invite.used_at = datetime.now(manila_tz)
+
+            db.session.add(relationship)
+
+        # Commit all changes
+        db.session.commit()
+
+        return jsonify({
+            'message': 'User registered successfully',
+            'user_id': user_id,
+            'invite_code_used': bool(invite_code)
+        }), 201
+
+    except Exception as e:
+        db.session.rollback()
+        print("[EXCEPTION]", str(e))
+        return jsonify({'message': 'Internal Server Error'}), 500
 
 
 def login():

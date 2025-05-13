@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { Visibility, VisibilityOff } from "@mui/icons-material";
-import { CircularProgress } from "@mui/material"; // Import CircularProgress from MUI
+import { CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField } from "@mui/material"; // Add Dialog components
 import notify from "../../components/toast"; // Import notify from your toast setup
 import { useNavigate } from "react-router-dom"; // Import useNavigate
+import { Box } from "@mui/system";
 
 const Signup = ({ setSignupVisible }) => {
   const apiUrl = import.meta.env.VITE_API_URL;
@@ -17,6 +18,10 @@ const Signup = ({ setSignupVisible }) => {
   const [isCodeVerified, setIsCodeVerified] = useState(false);
   const [loading, setLoading] = useState(false); // Track loading state to avoid multiple requests
   const [signupLoading, setSignupLoading] = useState(false);
+  const [showInviteCode, setShowInviteCode] = useState(false);
+  const [inviteCode, setInviteCode] = useState("");
+  const [isVerifyingInvite, setIsVerifyingInvite] = useState(false);
+  const [isInviteValid, setIsInviteValid] = useState(false);
 
   const currentDomain = window.location.hostname;
   const currentPort = window.location.port ? `:${window.location.port}` : "";
@@ -110,10 +115,11 @@ const Signup = ({ setSignupVisible }) => {
         },
         body: JSON.stringify(userData),
       });
+      
       if (response.ok) {
         notify("Registration successful! You can now log in.", "success");
         setTimeout(() => {
-          setSignupVisible(false); // 🔥 Switch to Login after success
+          setSignupVisible(false); // Switch to Login after success
         }, 1500);
       } else {
         const data = await response.json();
@@ -127,6 +133,52 @@ const Signup = ({ setSignupVisible }) => {
       console.error("Error during registration:", error);
     } finally {
       setSignupLoading(false);
+    }
+  };
+
+  const handleShowInviteCode = () => {
+    setShowInviteCode(true);
+  };
+
+  const handleVerifyInviteCode = async (e) => {
+    const code = e.target.value;
+    setInviteCode(code);
+
+    if (code.length === 8 && !isVerifyingInvite) {
+      setIsVerifyingInvite(true);
+      try {
+        const response = await fetch(`${apiUrl}/api/v1/user/invite-codes/verify`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            skip_zrok_interstitial: 'true'
+          },
+          body: JSON.stringify({
+            invite_code: code.trim()
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.valid) {
+            setIsInviteValid(true);
+            notify("Invite code is valid!", "success");
+          } else {
+            setIsInviteValid(false);
+            notify(data.message || "Invalid invite code", "error");
+          }
+        } else {
+          const errorData = await response.json();
+          setIsInviteValid(false);
+          notify(errorData.error || "Invalid invite code", "error");
+        }
+      } catch (error) {
+        setIsInviteValid(false);
+        notify("Error verifying invite code", "error");
+        console.error("Error verifying invite code:", error);
+      } finally {
+        setIsVerifyingInvite(false);
+      }
     }
   };
 
@@ -173,6 +225,11 @@ const Signup = ({ setSignupVisible }) => {
       return;
     }
 
+    if (showInviteCode && !isInviteValid) {
+      notify("Please enter a valid invite code", "error");
+      return;
+    }
+
     const userData = {
       username: email.split("@")[0],
       full_name: fullName,
@@ -181,7 +238,8 @@ const Signup = ({ setSignupVisible }) => {
       gender,
       domain: domainWithPort,
       user_level: 3,
-      user_role: "staff"
+      user_role: "staff",
+      invite_code: showInviteCode ? inviteCode : null // Include invite code if it was entered and validated
     };
 
     register(userData);
@@ -334,16 +392,81 @@ const Signup = ({ setSignupVisible }) => {
               <option value="female">Female</option>
             </select>
           </div>
+
+          {!showInviteCode ? (
+            <div className="forms_field" style={{ marginTop: "10px" }}>
+              <button
+                type="button"
+                onClick={handleShowInviteCode}
+                className="forms_buttons-action"
+                style={{
+                  backgroundColor: "#1976d2",
+                  color: "#fff",
+                  border: "none",
+                  padding: "8px 16px",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                  width: "100%",
+                  fontSize: "14px"
+                }}
+              >
+                Do you have an invite code?
+              </button>
+            </div>
+          ) : (
+            <div className="forms_field" style={{ marginTop: "10px" }}>
+              <div style={{ position: "relative" }}>
+                <input
+                  type="text"
+                  placeholder="Enter Invite Code"
+                  className="forms_field-input"
+                  value={inviteCode}
+                  onChange={handleVerifyInviteCode}
+                  style={{
+                    padding: "6px 10px",
+                    fontSize: "12px",
+                    paddingRight: "40px",
+                    borderColor: isInviteValid ? "#4CAF50" : isVerifyingInvite ? "#1976d2" : "#ccc"
+                  }}
+                />
+                {isVerifyingInvite && (
+                  <CircularProgress
+                    size={20}
+                    style={{
+                      position: "absolute",
+                      right: "10px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      color: "#1976d2"
+                    }}
+                  />
+                )}
+                {isInviteValid && !isVerifyingInvite && (
+                  <span style={{
+                    position: "absolute",
+                    right: "10px",
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    color: "#4CAF50"
+                  }}>
+                    ✓
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
         </fieldset>
         <div className="forms_buttons" style={{ marginTop: "10px" }}>
           <button
             type="submit"
             className="forms_buttons-action"
             style={{
-              backgroundColor: isCodeVerified
+              backgroundColor: isCodeVerified && (!showInviteCode || isInviteValid)
                 ? "rgba(138, 0, 0, 0.85)"
                 : "#ccc",
-              cursor: isCodeVerified ? "pointer" : "not-allowed",
+              cursor: isCodeVerified && (!showInviteCode || isInviteValid)
+                ? "pointer"
+                : "not-allowed",
               color: "#fff",
               border: "none",
               padding: "10px 20px",
@@ -355,7 +478,7 @@ const Signup = ({ setSignupVisible }) => {
               justifyContent: "center",
               gap: "10px",
             }}
-            disabled={!isCodeVerified || signupLoading}
+            disabled={!isCodeVerified || (showInviteCode && !isInviteValid) || signupLoading}
           >
             {signupLoading ? (
               <CircularProgress size={18} style={{ color: "#fff" }} />

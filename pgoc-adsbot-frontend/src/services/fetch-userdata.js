@@ -12,33 +12,42 @@ export const fetchUserDataById = async (userId) => {
   }
 
   try {
+    // Get the current token
+    const currentToken = localStorage.getItem("xsid") || Cookies.get("xsid");
+    // console.log("Current token before fetch:", currentToken); // Debug log
+
     const response = await fetch(`${apiUrl}/api/v1/auth/get-user-data?user_id=${userId}`, {
       method: "GET",
-      headers: { "Content-Type": "application/json", "skip_zrok_interstitial" : "true" },
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": currentToken ? `Bearer ${currentToken}` : "",
+        "skip_zrok_interstitial": "true" 
+      },
     });
 
     const data = await response.json();
+    //console.log("User data response:", data); // Debug log
 
     if (response.ok) {
       // Store additional user data in localStorage and cookies
       if (data.user_data) {
         // Store username, email, status, etc.
-        localStorage.setItem("username", encryptData(data.user_data.username));
-        localStorage.setItem("email", encryptData(data.user_data.email));
-        localStorage.setItem("status", encryptData(data.user_data.status));
-        localStorage.setItem("profile_image", encryptData(data.user_data.profile_image));
-        
-        // Store user_level and user_role
-        localStorage.setItem("user_level", encryptData(data.user_data.user_level));
-        localStorage.setItem("user_role", encryptData(data.user_data.user_role));
-        
-        // Also set in cookies as fallback
-        Cookies.set("username", encryptData(data.user_data.username), { expires: 1, secure: true, sameSite: "Strict" });
-        Cookies.set("email", encryptData(data.user_data.email), { expires: 1, secure: true, sameSite: "Strict" });
-        Cookies.set("status", encryptData(data.user_data.status), { expires: 1, secure: true, sameSite: "Strict" });
-        Cookies.set("profile_image", encryptData(data.user_data.profile_image), { expires: 1, secure: true, sameSite: "Strict" });
-        Cookies.set("user_level", encryptData(data.user_data.user_level), { expires: 1, secure: true, sameSite: "Strict" });
-        Cookies.set("user_role", encryptData(data.user_data.user_role), { expires: 1, secure: true, sameSite: "Strict" });
+        const encryptedData = {
+          username: encryptData(data.user_data.username),
+          email: encryptData(data.user_data.email),
+          status: encryptData(data.user_data.status),
+          profile_image: encryptData(data.user_data.profile_image),
+          user_level: encryptData(data.user_data.user_level),
+          user_role: encryptData(data.user_data.user_role)
+        };
+
+        // Store in localStorage
+        Object.entries(encryptedData).forEach(([key, value]) => {
+          if (value) {
+            localStorage.setItem(key, value);
+            Cookies.set(key, value, { expires: 1, secure: true, sameSite: "Strict" });
+          }
+        });
       }
       
       return data.user_data;
@@ -48,7 +57,7 @@ export const fetchUserDataById = async (userId) => {
     }
   } catch (error) {
     notify("Network error. Please try again later.", "error");
-    console.error("Error fetching user data:", error);
+    // console.error("Error fetching user data:", error);
     return null;
   }
 };
