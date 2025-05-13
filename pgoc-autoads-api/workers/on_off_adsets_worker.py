@@ -30,6 +30,9 @@ FACEBOOK_GRAPH_URL = f"https://graph.facebook.com/{FACEBOOK_API_VERSION}"
 # Compile regex once for performance
 NON_ALPHANUMERIC_REGEX = re.compile(r'[^a-zA-Z0-9]+')
 
+# Constants for CPP calculation
+DEFAULT_CPP_WINDOW_DAYS = 3  # Number of days to use for consistent CPP calculation
+
 
 def normalize_text(text):
     """Replace all non-alphanumeric characters with spaces and split into words."""
@@ -49,7 +52,8 @@ def contains_regular(text):
 def fetch_facebook_data(url, access_token):
     """Fetch data from Facebook API and handle errors."""
     try:
-        response = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, timeout=5)
+        # Increased timeout for more reliable connections
+        response = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, timeout=10)
         response.raise_for_status()
         data = response.json()
 
@@ -62,6 +66,16 @@ def fetch_facebook_data(url, access_token):
     except requests.exceptions.RequestException as e:
         logging.error(f"Error fetching data from Facebook API: {e}")
         return {"error": {"message": str(e), "type": "RequestException"}}
+
+
+def get_consistent_cpp_date_range():
+    """
+    Returns a consistent date range for CPP calculations.
+    Uses a rolling window ending yesterday to ensure completeness.
+    """
+    end_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")  # Yesterday
+    start_date = (datetime.now() - timedelta(days=DEFAULT_CPP_WINDOW_DAYS)).strftime("%Y-%m-%d")
+    return start_date, end_date
 
 
 def get_cpp_from_insights(ad_account_id, access_token, level, cpp_date_start, cpp_date_end, user_id=None):
@@ -147,6 +161,7 @@ def get_cpp_from_insights(ad_account_id, access_token, level, cpp_date_start, cp
 
     return cpp_data
 
+
 @shared_task
 def fetch_adsets(user_id, ad_account_id, access_token, matched_schedule):
     """Fetch campaigns for an ad account, including CPP data, and store structured data."""
@@ -169,71 +184,23 @@ def fetch_adsets(user_id, ad_account_id, access_token, matched_schedule):
     try:
         campaign_data = {}
 
-        # Extract date range from matched_schedule
-        cpp_date_start = matched_schedule.get("cpp_date_start")
-        cpp_date_end = matched_schedule.get("cpp_date_end")
+        # Get a consistent date range for CPP calculation
+        cpp_date_start, cpp_date_end = get_consistent_cpp_date_range()
         campaign_code = matched_schedule.get("campaign_code")
 
-        if not cpp_date_start or not cpp_date_end:
-            append_redis_message_adsets(
-                user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error: Missing cpp_date_start or cpp_date_end in matched_schedule for {ad_account_id}"
-            )
-            logging.error("Missing cpp_date_start or cpp_date_end in matched_schedule")
-            return f"Error: Missing date range for {ad_account_id}"
-
-        # Check if using today's date and adjust if needed
-        today = datetime.now().strftime("%Y-%m-%d")
-        if cpp_date_start == today and cpp_date_end == today:
-            # Use yesterday's date instead if using today
-            yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-            append_redis_message_adsets(
-                user_id, 
-                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Warning: Using today's date may result in incomplete data. "
-                f"Will try both today ({today}) and yesterday ({yesterday})."
-            )
-            
-            # First try with today's date
-            cpp_campaign_data_today = get_cpp_from_insights(
-                ad_account_id, access_token, "campaign", today, today, user_id
-            )
-            
-            # Then try with yesterday's date
-            cpp_campaign_data_yesterday = get_cpp_from_insights(
-                ad_account_id, access_token, "campaign", yesterday, yesterday, user_id
-            )
-            
-            # Merge the results, preferring today's data if available
-            cpp_campaign_data = cpp_campaign_data_today.copy()
-            for campaign_id, cpp in cpp_campaign_data_yesterday.items():
-                if campaign_id not in cpp_campaign_data or cpp_campaign_data[campaign_id] == float('inf'):
-                    cpp_campaign_data[campaign_id] = cpp
-            
-            # Do the same for adsets
-            cpp_adset_data_today = get_cpp_from_insights(
-                ad_account_id, access_token, "adset", today, today, user_id
-            )
-            
-            cpp_adset_data_yesterday = get_cpp_from_insights(
-                ad_account_id, access_token, "adset", yesterday, yesterday, user_id
-            )
-            
-            cpp_adset_data = cpp_adset_data_today.copy()
-            for adset_id, cpp in cpp_adset_data_yesterday.items():
-                if adset_id not in cpp_adset_data or cpp_adset_data[adset_id] == float('inf'):
-                    cpp_adset_data[adset_id] = cpp
-        else:
-            # Use the dates from the schedule
-            append_redis_message_adsets(
-                user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Fetching CPP Data for date range: {cpp_date_start} to {cpp_date_end}"
-            )
-            
-            # Fetch CPP data for campaigns & adsets
-            cpp_campaign_data = get_cpp_from_insights(
-                ad_account_id, access_token, "campaign", cpp_date_start, cpp_date_end, user_id
-            )
-            cpp_adset_data = get_cpp_from_insights(
-                ad_account_id, access_token, "adset", cpp_date_start, cpp_date_end, user_id
-            )
+        # Log the date range being used
+        append_redis_message_adsets(
+            user_id, 
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Using consistent CPP date range: {cpp_date_start} to {cpp_date_end}"
+        )
+        
+        # Fetch CPP data for campaigns & adsets
+        cpp_campaign_data = get_cpp_from_insights(
+            ad_account_id, access_token, "campaign", cpp_date_start, cpp_date_end, user_id
+        )
+        cpp_adset_data = get_cpp_from_insights(
+            ad_account_id, access_token, "adset", cpp_date_start, cpp_date_end, user_id
+        )
 
         # Fetch Campaign & Adset data
         campaign_url = f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/campaigns?fields=id,name,status,adsets{{id,name,status}}"
