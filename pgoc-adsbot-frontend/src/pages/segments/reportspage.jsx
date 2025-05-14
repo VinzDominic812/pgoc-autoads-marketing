@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Box from "@mui/material/Box";
 import notify from "../components/toast.jsx";
-import { TextField, Button, Typography } from "@mui/material";
+import { TextField, Button, Typography, CircularProgress, FormControl, InputLabel, Select, MenuItem } from "@mui/material";
 import DynamicTable from "../components/dynamic_table";
 import WidgetCard from "../components/widget_card.jsx";
 import ReportTerminal from "../widgets/reports/reports_terminal.jsx";
 import SummaryTable from "../widgets/reports/summary_table.jsx";
 import CustomButton from "../components/buttons.jsx";
 import CloudExportIcon from "@mui/icons-material/BackupRounded";
+import RefreshIcon from "@mui/icons-material/Refresh";
 import {
   getUserData,
   encryptData,
@@ -31,11 +32,14 @@ const ReportsPage = () => {
   const [accessToken, setAccessToken] = useState("");
   const [userName, setUserName] = useState("");
   const [fetching, setFetching] = useState(false);
-  const [timer, setTimer] = useState(180); // Countdown timer for auto-refresh (180 seconds = 3 minutes)
+  const [timer, setTimer] = useState(180);
   const [autoFetchInterval, setAutoFetchInterval] = useState(null);
-  const [currentPage, setCurrentPage] = useState(0); // Track the current page of the table
+  const [currentPage, setCurrentPage] = useState(0);
   const [messages, setMessages] = useState([]);
   const eventSourceRef = useRef(null);
+  const [selectedAdAccount, setSelectedAdAccount] = useState("all");
+  const [adAccounts, setAdAccounts] = useState([]);
+  const [pageLimit, setPageLimit] = useState(25);
 
   const summaryData = React.useMemo(() => {
     const active = adspentData.filter((row) => row.status === "ACTIVE");
@@ -48,17 +52,21 @@ const ReportsPage = () => {
     };
 
     const activeTotals = calcTotals(active);
-    const overallTotals = calcTotals(adspentData);
 
     return [
-      { label: "Active - Total Budget", value: `₱${activeTotals.totalBudget.toFixed(2)}` },
-      { label: "Active - Budget Remaining", value: `₱${activeTotals.budgetRemaining.toFixed(2)}` },
-      { label: "Active - Spent", value: `₱${activeTotals.spent.toFixed(2)}` },
-      { label: "Overall - Total Budget", value: `₱${overallTotals.totalBudget.toFixed(2)}` },
-      { label: "Overall - Budget Remaining", value: `₱${overallTotals.budgetRemaining.toFixed(2)}` },
-      { label: "Overall - Spent", value: `₱${overallTotals.spent.toFixed(2)}` },
+      { label: "Total Budget", value: `₱${activeTotals.totalBudget.toFixed(2)}` },
+      { label: "Budget Remaining", value: `₱${activeTotals.budgetRemaining.toFixed(2)}` },
+      { label: "Spent", value: `₱${activeTotals.spent.toFixed(2)}` },
     ];
   }, [adspentData]);
+
+  // Filtered data based on selected ad account
+  const filteredData = React.useMemo(() => {
+    if (selectedAdAccount === "all") {
+      return adspentData.filter(row => row.status === "ACTIVE");
+    }
+    return adspentData.filter(row => row.status === "ACTIVE" && row.ad_account_id === selectedAdAccount);
+  }, [adspentData, selectedAdAccount]);
 
   // Fetch data function
   const fetchAdSpendData = useCallback(async () => {
@@ -66,6 +74,10 @@ const ReportsPage = () => {
 
     try {
       setFetching(true);
+      setMessages(prevMessages => [
+        ...prevMessages,
+        `[${new Date().toISOString().replace('T', ' ').split('.')[0]}] Starting data fetch...`
+      ]);
 
       const { id: user_id } = getUserData();
       console.log("User ID inside fetchAdSpendData:", user_id);
@@ -78,7 +90,8 @@ const ReportsPage = () => {
         },
         body: JSON.stringify({ 
           user_id,
-          access_token: accessToken 
+          access_token: accessToken,
+          page_limit: pageLimit  // Add the page_limit parameter
         }),
       });
 
@@ -87,32 +100,62 @@ const ReportsPage = () => {
         if (data && data.campaign_spending_data?.accounts) {
           const formattedData = [];
           let newUserName = "";
+          const uniqueAccounts = new Set();
 
           Object.keys(data.campaign_spending_data.accounts).forEach(
             (accountId) => {
               const account = data.campaign_spending_data.accounts[accountId];
               newUserName = data.campaign_spending_data.facebook_name;
+              
+              // Add this account to the unique accounts set
+              uniqueAccounts.add(accountId);
+              
+              if (account.campaigns && Array.isArray(account.campaigns)) {
+                account.campaigns.forEach((campaign) => {
+                  const daily_budget = campaign.daily_budget || 0;
+                  const budget_remaining = campaign.budget_remaining || 0;
+                  const spent = (daily_budget - budget_remaining).toFixed(2);
 
-              account.campaigns.forEach((campaign) => {
-                const daily_budget = campaign.daily_budget || 0;
-                const budget_remaining = campaign.budget_remaining || 0;
-                const spent = (daily_budget - budget_remaining).toFixed(2);
-
+                  formattedData.push({
+                    ad_account_id: accountId,
+                    ad_account_name: account.name || "Unknown",
+                    campaign_name: campaign.name || "Unnamed Campaign",
+                    status: campaign.status,
+                    daily_budget: daily_budget,
+                    budget_remaining: budget_remaining,
+                    spent: spent,
+                  });
+                });
+              } else {
+                // If no campaigns are present, still show the account
                 formattedData.push({
                   ad_account_id: accountId,
                   ad_account_name: account.name || "Unknown",
-                  campaign_name: campaign.name || "Unnamed Campaign",
-                  status: campaign.status,
-                  daily_budget: daily_budget,
-                  budget_remaining: budget_remaining,
-                  spent: spent,
+                  campaign_name: "No campaigns found",
+                  status: "N/A",
+                  daily_budget: 0,
+                  budget_remaining: 0,
+                  spent: 0,
                 });
-              });
+              }
             }
           );
 
+          // Update the list of ad accounts for the filter dropdown
+          const accountOptions = Array.from(uniqueAccounts).map(id => {
+            const accountName = data.campaign_spending_data.accounts[id].name || "Unknown";
+            return { id, name: `${accountName} (${id})` };
+          });
+          
+          setAdAccounts(accountOptions);
           setAdspentData(formattedData);
           setUserName(newUserName);
+          
+          // Log the number of accounts and campaigns
+          setMessages(prevMessages => [
+            ...prevMessages,
+            `[${new Date().toISOString().replace('T', ' ').split('.')[0]}] Fetched ${accountOptions.length} ad accounts with a total of ${formattedData.length} campaigns.`
+          ]);
         }
       } else {
         const errorData = await response.json();
@@ -124,7 +167,7 @@ const ReportsPage = () => {
     } finally {
       setFetching(false);
     }
-  }, [accessToken, apiUrl]);
+  }, [accessToken, apiUrl, pageLimit]);
 
   useEffect(() => {
     if (accessToken && accessToken.length >= 100 && !fetching) {
@@ -306,10 +349,35 @@ const ReportsPage = () => {
               helperText="Enter your Meta Ads Manager Access Token"
               disabled={accessToken && accessToken.length >= 100}
             />
+            
+            {/* Page Limit for ad account fetching */}
+            <FormControl fullWidth size="small">
+              <InputLabel id="page-limit-label">Accounts Per Page</InputLabel>
+              <Select
+                labelId="page-limit-label"
+                value={pageLimit}
+                label="Accounts Per Page"
+                onChange={(e) => setPageLimit(e.target.value)}
+                disabled={fetching}
+              >
+                <MenuItem value={10}>10</MenuItem>
+                <MenuItem value={25}>25</MenuItem>
+                <MenuItem value={50}>50</MenuItem>
+                <MenuItem value={100}>100</MenuItem>
+              </Select>
+            </FormControl>
 
             {/* Row with Fetch and Export Buttons */}
             <Box sx={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              {/* Custom Fetch or Stop Fetching Button */}
+              {/* Manual Refresh Button */}
+              <CustomButton
+                name={fetching ? "Fetching..." : "Refresh Data"}
+                onClick={fetchAdSpendData}
+                type="primary"
+                icon={fetching ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
+                disabled={!accessToken || accessToken.length < 100 || fetching}
+              />
+              {/* Custom Stop Fetching Button */}
               <CustomButton
                 name="Stop Fetching"
                 onClick={handleStopFetching}
@@ -326,9 +394,6 @@ const ReportsPage = () => {
                 sx={{ flex: 1 }} // Ensure it takes up available space if needed
               />
             </Box>
-            <Typography variant="caption" sx={{ mt: 1 }}>
-              Auto-refresh in: {timer} seconds
-            </Typography>
           </Box>
         </Box>
 
@@ -360,27 +425,89 @@ const ReportsPage = () => {
 
       {/* Second Row (Dynamic Table) */}
       <Box sx={{ flex: 1 }}>
-        {userName && (
-          <Typography variant="h6" mt={2}>
-            WELCOME {userName}!!
-          </Typography>
-        )}
+        {/* User Welcome and Ad Account Filter in one row */}
+        <Box sx={{ 
+          mt: 2, 
+          mb: 2, 
+          display: "flex", 
+          flexDirection: "row",
+          justifyContent: "space-between", 
+          alignItems: "center",
+          position: "relative"  // Add position relative
+        }}>
+          {/* Welcome message on the left */}
+          {userName && (
+            <Typography 
+              variant="h6" 
+              sx={{ 
+                flexShrink: 0,
+                mr: 2,
+                overflow: "hidden",
+                textOverflow: "ellipsis"
+              }}
+            >
+              WELCOME {userName}!
+            </Typography>
+          )}
+
+          {/* Timer position underneath welcome message */}
+          {accessToken && accessToken.length >= 100 && (
+            <Typography 
+              variant="caption" 
+              sx={{ 
+                position: "absolute",
+                top: "calc(100% - 5px)",
+                left: 0,
+                color: "text.secondary"
+              }}
+            >
+              Auto-refresh in: {timer} seconds
+            </Typography>
+          )}
+
+          {/* Ad Account Filter on the right */}
+          {adAccounts.length > 0 && (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+              <Typography>Filter by Ad Account:</Typography>
+              <FormControl sx={{ minWidth: 250 }}>
+                <Select
+                  value={selectedAdAccount}
+                  onChange={(e) => setSelectedAdAccount(e.target.value)}
+                  displayEmpty
+                  size="small"
+                >
+                  <MenuItem value="all">All Ad Accounts</MenuItem>
+                  {adAccounts.map((account) => (
+                    <MenuItem key={account.id} value={account.id}>
+                      {account.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
+          )}
+        </Box>
 
         {adspentData.length > 0 ? (
-          <WidgetCard title="Main Section" height="95.5%">
+          <WidgetCard 
+            title={`Active Campaigns ${selectedAdAccount !== "all" 
+              ? `- ${adAccounts.find(a => a.id === selectedAdAccount)?.name || selectedAdAccount}` 
+              : '(All Accounts)'}`} 
+            height="95.5%"
+          >
             <DynamicTable
               headers={headers}
-              data={adspentData}
+              data={filteredData}
               rowsPerPage={100}
               compact={true}
               nonEditableHeaders={"Actions"}
               page={currentPage}
-              onPageChange={(event, newPage) => setCurrentPage(newPage)} // Update current page
+              onPageChange={(event, newPage) => setCurrentPage(newPage)}
             />
           </WidgetCard>
         ) : (
           <Typography variant="body2" mt={2}>
-            No data available
+            {fetching ? "Fetching data..." : "No data available"}
           </Typography>
         )}
       </Box>
