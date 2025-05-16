@@ -6,6 +6,7 @@ from models.models import db, CampaignsScheduled
 from datetime import datetime
 from sqlalchemy.orm.attributes import flag_modified
 from pytz import timezone
+import re
 
 from workers.on_off_functions.account_message import append_redis_message
 from workers.on_off_functions.on_off_adsets import append_redis_message_adsets
@@ -113,6 +114,18 @@ def extract_campaign_code_from_db(campaign_entry):
     Fetch the campaign_code directly from the database.
     """
     return campaign_entry.campaign_code
+
+def normalize_campaign_code(code):
+    """Normalize campaign code by removing special characters and extra spaces."""
+    # Remove special characters and convert to lowercase
+    normalized = re.sub(r'[^a-zA-Z0-9]', '', code.lower())
+    return normalized
+
+def is_campaign_code_match(campaign_name, campaign_code):
+    """Check if campaign code exists in campaign name after normalization."""
+    normalized_name = normalize_campaign_code(campaign_name)
+    normalized_code = normalize_campaign_code(campaign_code)
+    return normalized_code in normalized_name
 
 @shared_task
 def process_scheduled_campaigns(user_id, ad_account_id, access_token, schedule_data):
@@ -222,8 +235,8 @@ def process_adsets(user_id, ad_account_id, access_token, schedule_data, campaign
         for campaign_id, campaign_info in campaigns_data.items():
             campaign_name = campaign_info.get("campaign_name", "")
 
-            # ✅ Match by campaign code as a substring instead of strict suffix
-            if campaign_code.lower() not in campaign_name.lower():
+            # Use the new normalized matching function
+            if not is_campaign_code_match(campaign_name, campaign_code):
                 logging.info(f"Skipping campaign {campaign_name} - doesn't contain {campaign_code}")
                 continue  # Skip this campaign if it does not contain the campaign code
 
@@ -245,54 +258,85 @@ def process_adsets(user_id, ad_account_id, access_token, schedule_data, campaign
                 adset_name = adset_info.get("NAME", "Unknown")
                 adsets_processed += 1
 
-                # ✅ Log before evaluation
+                # Log initial state before any decisions
                 logging.info(
-                    f"Evaluating AdSet: {adset_name} ({adset_id}) | CPP: {adset_cpp} | "
-                    f"Current: {adset_status} | Target: {new_status} | CPP Metric: {cpp_metric}"
+                    f"Initial State - AdSet: {adset_name} | "
+                    f"ID: {adset_id} | "
+                    f"CPP: {adset_cpp:.2f} | "
+                    f"Current Status: {adset_status} | "
+                    f"Mode: {on_off} | "
+                    f"CPP Threshold: ${cpp_metric}"
                 )
 
-                # Check for infinite CPP values and handle them properly
-                if adset_cpp == float('inf'):
-                    adset_cpp_str = "No checkouts (infinite)"
-                    # For 'ON' mode, we shouldn't turn on ad sets with no checkouts
-                    if on_off == "ON":
-                        should_update = False
-                        reason = "No checkouts recorded"
-                    else:  # For 'OFF' mode, treat as exceeding CPP threshold
+                # Handle different CPP scenarios with clear decision tree
+                if adset_cpp == float('inf') or adset_cpp == 0 or adset_cpp is None:
+                    # For missing/zero CPP data:
+                    # If current status is ON, turn it OFF
+                    # If current status is OFF, keep it OFF
+                    adset_cpp_str = "No CPP data"
+                    if adset_status == "ACTIVE":
                         should_update = True
-                        reason = "No checkouts - treat as high CPP"
-                # ✅ If CPP is zero or None, maintain current status (no change)
-                elif adset_cpp == 0 or adset_cpp is None:
-                    should_update = False
-                    reason = "CPP is zero or None - insufficient data"
-                    adset_cpp_str = "0 or None"
-                # ✅ Determine if status update is needed based on CPP comparison
+                        new_status = "PAUSED"
+                        reason = "No CPP data - turning OFF for safety"
+                    else:
+                        should_update = False
+                        reason = "No CPP data - keeping OFF"
                 else:
                     adset_cpp_str = f"${adset_cpp:.2f}"
                     if on_off == "ON":
-                        # For ON command: Turn on adsets with CPP < cpp_metric
-                        should_update = adset_cpp < cpp_metric
-                        reason = f"CPP {adset_cpp_str} is " + ("below" if should_update else "above") + f" threshold (${cpp_metric})"
-                    else:  # on_off == "OFF"
-                        # For OFF command: Turn off adsets with CPP >= cpp_metric
-                        should_update = adset_cpp >= cpp_metric
-                        reason = f"CPP {adset_cpp_str} is " + ("above/equal to" if should_update else "below") + f" threshold (${cpp_metric})"
+                        # For ON mode:
+                        # - If CPP < 16: Turn ON (good performance)
+                        # - If CPP >= 16: Turn OFF (poor performance)
+                        if adset_cpp < cpp_metric:
+                            should_update = adset_status != "ACTIVE"
+                            new_status = "ACTIVE"
+                            reason = f"CPP {adset_cpp_str} is below threshold (${cpp_metric}) - turning ON"
+                        else:
+                            should_update = adset_status != "PAUSED"
+                            new_status = "PAUSED"
+                            reason = f"CPP {adset_cpp_str} is above/equal to threshold (${cpp_metric}) - turning OFF"
+                    else:  # OFF mode
+                        # For OFF mode:
+                        # - If CPP >= 16: Turn OFF (poor performance)
+                        # - If CPP < 16: Turn ON (good performance)
+                        if adset_cpp >= cpp_metric:
+                            should_update = adset_status != "PAUSED"
+                            new_status = "PAUSED"
+                            reason = f"CPP {adset_cpp_str} is above/equal to threshold (${cpp_metric}) - turning OFF"
+                        else:
+                            should_update = adset_status != "ACTIVE"
+                            new_status = "ACTIVE"
+                            reason = f"CPP {adset_cpp_str} is below threshold (${cpp_metric}) - turning ON"
 
-                # Log the evaluation
+                # Log the evaluation with clear decision making
                 append_redis_message_adsets(
                     user_id,
-                    f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Evaluating AdSet {adset_name} | CPP: {adset_cpp_str} | Current: {adset_status} | Reason: {reason}"
+                    f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] AdSet {adset_name} | "
+                    f"CPP: {adset_cpp_str} | Current: {adset_status} | "
+                    f"Target: {new_status} | Decision: {'Update' if should_update else 'No Update'} | "
+                    f"Reason: {reason}"
                 )
 
-                # Only update if current status is different from target status
+                # Log detailed decision process
+                logging.info(
+                    f"Decision Process - AdSet: {adset_name} | "
+                    f"Should Update: {should_update} | "
+                    f"Current Status: {adset_status} | "
+                    f"Target Status: {new_status} | "
+                    f"Status Match: {adset_status != new_status} | "
+                    f"Final Decision: {'Will Update' if (should_update and adset_status != new_status) else 'Will Not Update'}"
+                )
+
+                # Only update if current status is different from target status and should_update is True
                 if should_update and adset_status != new_status:
-                    logging.info(f"📢 Updating AdSet {adset_name} from {adset_status} to {new_status}")
+                    logging.info(f"📢 Updating AdSet {adset_name} from {adset_status} to {new_status} based on CPP {adset_cpp_str}")
                     append_redis_message_adsets(
                         user_id,
-                        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Setting AdSet {adset_name} to {new_status} (Current CPP: {adset_cpp_str})"
+                        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Setting AdSet {adset_name} to {new_status} "
+                        f"(Current CPP: {adset_cpp_str}, Threshold: ${cpp_metric})"
                     )
                     
-                    # Use the new retry function
+                    # Use the new retry function with detailed logging
                     success = update_facebook_status_with_retry(
                         user_id, ad_account_id, adset_id, adset_name, new_status, access_token
                     )
@@ -308,17 +352,32 @@ def process_adsets(user_id, ad_account_id, access_token, schedule_data, campaign
                         logging.info(f"✅ Updated {adset_name} to {new_status}")
                     else:
                         failed_updates.append(adset_name)
+                        logging.error(
+                            f"Failed to update AdSet {adset_name} | "
+                            f"ID: {adset_id} | "
+                            f"Current Status: {adset_status} | "
+                            f"Target Status: {new_status} | "
+                            f"CPP: {adset_cpp_str}"
+                        )
                 else:
                     if not should_update:
                         skip_reason = "CPP criteria not met"
                     else:
                         skip_reason = f"already in target state ({adset_status})"
                     
+                    logging.info(
+                        f"Skipped Update - AdSet: {adset_name} | "
+                        f"ID: {adset_id} | "
+                        f"Reason: {skip_reason} | "
+                        f"Current Status: {adset_status} | "
+                        f"Target Status: {new_status} | "
+                        f"CPP: {adset_cpp_str}"
+                    )
+                    
                     append_redis_message_adsets(
                         user_id,
                         f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] AdSet {adset_name} remains {adset_status} - {skip_reason}"
                     )
-                    logging.info(f"⏭ Skipped update for {adset_name}; {skip_reason}")
 
             # Report any failed updates for this campaign
             if failed_updates:

@@ -41,13 +41,18 @@ def fetch_facebook_data(url, access_token):
         return {"error": {"message": str(e), "type": "RequestException"}}
 
 def normalize_text(text):
-    """Replace all non-alphanumeric characters with spaces and normalize capitalization."""
-    return " ".join(re.sub(r"[^a-zA-Z0-9]+", "", text).lower().split())
+    """Normalize text by removing special characters, leading/trailing hyphens and spaces."""
+    # First strip leading/trailing spaces and hyphens
+    text = text.strip(' -')
+    # Then remove all special characters and convert to lowercase
+    normalized = re.sub(r'[^a-zA-Z0-9]', '', text.lower())
+    return normalized
 
-def is_page_name_in_campaign(campaign_name, page_names):
-    """Check if any page name exists in the campaign name (case-insensitive)."""
-    normalized_campaign_name = normalize_text(campaign_name)
-    return any(normalize_text(page_name) in normalized_campaign_name for page_name in page_names)
+def is_page_name_in_campaign(campaign_name, page_name):
+    """Check if page name exists in campaign name after normalization."""
+    normalized_campaign = normalize_text(campaign_name)
+    normalized_page = normalize_text(page_name)
+    return normalized_page in normalized_campaign
 
 def update_facebook_status(user_id, ad_account_id, entity_id, new_status, access_token):
     """Update the status of a Facebook campaign or ad set using the Graph API."""
@@ -93,7 +98,6 @@ def fetch_campaign_off(user_id, ad_account_id, access_token, matched_schedule):
             logging.info(f"SCHEDULE DATA: {matched_schedule} for page {page_name}")
 
             # Now the task is specific to this page_name
-            scheduled_page_names = {normalize_text(page_name)}
             on_off_value = matched_schedule.get("on_off", "").upper()
             target_status = "ACTIVE" if on_off_value == "ON" else "PAUSED"
 
@@ -102,12 +106,18 @@ def fetch_campaign_off(user_id, ad_account_id, access_token, matched_schedule):
                 f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Fetching Campaign Data for page: {page_name} in account {ad_account_id} ({operation})"
             )
 
-            url = f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/campaigns?fields=id,name,status&limit=500"
+            # Fetch all campaigns without filtering at API level
+            campaign_url = (
+                f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/campaigns"
+                f"?fields=id,name,status"
+                f"&limit=100"  # Reduced batch size for better performance
+            )
+            
             campaigns_to_update = []
             matched_page_names = set()
 
-            while url:
-                response_data = fetch_facebook_data(url, access_token)
+            while campaign_url:
+                response_data = fetch_facebook_data(campaign_url, access_token)
 
                 if "error" in response_data:
                     raise Exception(response_data["error"].get("message", "Unknown API error"))
@@ -117,12 +127,10 @@ def fetch_campaign_off(user_id, ad_account_id, access_token, matched_schedule):
                     campaign_name = campaign["name"]
                     campaign_status = campaign["status"]
 
-                    if is_page_name_in_campaign(campaign_name, scheduled_page_names):
+                    # Use the new matching function to check if page name exists in campaign name
+                    if is_page_name_in_campaign(campaign_name, page_name):
                         # Track matched page name
-                        for page_name_to_check in scheduled_page_names:
-                            if normalize_text(page_name_to_check) in normalize_text(campaign_name):
-                                matched_page_names.add(normalize_text(page_name_to_check))
-                                break
+                        matched_page_names.add(normalize_text(page_name))
 
                         if campaign_status != target_status:
                             campaigns_to_update.append((campaign_id, campaign_name))
@@ -132,11 +140,15 @@ def fetch_campaign_off(user_id, ad_account_id, access_token, matched_schedule):
                                 f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠ Campaign {campaign_name} ({campaign_id}) for page: {page_name} IS ALREADY {target_status}."
                             )
 
-                url = response_data.get("paging", {}).get("next")
+                # Get next page URL if it exists
+                campaign_url = response_data.get("paging", {}).get("next")
+                
+                # Add a small delay between requests to avoid rate limits
+                if campaign_url:
+                    time.sleep(0.5)  # 500ms delay between requests
 
             # Log unmatched page names
-            unmatched_pages = scheduled_page_names - matched_page_names
-            for unmatched_page in unmatched_pages:
+            if not matched_page_names:
                 append_redis_message_pages(
                     user_id,
                     f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ No campaign found for page: {page_name}"
