@@ -20,24 +20,6 @@ def ad_spent(data):
     access_token = data.get("access_token")
     user_id = data.get("user_id")
     
-    # Get pagination parameters with defaults
-    page_limit = data.get("page_limit", 50)
-    max_account_pages = data.get("max_account_pages", None)
-    
-    # Validate pagination parameters
-    try:
-        if page_limit is not None:
-            page_limit = int(page_limit)
-            if page_limit <= 0:
-                page_limit = 50
-        
-        if max_account_pages is not None:
-            max_account_pages = int(max_account_pages)
-            if max_account_pages <= 0:
-                max_account_pages = None
-    except (ValueError, TypeError):
-        return jsonify({"error": "Invalid pagination parameters"}), 400
-
     if not access_token:
         return jsonify({"error": "Missing access_token"}), 400
 
@@ -46,16 +28,14 @@ def ad_spent(data):
     if not redis_websocket_asr.exists(websocket_key):
         redis_websocket_asr.set(websocket_key, json.dumps({"message": ["User-Id Created"]}))
 
-    # Call the Celery task asynchronously with pagination parameters
+    # Call the Celery task asynchronously
     task = fetch_all_accounts_campaigns.delay(
         user_id=user_id, 
-        access_token=access_token,
-        page_limit=page_limit,
-        max_account_pages=max_account_pages
+        access_token=access_token
     )
 
     try:
-        campaign_spending_info = task.get(timeout=60)  # Wait for task to complete
+        campaign_spending_info = task.get(timeout=300)  # Increased timeout to 5 minutes
     except Exception as e:
         return jsonify({"error": f"Task failed: {str(e)}"}), 500
 
