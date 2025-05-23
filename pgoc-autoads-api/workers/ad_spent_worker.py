@@ -5,9 +5,14 @@ import time
 import pytz
 import redis
 import requests
+from collections import defaultdict
 from celery import shared_task
-from datetime import datetime, timedelta
+from datetime import datetime
 from workers.on_off_functions.ad_spent_message import append_redis_message_adspent
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Redis client
 redis_client_asr = redis.Redis(
@@ -23,22 +28,29 @@ FACEBOOK_GRAPH_URL = f"https://graph.facebook.com/{FACEBOOK_API_VERSION}"
 NON_ALPHANUMERIC_REGEX = re.compile(r'[^a-zA-Z0-9]+')
 manila_tz = pytz.timezone("Asia/Manila")
 
+def normalize_name(name):
+    return NON_ALPHANUMERIC_REGEX.sub(' ', name).lower().strip()
+
 def normalize_text(text):
     return NON_ALPHANUMERIC_REGEX.sub(' ', text).lower().split()
 
-def fetch_facebook_data(url, access_token):
+def fetch_facebook_data(url, access_token, params=None):
     try:
-        response = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, timeout=5)
+        headers = {"Authorization": f"Bearer {access_token}"}
+        response = requests.get(url, headers=headers, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
-        logging.debug(f"Facebook API Response: {data}")
+        logging.debug(f"Facebook API Response for {url}: {data}")
         if "error" in data:
-            logging.error(f"Facebook API Error: {data['error']}")
+            logging.error(f"Facebook API Error for {url}: {data['error']}")
             return {"error": data["error"]}
         return data
     except requests.exceptions.RequestException as e:
-        logging.error(f"RequestException: {e}")
+        logging.error(f"RequestException for {url}: {e}")
         return {"error": {"message": str(e), "type": "RequestException"}}
+    except json.JSONDecodeError as e:
+        logging.error(f"JSONDecodeError for {url}: {e}")
+        return {"error": {"message": "Invalid JSON response", "type": "JSONDecodeError"}}
 
 def get_facebook_user_info(access_token):
     url = f"{FACEBOOK_GRAPH_URL}/me?fields=id,name"
@@ -47,237 +59,237 @@ def get_facebook_user_info(access_token):
         return {"id": data["id"], "name": data["name"]}
     return None
 
-def get_ad_accounts(fb_user_id, access_token, limit=100, max_pages=None):
-    """
-    Fetch ad accounts with pagination support.
-    
-    Args:
-        fb_user_id: Facebook user ID
-        access_token: Access token for authentication
-        limit: Number of ad accounts to retrieve per page (default: 100)
-        max_pages: Maximum number of pages to retrieve (None for all pages)
-    
-    Returns:
-        List of ad account dictionaries with id and name
-    """
-    all_ad_accounts = []
-    page_count = 0
-    next_url = f"{FACEBOOK_GRAPH_URL}/{fb_user_id}/adaccounts?fields=id,name&limit={limit}"
-    
-    while next_url and (max_pages is None or page_count < max_pages):
-        data = fetch_facebook_data(next_url, access_token)
-        
-        if "error" in data:
-            logging.error(f"Error fetching ad accounts: {data['error']}")
-            return all_ad_accounts
-        
+def process_paginated_results(url, access_token, process_func):
+    results = []
+    while url:
+        data = fetch_facebook_data(url, access_token)
         if "data" in data:
-            accounts = [
-                {
-                    "id": acc["id"].replace("act_", ""),
-                    "name": acc.get("name", "Unknown")
-                }
-                for acc in data.get("data", [])
-            ]
-            all_ad_accounts.extend(accounts)
-            logging.info(f"Retrieved {len(accounts)} ad accounts (page {page_count + 1})")
-            
-            # Log progress to Redis for the user
-            append_redis_message_adspent(fb_user_id, f"Retrieved {len(all_ad_accounts)} ad accounts so far...")
-        
-        # Check for pagination
-        if "paging" in data and "next" in data["paging"]:
-            next_url = data["paging"]["next"]
-            page_count += 1
-        else:
-            next_url = None
-    
-    logging.info(f"Total ad accounts retrieved: {len(all_ad_accounts)}")
-    return all_ad_accounts
+            results.extend(process_func(data["data"]))
+        url = data.get("paging", {}).get("next")
+    return results
 
-def fetch_campaign_data_for_account(ad_account_id, access_token):
+def get_ad_accounts(access_token):
+    logger.info("Fetching ad accounts...")
+    url = f"{FACEBOOK_GRAPH_URL}/me/adaccounts?fields=id,name&limit=1000"
+    accounts = process_paginated_results(url, access_token, lambda data: [acc["id"].replace("act_", "") for acc in data])
+    logger.info(f"Found {len(accounts)} ad accounts")
+    return accounts
+
+def get_campaigns(access_token, ad_account_id):
+    logger.info(f"Fetching campaigns for ad account {ad_account_id}...")
     url = (
         f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/campaigns"
-        f"?fields=name,status,daily_budget,budget_remaining"
+        f"?fields=id,name,status,daily_budget,budget_remaining&limit=1000"
     )
-    return fetch_facebook_data(url, access_token)
+    campaigns = process_paginated_results(url, access_token, lambda data: data)
+    logger.info(f"Found {len(campaigns)} campaigns")
+    return campaigns
 
-def fetch_campaign_insights(ad_account_id, access_token, since_date=None, until_date=None):
-    """Fetch today's campaign spend using Manila timezone."""
-    if not since_date or not until_date:
-        now_manila = datetime.now(manila_tz)
-        today_str = now_manila.strftime('%Y-%m-%d')
-        since_date = since_date or today_str
-        until_date = until_date or today_str
-
-    url = (
-        f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/insights"
-        f"?level=campaign&fields=campaign_id,campaign_name,spend"
-        f"&time_range[since]={since_date}&time_range[until]={until_date}"
-    )
-
-    insights_data = fetch_facebook_data(url, access_token)
-    campaign_insights = {}
-
-    if "error" in insights_data:
-        logging.error(f"Error fetching insights: {insights_data['error']}")
-        return {}
-
-    for item in insights_data.get("data", []):
-        campaign_id = item.get("campaign_id")
-        if campaign_id:
-            campaign_insights[campaign_id] = {
-                "name": item.get("campaign_name", "Unknown"),
-                "spend": float(item.get("spend", 0))
-            }
-
-    return campaign_insights
-
-@shared_task
-def fetch_all_accounts_campaigns(user_id, access_token, page_limit=50, max_account_pages=None):
-    """
-    Fetch all ad accounts and their campaign spending information
-    
-    Args:
-        user_id: User ID for Redis messaging
-        access_token: Facebook access token
-        page_limit: Number of ad accounts to retrieve per page
-        max_account_pages: Maximum number of pages to retrieve (None for all)
-    """
-    user_info = get_facebook_user_info(access_token)
-    if not user_info:
-        return {"error": "Failed to fetch Facebook user ID"}
-
-    fb_user_id = user_info["id"]
-    fb_user_name = user_info["name"]
-
-    # Use the paginated version of get_ad_accounts
-    append_redis_message_adspent(user_id, f"Fetching ad accounts for {fb_user_name}...")
-    ad_account_ids = get_ad_accounts(fb_user_id, access_token, limit=page_limit, max_pages=max_account_pages)
-    
-    if not ad_account_ids:
-        return {"error": "No ad accounts found for this user"}
-
-    result = {
-        "facebook_id": fb_user_id,
-        "facebook_name": fb_user_name,
-        "accounts": {},
-        "totals": {
-            "total_daily_budget": 0,
-            "total_budget_remaining": 0,
-            "total_estimated_spent": 0,
-            "total_insights_spent": 0
-        },
-        "account_count": len(ad_account_ids)
+def get_campaign_spend_by_account(access_token, ad_account_id):
+    logger.info(f"Fetching campaign spend for ad account {ad_account_id}...")
+    url = f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/insights"
+    params = {
+        "fields": "campaign_id,campaign_name,spend",
+        "level": "campaign",
+        "date_preset": "today",
+        "limit": 1000
     }
 
-    now_manila = datetime.now(manila_tz)
-    today_str = now_manila.strftime('%Y-%m-%d')
-    
-    # Process accounts in batches for better performance
-    from concurrent.futures import ThreadPoolExecutor
-    import math
-    
-    # Configure batch size - adjust based on your server capacity
-    batch_size = 5  # Process 5 accounts at a time
-    total_accounts = len(ad_account_ids)
-    total_batches = math.ceil(total_accounts / batch_size)
-    
-    append_redis_message_adspent(user_id, f"Processing {total_accounts} ad accounts in {total_batches} batches...")
-    
-    def process_account(acc_data):
-        """Process a single ad account and return its campaign data"""
-        ad_account_id = acc_data["id"]
-        ad_account_name = acc_data["name"]
-        
-        try:
-            campaign_data = fetch_campaign_data_for_account(ad_account_id, access_token)
-            campaign_insights = fetch_campaign_insights(
-                ad_account_id, access_token, since_date=today_str, until_date=today_str
-            )
-            
-            if "error" in campaign_data:
-                return ad_account_id, {"error": campaign_data["error"]}
-                
-            account_info = {
-                "name": ad_account_name,
-                "campaigns": [],
-                "total_daily_budget": 0,
-                "total_budget_remaining": 0,
-                "total_estimated_spent": 0,
-                "total_insights_spent": 0
-            }
-            
-            for campaign in campaign_data.get("data", []):
-                campaign_id = campaign.get("id")
-                daily_budget = int(campaign.get("daily_budget", 0)) / 100 if campaign.get("daily_budget") else 0
-                budget_remaining = int(campaign.get("budget_remaining", 0)) / 100 if campaign.get("budget_remaining") else 0
-                estimated_spent = round(daily_budget - budget_remaining, 2)
-                
-                insights_spend = campaign_insights.get(campaign_id, {}).get("spend", 0)
-                
-                campaign_info = {
-                    "name": campaign.get("name", "Unknown"),
-                    "status": campaign.get("status", "Unknown"),
-                    "daily_budget": daily_budget,
-                    "budget_remaining": budget_remaining,
-                    "estimated_spent": estimated_spent,
-                    "insights_spend": insights_spend,
-                    "spend_difference": round(insights_spend - estimated_spent, 2)
+    data = fetch_facebook_data(url, access_token, params=params)
+    if "error" in data:
+        return {}
+
+    campaign_spends = {}
+    for item in data.get("data", []):
+        campaign_spends[item["campaign_id"]] = item.get("spend", "0")
+
+    return campaign_spends
+
+def map_delivery_status(delivery, effective_status):
+    delivery = delivery.upper() if delivery else ""
+    effective_status = effective_status.upper() if effective_status else ""
+
+    if delivery == "DELIVERING":
+        return "ACTIVE"
+
+    if delivery in ["NOT_DELIVERING", "PENDING_REVIEW"] or effective_status in [
+        "PAUSED",
+        "CAMPAIGN_PAUSED",
+        "ADSET_PAUSED",
+        "NO_BUDGET",
+        "DISAPPROVED",
+    ]:
+        return "NOT_DELIVERING"
+
+    if effective_status in ["INACTIVE", "PAUSED", "DELETED", "ARCHIVED"]:
+        return "INACTIVE"
+
+    return "INACTIVE"  # Default fallback
+
+@shared_task
+def fetch_ad_spend_data(user_id, access_token):
+    try:
+        logger.info("Starting ad spend data fetch task")
+
+        user_info = get_facebook_user_info(access_token)
+        if not user_info:
+            logger.error("Failed to get user info")
+            return {"error": "Failed to get user info"}
+
+        ad_accounts = get_ad_accounts(access_token)
+        if not ad_accounts:
+            logger.error("No ad accounts found")
+            return {"error": "No ad accounts found"}
+
+        logger.info(f"User ID: {user_info['id']} - Found {len(ad_accounts)} ad accounts")
+
+        result = {
+            'user_id': user_info['id'],
+            'user_name': user_info['name'],
+            'timestamp': datetime.now(manila_tz).isoformat(),
+            'summary': {
+                'total_spend': 0.0,
+                'total_active_campaigns': 0,
+                'total_active_spend': 0.0,
+                'total_active_daily_budget': 0.0
+            },
+            'campaigns': []
+        }
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import math
+
+        batch_size = 5
+        total_accounts = len(ad_accounts)
+        total_batches = math.ceil(total_accounts / batch_size)
+
+        append_redis_message_adspent(
+            user_id,
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing {total_accounts} ad accounts in {total_batches} batches..."
+        )
+
+        def process_account(ad_account_id):
+            try:
+                campaigns = get_campaigns(access_token, ad_account_id)
+                url = f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/adsets"
+                params = {
+                    "fields": "id,name,campaign_id,status",
+                    "limit": 1000
                 }
-                
-                account_info["campaigns"].append(campaign_info)
-                account_info["total_daily_budget"] += daily_budget
-                account_info["total_budget_remaining"] += budget_remaining
-                account_info["total_estimated_spent"] += estimated_spent
-                account_info["total_insights_spent"] += insights_spend
-                
-            return ad_account_id, account_info
-        except Exception as e:
-            logging.error(f"Error processing account {ad_account_id}: {str(e)}")
-            return ad_account_id, {"error": str(e)}
-    
-    # Process accounts in batches
-    for batch_num in range(total_batches):
-        start_idx = batch_num * batch_size
-        end_idx = min(start_idx + batch_size, total_accounts)
-        batch = ad_account_ids[start_idx:end_idx]
-        
-        append_redis_message_adspent(user_id, f"Processing batch {batch_num+1}/{total_batches} ({start_idx+1}-{end_idx} of {total_accounts})...")
-        
-        # Process this batch in parallel
-        with ThreadPoolExecutor(max_workers=batch_size) as executor:
-            batch_results = list(executor.map(process_account, batch))
-            
-        # Add results to the main result object
-        for ad_account_id, account_info in batch_results:
-            result["accounts"][ad_account_id] = account_info
-            
-            # Only update totals if this account has no errors
-            if "error" not in account_info:
-                result["totals"]["total_daily_budget"] += account_info["total_daily_budget"]
-                result["totals"]["total_budget_remaining"] += account_info["total_budget_remaining"]
-                result["totals"]["total_estimated_spent"] += account_info["total_estimated_spent"]
-                result["totals"]["total_insights_spent"] += account_info["total_insights_spent"]
-                
-                # Send a progress update for this account
-                try:
-                    message = {
-                        "account_name": account_info["name"],
-                        "total_daily_budget": account_info["total_daily_budget"],
-                        "total_budget_remaining": account_info["total_budget_remaining"],
-                        "total_estimated_spent": account_info["total_estimated_spent"],
-                        "total_insights_spent": account_info["total_insights_spent"],
-                        "spend_difference": round(account_info["total_insights_spent"] - account_info["total_estimated_spent"], 2),
-                        "timestamp": now_manila.isoformat()
+                adsets_response = fetch_facebook_data(url, access_token, params)
+                adsets = adsets_response.get("data", []) if "data" in adsets_response else []
+
+                adsets_by_campaign = defaultdict(list)
+                for adset in adsets:
+                    adsets_by_campaign[adset["campaign_id"]].append(adset)
+
+                campaign_spends = get_campaign_spend_by_account(access_token, ad_account_id)
+
+                account_spend = 0.0
+                total_active_campaigns = 0
+                total_active_spend = 0.0
+                total_active_daily_budget = 0.0
+                all_campaigns = []
+
+                for campaign in campaigns:
+                    campaign_id = campaign['id']
+                    spend = campaign_spends.get(campaign_id, "0")
+                    spend_float = float(spend)
+                    account_spend += spend_float
+
+                    daily_budget = float(campaign.get('daily_budget', '0')) / 100
+                    budget_remaining = float(campaign.get('budget_remaining', '0')) / 100
+                    campaign_status = campaign.get('status', '').upper()
+
+                    adset_statuses = [
+                        adset.get('status', '').upper() for adset in adsets_by_campaign.get(campaign_id, [])
+                    ]
+                    any_adset_active = any(status == "ACTIVE" for status in adset_statuses)
+
+                    if campaign_status == "ACTIVE":
+                        delivery_status = "ACTIVE" if any_adset_active else "NOT_DELIVERING"
+                    else:
+                        delivery_status = "INACTIVE"
+
+                    # Prepare campaign data
+                    campaign_data = {
+                        'campaign_id': campaign_id,
+                        'campaign_name': campaign['name'],
+                        'status': campaign_status,
+                        'daily_budget': daily_budget,
+                        'budget_remaining': budget_remaining,
+                        'spend': spend_float,
+                        'ad_account_id': ad_account_id,
+                        'delivery_status': delivery_status
                     }
-                    append_redis_message_adspent(user_id, message)
-                except Exception as e:
-                    logging.error(f"Failed to append Redis ad spent message for {ad_account_id}: {e}")
 
-    result["totals"]["spend_difference"] = round(
-        result["totals"]["total_insights_spent"] - result["totals"]["total_estimated_spent"], 2
-    )
+                    # Add all campaigns to list (active & inactive)
+                    all_campaigns.append(campaign_data)
 
-    append_redis_message_adspent(user_id, "Fetching report completed for all ad accounts.")
-    return result
+                    # Only compute if ACTIVE
+                    if delivery_status == "ACTIVE":
+                        total_active_campaigns += 1
+                        total_active_spend += spend_float
+                        total_active_daily_budget += daily_budget
+
+                return {
+                    'campaigns': all_campaigns,
+                    'summary': {
+                        'total_spend': account_spend,
+                        'total_active_campaigns': total_active_campaigns,
+                        'total_active_spend': total_active_spend,
+                        'total_active_daily_budget': total_active_daily_budget
+                    }
+                }
+
+            except Exception as e:
+                logger.error(f"Error processing account {ad_account_id}: {str(e)}")
+                return {
+                    'campaigns': [],
+                    'summary': {
+                        'total_spend': 0.0,
+                        'total_active_campaigns': 0,
+                        'total_active_spend': 0.0,
+                        'total_active_daily_budget': 0.0
+                    }
+                }
+
+        campaign_index = 1
+
+        for batch_num in range(total_batches):
+            start = batch_num * batch_size
+            end = start + batch_size
+            batch_accounts = ad_accounts[start:end]
+
+            append_redis_message_adspent(
+                user_id,
+                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing batch {batch_num + 1} of {total_batches} ({len(batch_accounts)} accounts)..."
+            )
+
+            with ThreadPoolExecutor(max_workers=batch_size) as executor:
+                futures = [executor.submit(process_account, acc) for acc in batch_accounts]
+                batch_results = [f.result() for f in futures]
+
+            for account_result in batch_results:
+                for campaign in account_result['campaigns']:
+                    campaign['index'] = campaign_index
+                    result['campaigns'].append(campaign)
+                    campaign_index += 1
+
+                result['summary']['total_spend'] += account_result['summary']['total_spend']
+                result['summary']['total_active_campaigns'] += account_result['summary']['total_active_campaigns']
+                result['summary']['total_active_spend'] += account_result['summary']['total_active_spend']
+                result['summary']['total_active_daily_budget'] += account_result['summary']['total_active_daily_budget']
+
+        logger.info(f"Completed fetching. Total Active Spend: {result['summary']['total_active_spend']:.2f}, "
+                    f"Total Active Daily Budget: {result['summary']['total_active_daily_budget']:.2f}")
+
+        append_redis_message_adspent(
+            user_id,
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Completed fetching. Total Active Spend: {result['summary']['total_active_spend']:.2f}"
+        )
+        return result
+
+    except Exception as e:
+        logger.error(f"Unexpected error in fetch_ad_spend_data: {str(e)}")
+        return {"error": str(e)}

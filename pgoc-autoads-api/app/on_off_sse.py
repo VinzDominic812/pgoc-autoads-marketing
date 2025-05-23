@@ -20,7 +20,7 @@ redis_websocket_cc = redis.Redis(host="redisAds", port=6379, db=14, decode_respo
 redis_websocket_as = redis.Redis(host="redisAds",port=6379,db=15,decode_responses=True)
 # Redis connection for Page name on/off
 redis_websocket_pn = redis.Redis(host="redisAds", port=6379, db=12, decode_responses=True)
-# Redis connection for Create Campaigns
+# Redis connection for Ad Spent
 redis_websocket_asr = redis.Redis(host="redisAds", port=6379, db=9, decode_responses=True)
 
 # Ensure Redis keyspace notifications are enabled
@@ -173,7 +173,7 @@ def messageevents_pagename():
 
 @message_events_blueprint.route("/messageevents-adspentreport")
 def messageevents_adspentreport():
-    """SSE endpoint that streams Redis key updates from DB 12."""
+    """SSE endpoint that streams Redis key updates from DB 9."""
     room = request.args.get("keys")
 
     if not room:
