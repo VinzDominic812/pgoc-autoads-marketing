@@ -340,8 +340,8 @@ const ReportsPage = () => {
       return;
     }
 
-    // Updated CSV headers to include campaign_id
     const csvHeaders = [
+      "ad_account_id",
       "campaign_id",
       "campaign_name",
       "delivery_status",
@@ -557,7 +557,13 @@ const ReportsPage = () => {
               data={filteredData}
               rowsPerPage={100}
               compact={true}
-              nonEditableHeaders={"Actions"}
+              nonEditableHeaders={[
+                "campaign_name",
+                "delivery_status",
+                "daily_budget",
+                "budget_remaining",
+                "spent",
+              ]}
               page={currentPage}
               onPageChange={(event, newPage) => setCurrentPage(newPage)}
             />
