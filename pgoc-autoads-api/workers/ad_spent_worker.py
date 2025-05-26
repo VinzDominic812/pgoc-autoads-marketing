@@ -105,6 +105,72 @@ def get_campaign_spend_by_account(access_token, ad_account_id):
 
     return campaign_spends
 
+def determine_delivery_status(campaign_status, ad_effective_statuses):
+    """
+    Determine delivery status based on campaign status and ad effective statuses.
+    
+    DELIVERY STATUS = ACTIVE
+        CAMPAIGN = ACTIVE
+        ADS EFFECTIVE_STATUS = ADSET_PAUSED & ACTIVE, or ALL ACTIVE
+    
+    DELIVERY STATUS = INACTIVE
+        CAMPAIGN = ACTIVE or PAUSED
+        ADS EFFECTIVE_STATUS = ADSET_PAUSED, CAMPAIGN_PAUSED, PAUSED, CAMPAIGN_GROUP_PAUSED, ARCHIVED, DELETED
+    
+    DELIVERY STATUS = NOT_DELIVERING
+        CAMPAIGN = ACTIVE
+        ADS EFFECTIVE_STATUS = ADSET_PAUSED, DISAPPROVED, PENDING_REVIEW, PREAPPROVED, PENDING_BILLING_INFO, WITH_ISSUES
+    """
+    campaign_status = campaign_status.upper() if campaign_status else ""
+    ad_statuses = [status.upper() if status else "" for status in ad_effective_statuses]
+    
+    # If no ads, return INACTIVE
+    if not ad_statuses:
+        return "INACTIVE"
+    
+    # Define status categories
+    ACTIVE_STATUSES = {"ACTIVE"}
+    INACTIVE_STATUSES = {
+        "ADSET_PAUSED", "CAMPAIGN_PAUSED", "PAUSED", 
+        "CAMPAIGN_GROUP_PAUSED", "ARCHIVED", "DELETED"
+    }
+    NOT_DELIVERING_STATUSES = {
+        "ADSET_PAUSED", "DISAPPROVED", "PENDING_REVIEW", 
+        "PREAPPROVED", "PENDING_BILLING_INFO", "WITH_ISSUES"
+    }
+    
+    # Count status types
+    active_count = sum(1 for status in ad_statuses if status in ACTIVE_STATUSES)
+    inactive_count = sum(1 for status in ad_statuses if status in INACTIVE_STATUSES)
+    not_delivering_count = sum(1 for status in ad_statuses if status in NOT_DELIVERING_STATUSES)
+    
+    # DELIVERY STATUS = ACTIVE
+    # CAMPAIGN = ACTIVE and (ADS = ALL ACTIVE or ADS = ADSET_PAUSED & ACTIVE)
+    if campaign_status == "ACTIVE":
+        # All ads are ACTIVE
+        if active_count == len(ad_statuses):
+            return "ACTIVE"
+        
+        # Mixed: Some ACTIVE and some ADSET_PAUSED (but no other statuses)
+        adset_paused_count = sum(1 for status in ad_statuses if status == "ADSET_PAUSED")
+        if active_count > 0 and adset_paused_count > 0 and (active_count + adset_paused_count) == len(ad_statuses):
+            return "ACTIVE"
+    
+    # DELIVERY STATUS = NOT_DELIVERING
+    # CAMPAIGN = ACTIVE and ADS have NOT_DELIVERING statuses (including ADSET_PAUSED)
+    if campaign_status == "ACTIVE":
+        # Check if any ads have NOT_DELIVERING statuses
+        if any(status in NOT_DELIVERING_STATUSES for status in ad_statuses):
+            # But exclude the case where we have ACTIVE + ADSET_PAUSED only (already handled above)
+            adset_paused_count = sum(1 for status in ad_statuses if status == "ADSET_PAUSED")
+            if not (active_count > 0 and adset_paused_count > 0 and (active_count + adset_paused_count) == len(ad_statuses)):
+                return "NOT_DELIVERING"
+    
+    # DELIVERY STATUS = INACTIVE
+    # CAMPAIGN = ACTIVE or PAUSED, and ADS have INACTIVE statuses
+    # OR any other case not covered above
+    return "INACTIVE"
+
 def map_delivery_status(delivery, effective_status):
     delivery = delivery.upper() if delivery else ""
     effective_status = effective_status.upper() if effective_status else ""
@@ -169,11 +235,14 @@ def fetch_ad_spend_data(user_id, access_token):
         )
 
         def process_account(ad_account_id):
+            
             try:
                 campaigns = get_campaigns(access_token, ad_account_id)
+
+                # Fetch adsets with nested ads
                 url = f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/adsets"
                 params = {
-                    "fields": "id,name,campaign_id,status",
+                    "fields": "id,name,campaign_id,status,ads{effective_status}",
                     "limit": 1000
                 }
                 adsets_response = fetch_facebook_data(url, access_token, params)
@@ -201,15 +270,17 @@ def fetch_ad_spend_data(user_id, access_token):
                     budget_remaining = float(campaign.get('budget_remaining', '0')) / 100
                     campaign_status = campaign.get('status', '').upper()
 
-                    adset_statuses = [
-                        adset.get('status', '').upper() for adset in adsets_by_campaign.get(campaign_id, [])
-                    ]
-                    any_adset_active = any(status == "ACTIVE" for status in adset_statuses)
+                    # Get all ad effective statuses under this campaign
+                    ad_effective_statuses = []
+                    for adset in adsets_by_campaign.get(campaign_id, []):
+                        ads = adset.get("ads", {}).get("data", [])
+                        for ad in ads:
+                            ad_status = ad.get("effective_status", "")
+                            if ad_status:
+                                ad_effective_statuses.append(ad_status)
 
-                    if campaign_status == "ACTIVE":
-                        delivery_status = "ACTIVE" if any_adset_active else "NOT_DELIVERING"
-                    else:
-                        delivery_status = "INACTIVE"
+                    # Determine delivery status using the updated logic
+                    delivery_status = determine_delivery_status(campaign_status, ad_effective_statuses)
 
                     # Prepare campaign data
                     campaign_data = {
@@ -220,13 +291,15 @@ def fetch_ad_spend_data(user_id, access_token):
                         'budget_remaining': budget_remaining,
                         'spend': spend_float,
                         'ad_account_id': ad_account_id,
-                        'delivery_status': delivery_status
+                        'delivery_status': delivery_status,
+                        'ad_statuses_summary': {
+                            'total_ads': len(ad_effective_statuses),
+                            'unique_statuses': list(set(ad_effective_statuses)) if ad_effective_statuses else []
+                        }
                     }
 
-                    # Add all campaigns to list (active & inactive)
                     all_campaigns.append(campaign_data)
 
-                    # Only compute if ACTIVE
                     if delivery_status == "ACTIVE":
                         total_active_campaigns += 1
                         total_active_spend += spend_float
