@@ -51,8 +51,7 @@ const Signup = ({ setSignupVisible }) => {
       const response = await fetch(`${apiUrl}/api/v1/auth/verify-email`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
-          skip_zrok_interstitial: "true",
+          "Content-Type": "application/json"
         },
         body: JSON.stringify(requestBody),
       });
@@ -81,8 +80,7 @@ const Signup = ({ setSignupVisible }) => {
           {
             method: "GET",
             headers: {
-              "Content-Type": "application/json",
-              skip_zrok_interstitial: "true", // Include the token if needed
+              "Content-Type": "application/json"
             },
           }
         );
@@ -110,8 +108,7 @@ const Signup = ({ setSignupVisible }) => {
       const response = await fetch(`${apiUrl}/api/v1/auth/register`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
-          skip_zrok_interstitial: "true",
+          "Content-Type": "application/json"
         },
         body: JSON.stringify(userData),
       });
@@ -151,7 +148,6 @@ const Signup = ({ setSignupVisible }) => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            skip_zrok_interstitial: 'true'
           },
           body: JSON.stringify({
             invite_code: code.trim()
