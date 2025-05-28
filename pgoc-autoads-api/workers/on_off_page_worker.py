@@ -110,7 +110,7 @@ def fetch_campaign_off(user_id, ad_account_id, access_token, matched_schedule):
             campaign_url = (
                 f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/campaigns"
                 f"?fields=id,name,status"
-                f"&limit=100"  # Reduced batch size for better performance
+                f"&limit=1000"  # Reduced batch size for better performance
             )
             
             campaigns_to_update = []

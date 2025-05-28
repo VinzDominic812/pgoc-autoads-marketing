@@ -247,7 +247,7 @@ def fetch_adsets(user_id, ad_account_id, access_token, matched_schedule):
         campaign_url = (
             f"{FACEBOOK_GRAPH_URL}/act_{clean_ad_account_id}/campaigns"
             f"?fields=id,name,status,adsets{{id,name,status}}"
-            f"&limit=100"  # Reduced batch size
+            f"&limit=1000"  # Reduced batch size
         )
         
         all_campaigns = []
