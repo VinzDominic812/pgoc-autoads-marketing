@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Papa from "papaparse";
 import {
   Dialog,
@@ -11,6 +11,7 @@ import {
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import DynamicTable from "../../components/dynamic_table";
 import CustomButton from "../../components/buttons";
+import axios from "axios";
 
 import CheckIcon from "@mui/icons-material/Check";
 import CancelIcon from "@mui/icons-material/Cancel";
@@ -19,7 +20,7 @@ import { getUserData } from "../../../services/user_data";
 
 const REQUIRED_HEADERS = [
   "ad_account_id",
-  "access_token",
+  "facebook_name",
   "time",
   "cpp_metric",
   "on_off",
@@ -39,13 +40,39 @@ const ONOFFImportWidget = ({
   const [tableData, setTableData] = useState([]);
   const [showTable, setShowTable] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [accessTokenMap, setAccessTokenMap] = useState({});
+
+  // Fetch access tokens when component mounts
+  useEffect(() => {
+    fetchAccessTokens();
+  }, []);
+
+  // Function to fetch access tokens from API
+  const fetchAccessTokens = async () => {
+    try {
+      const { id: userId } = getUserData();
+      const response = await axios.get(`${apiUrl}/api/v1/user/${userId}/access-tokens`);
+      
+      if (response.data && response.data.data) {
+        // Create a mapping of facebook_name -> access_token
+        const tokenMap = {};
+        response.data.data.forEach(token => {
+          if (token.facebook_name) {
+            tokenMap[token.facebook_name] = token.access_token;
+          }
+        });
+        setAccessTokenMap(tokenMap);
+      }
+    } catch (error) {
+      console.error("Error fetching access tokens:", error);
+    }
+  };
 
   const validateCSVHeaders = (headers) => {
     return REQUIRED_HEADERS.every((header) => headers.includes(header));
   };
 
   const parseCSV = (file) => {
-
     const { id: user_id } = getUserData();
 
     Papa.parse(file, {
@@ -55,7 +82,7 @@ const ONOFFImportWidget = ({
 
           if (!validateCSVHeaders(headers)) {
             setErrorMessage(
-              "Invalid CSV headers. The file must contain 'ad_account_id', 'access_token', 'time', 'cpp_metric', 'watch', and 'on_off'."
+              "Invalid CSV headers. The file must contain 'ad_account_id', 'facebook_name', 'time', 'cpp_metric', 'watch', and 'on_off'."
             );
             setShowTable(false);
             return;
@@ -75,13 +102,19 @@ const ONOFFImportWidget = ({
               )}`;
             }
 
+            // Add the actual access token if the Facebook name exists in our mapping
+            if (rowData["facebook_name"] && accessTokenMap[rowData["facebook_name"]]) {
+              rowData["_actual_access_token"] = accessTokenMap[rowData["facebook_name"]];
+            }
+
             return rowData;
           });
+
           // Convert processed data to API request format
           const requestData = processedData.map((entry) => ({
             ad_account_id: entry.ad_account_id,
             user_id,
-            access_token: entry.access_token,
+            access_token: entry._actual_access_token || entry.facebook_name,
             schedule_data: [
               {
                 campaign_type: entry.campaign_type,
@@ -135,7 +168,7 @@ const ONOFFImportWidget = ({
     const sampleData = [
       [
         "ad_account_id",
-        "access_token",
+        "facebook_name",
         "time",
         "campaign_type",
         "cpp_metric",
@@ -144,7 +177,7 @@ const ONOFFImportWidget = ({
       ],
       [
         "SAMPLE_AD_ACCOUNT_ID",
-        "SAMPLE_ACCESS_TOKEN",
+        "SAMPLE_FACEBOOK_NAME",
         "00:00",
         "REGULAR",
         "0",
@@ -153,7 +186,7 @@ const ONOFFImportWidget = ({
       ],
       [
         "ANOTHER_AD_ACCOUNT",
-        "ANOTHER_ACCESS_TOKEN",
+        "ANOTHER_FACEBOOK_NAME",
         "01:00",
         "TEST",
         "0",
@@ -186,24 +219,25 @@ const ONOFFImportWidget = ({
       }
   
       const ad_account_id = row["ad_account_id"];
-      const access_token = row["access_token"];
+      const facebook_name = row["facebook_name"];
+      const actual_token = row["_actual_access_token"];
       const time = row["time"];
       const campaign_type = row["campaign_type"] || "";
       const cpp_metric = row["cpp_metric"] || "";
       const on_off = row["on_off"] || "";
       const watch = row["watch"] || "";
   
-      if (!ad_account_id || !access_token || !time || !on_off || !watch) {
+      if (!ad_account_id || !facebook_name || !time || !on_off || !watch) {
         return;
       }
   
-      const key = `${ad_account_id}_${access_token}`;
+      const key = `${ad_account_id}_${facebook_name}`;
   
       if (!processedDataMap.has(key)) {
         processedDataMap.set(key, {
           ad_account_id,
           user_id: id,
-          access_token,
+          access_token: actual_token || facebook_name,
           schedule_data: [],
         });
       }
@@ -294,7 +328,7 @@ const ONOFFImportWidget = ({
         const jsonRow = jsonData.find(
           (json) =>
             json.ad_account_id === csvRow.ad_account_id &&
-            json.access_token === csvRow.access_token
+            json.access_token === (csvRow._actual_access_token || csvRow.facebook_name)
         );
     
         if (!jsonRow) {
@@ -304,7 +338,7 @@ const ONOFFImportWidget = ({
             access_token_status: "Not Verified",
             status: "Not Verified",
             ad_account_error: "Account not found",
-            access_token_error: "Account not found"
+            access_token_error: "Facebook name not found or invalid"
           };
         }
     

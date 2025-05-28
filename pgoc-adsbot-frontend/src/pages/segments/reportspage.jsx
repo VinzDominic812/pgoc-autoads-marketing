@@ -18,11 +18,11 @@ import {
 const ReportsPage = () => {
   const apiUrl = import.meta.env.VITE_API_URL;
 
+  // Updated headers to include ad_account_name
   const headers = [
-    "ad_account_id",
-    "ad_account_name",
     "campaign_name",
-    "status",
+    "ad_account_name",
+    "delivery_status",
     "daily_budget",
     "budget_remaining",
     "spent",
@@ -32,41 +32,58 @@ const ReportsPage = () => {
   const [accessToken, setAccessToken] = useState("");
   const [userName, setUserName] = useState("");
   const [fetching, setFetching] = useState(false);
-  const [timer, setTimer] = useState(180);
-  const [autoFetchInterval, setAutoFetchInterval] = useState(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [messages, setMessages] = useState([]);
   const eventSourceRef = useRef(null);
   const [selectedAdAccount, setSelectedAdAccount] = useState("all");
   const [adAccounts, setAdAccounts] = useState([]);
-  const [pageLimit, setPageLimit] = useState(25);
+  const [statusFilter, setStatusFilter] = useState("ACTIVE"); // New state for status filtering
 
+  // Enhanced summary data with breakdown by status
   const summaryData = React.useMemo(() => {
-    const active = adspentData.filter((row) => row.status === "ACTIVE");
+    const activeRows = adspentData.filter(row => row.delivery_status === "ACTIVE");
+    const inactiveRows = adspentData.filter(row => row.delivery_status === "INACTIVE");
+    const notDeliveringRows = adspentData.filter(row => row.delivery_status === "NOT_DELIVERING");
 
-    const calcTotals = (rows) => {
-      const totalBudget = rows.reduce((sum, row) => sum + Number(row.daily_budget || 0), 0);
-      const budgetRemaining = rows.reduce((sum, row) => sum + Number(row.budget_remaining || 0), 0);
-      const spent = totalBudget - budgetRemaining;
-      return { totalBudget, budgetRemaining, spent };
-    };
-
-    const activeTotals = calcTotals(active);
+    const totalBudget = activeRows.reduce(
+      (sum, row) => sum + Number(row.daily_budget || 0),
+      0
+    );
+    const budgetRemaining = activeRows.reduce(
+      (sum, row) => sum + Number(row.budget_remaining || 0),
+      0
+    );
+    const spent = activeRows.reduce(
+      (sum, row) => sum + Number(row.spent || 0),
+      0
+    );
 
     return [
-      { label: "Total Budget", value: `₱${activeTotals.totalBudget.toFixed(2)}` },
-      { label: "Budget Remaining", value: `₱${activeTotals.budgetRemaining.toFixed(2)}` },
-      { label: "Spent", value: `₱${activeTotals.spent.toFixed(2)}` },
+      { label: "Total Budget (Active)", value: `₱${totalBudget.toFixed(2)}` },
+      { label: "Budget Remaining", value: `₱${budgetRemaining.toFixed(2)}` },
+      { label: "Spent", value: `₱${spent.toFixed(2)}` },
+      { label: "Active Campaigns", value: activeRows.length },
+      { label: "Inactive Campaigns", value: inactiveRows.length },
+      { label: "Not Delivering", value: notDeliveringRows.length }
     ];
   }, [adspentData]);
 
-  // Filtered data based on selected ad account
+  // Enhanced filtering logic to include status filter
   const filteredData = React.useMemo(() => {
-    if (selectedAdAccount === "all") {
-      return adspentData.filter(row => row.status === "ACTIVE");
+    let filtered = adspentData;
+    
+    // Filter by ad account
+    if (selectedAdAccount !== "all") {
+      filtered = filtered.filter(row => row.ad_account_id === selectedAdAccount);
     }
-    return adspentData.filter(row => row.status === "ACTIVE" && row.ad_account_id === selectedAdAccount);
-  }, [adspentData, selectedAdAccount]);
+    
+    // Filter by delivery status
+    if (statusFilter !== "all") {
+      filtered = filtered.filter(row => row.delivery_status === statusFilter);
+    }
+    
+    return filtered;
+  }, [adspentData, selectedAdAccount, statusFilter]);
 
   // Fetch data function
   const fetchAdSpendData = useCallback(async () => {
@@ -90,76 +107,38 @@ const ReportsPage = () => {
         },
         body: JSON.stringify({ 
           user_id,
-          access_token: accessToken,
-          page_limit: pageLimit  // Add the page_limit parameter
+          access_token: accessToken
         }),
       });
 
       if (response.ok) {
         const data = await response.json();
-        if (data && data.campaign_spending_data?.accounts) {
-          const formattedData = [];
-          let newUserName = "";
-          const uniqueAccounts = new Set();
-
-          Object.keys(data.campaign_spending_data.accounts).forEach(
-            (accountId) => {
-              const account = data.campaign_spending_data.accounts[accountId];
-              newUserName = data.campaign_spending_data.facebook_name;
-              
-              // Add this account to the unique accounts set
-              uniqueAccounts.add(accountId);
-              
-              if (account.campaigns && Array.isArray(account.campaigns)) {
-                account.campaigns.forEach((campaign) => {
-                  const daily_budget = campaign.daily_budget || 0;
-                  const budget_remaining = campaign.budget_remaining || 0;
-                  const spent = (daily_budget - budget_remaining).toFixed(2);
-
-                  formattedData.push({
-                    ad_account_id: accountId,
-                    ad_account_name: account.name || "Unknown",
-                    campaign_name: campaign.name || "Unnamed Campaign",
-                    status: campaign.status,
-                    daily_budget: daily_budget,
-                    budget_remaining: budget_remaining,
-                    spent: spent,
-                  });
-                });
-              } else {
-                // If no campaigns are present, still show the account
-                formattedData.push({
-                  ad_account_id: accountId,
-                  ad_account_name: account.name || "Unknown",
-                  campaign_name: "No campaigns found",
-                  status: "N/A",
-                  daily_budget: 0,
-                  budget_remaining: 0,
-                  spent: 0,
-                });
-              }
-            }
-          );
-
-          // Update the list of ad accounts for the filter dropdown
-          const accountOptions = Array.from(uniqueAccounts).map(id => {
-            const accountName = data.campaign_spending_data.accounts[id].name || "Unknown";
-            return { id, name: `${accountName} (${id})` };
-          });
+        console.log("Raw response from API:", data);
+        
+        if (data && data.campaign_spending_data) {
+          console.log("Campaign spending data structure:", data.campaign_spending_data);
           
-          setAdAccounts(accountOptions);
-          setAdspentData(formattedData);
-          setUserName(newUserName);
-          
-          // Log the number of accounts and campaigns
-          setMessages(prevMessages => [
-            ...prevMessages,
-            `[${new Date().toISOString().replace('T', ' ').split('.')[0]}] Fetched ${accountOptions.length} ad accounts with a total of ${formattedData.length} campaigns.`
-          ]);
+          // Handle both structured formats for compatibility
+          if (data.campaign_spending_data.accounts) {
+            // Format from the transformed controller
+            processAccountsData(data.campaign_spending_data);
+          } else if (Array.isArray(data.campaign_spending_data.campaigns)) {
+            // Format directly from worker (fallback)
+            processRawCampaignsData(data.campaign_spending_data);
+          } else {
+            notify("Unknown data format received from server", "error");
+            console.error("Unknown data format:", data.campaign_spending_data);
+          }
+        } else {
+          notify("No campaign data received from server", "warning");
         }
       } else {
-        const errorData = await response.json();
-        notify(errorData.error || "Failed to fetch campaign data.", "error");
+        try {
+          const errorData = await response.json();
+          notify(errorData.error || "Failed to fetch campaign data.", "error");
+        } catch (e) {
+          notify("Failed to fetch campaign data.", "error");
+        }
       }
     } catch (error) {
       console.error("Error:", error);
@@ -167,45 +146,130 @@ const ReportsPage = () => {
     } finally {
       setFetching(false);
     }
-  }, [accessToken, apiUrl, pageLimit]);
+  }, [accessToken, apiUrl]);
+
+  const processAccountsData = (campaignData) => {
+    const formattedData = [];
+    let newUserName = campaignData.facebook_name || "";
+    const uniqueAccounts = new Set();
+    let totalCampaigns = 0;
+
+    Object.keys(campaignData.accounts).forEach((accountId) => {
+      const account = campaignData.accounts[accountId];
+      uniqueAccounts.add(accountId);
+
+      if (account.campaigns && Array.isArray(account.campaigns)) {
+        account.campaigns.forEach((campaign) => {
+          const daily_budget = parseFloat(campaign.daily_budget || 0);
+          const budget_remaining = parseFloat(campaign.budget_remaining || 0);
+
+          let spent = 0;
+          if (campaign.spent !== undefined) {
+            spent = parseFloat(campaign.spent);
+          } else if (campaign.spend !== undefined) {
+            spent = parseFloat(campaign.spend);
+          } else {
+            spent = parseFloat((daily_budget - budget_remaining).toFixed(2));
+          }
+
+          formattedData.push({
+            ad_account_id: accountId,
+            ad_account_name: account.name || "Unknown Account", // Add account name
+            campaign_id: campaign.id || campaign.campaign_id || "N/A",
+            campaign_name: campaign.name || "Unnamed Campaign",
+            status: campaign.status || "UNKNOWN",
+            delivery_status: campaign.delivery_status || "N/A",
+            effective_status: campaign.effective_status || "",
+            delivery_reasons: campaign.delivery_reasons || [],
+            daily_budget: daily_budget,
+            budget_remaining: budget_remaining,
+            spent: spent,
+          });
+
+          totalCampaigns += 1;
+        });
+      }
+    });
+
+    const accountOptions = Array.from(uniqueAccounts).map(id => {
+      const accountName = campaignData.accounts[id].name || "Unknown";
+      return { id, name: `${accountName} (${id})` };
+    });
+
+    setAdAccounts(accountOptions);
+    setAdspentData(formattedData);
+    setUserName(newUserName);
+
+    setMessages(prevMessages => [
+      ...prevMessages,
+      `[${new Date().toISOString().replace('T', ' ').split('.')[0]}] Fetched ${accountOptions.length} ad accounts with a total of ${totalCampaigns} campaigns.`
+    ]);
+
+    console.log("Formatted data for display:", formattedData);
+  };
+
+  // Process raw campaigns data (fallback for direct worker format)
+  const processRawCampaignsData = (campaignData) => {
+    // This is a fallback in case the controller doesn't transform the data
+    const formattedData = [];
+    const uniqueAccounts = new Set();
+    const accountsMap = {};
+    
+    // First pass - collect account IDs and build account map
+    campaignData.campaigns.forEach(campaign => {
+      const accountId = campaign.ad_account_id;
+      uniqueAccounts.add(accountId);
+      
+      if (!accountsMap[accountId]) {
+        accountsMap[accountId] = { 
+          name: campaign.ad_account_name || `Account ${accountId}` 
+        };
+      }
+    });
+    
+    // Second pass - format the campaign data
+    campaignData.campaigns.forEach(campaign => {
+      const accountId = campaign.ad_account_id;
+      const daily_budget = parseFloat(campaign.daily_budget || 0);
+      const budget_remaining = parseFloat(campaign.budget_remaining || 0);
+      const spent = parseFloat(campaign.spend || 0);
+      
+      formattedData.push({
+        ad_account_id: accountId,
+        ad_account_name: campaign.ad_account_name || accountsMap[accountId].name,
+        campaign_id: campaign.id || campaign.campaign_id || "N/A",
+        campaign_name: campaign.campaign_name,
+        status: campaign.status,
+        delivery_status: campaign.delivery_status || campaign.status || "N/A",
+        effective_status: campaign.effective_status || "",
+        delivery_reasons: campaign.delivery_reasons || [],
+        daily_budget: daily_budget,
+        budget_remaining: budget_remaining,
+        spent: spent,
+      });
+    });
+    
+    // Update the list of ad accounts for the filter dropdown
+    const accountOptions = Array.from(uniqueAccounts).map(id => {
+      return { id, name: `${accountsMap[id].name} (${id})` };
+    });
+    
+    setAdAccounts(accountOptions);
+    setAdspentData(formattedData);
+    setUserName(campaignData.user_name || "");
+    
+    // Log the number of accounts and campaigns
+    setMessages(prevMessages => [
+      ...prevMessages,
+      `[${new Date().toISOString().replace('T', ' ').split('.')[0]}] Fetched ${accountOptions.length} ad accounts with a total of ${formattedData.length} campaigns.`
+    ]);
+    
+    console.log("Formatted data for display (from raw campaigns):", formattedData);
+  };
 
   useEffect(() => {
     if (accessToken && accessToken.length >= 100 && !fetching) {
       handleFetchUser();
-    }
-  }, [accessToken]);
-
-  useEffect(() => {
-    if (accessToken && accessToken.length >= 100 && !autoFetchInterval) {
-      const interval = setInterval(() => {
-        fetchAdSpendData();
-      }, 180000); // 3 minutes in milliseconds
-
-      setAutoFetchInterval(interval);
-    }
-
-    // Cleanup if token becomes invalid or is cleared
-    return () => {
-      if (autoFetchInterval) {
-        clearInterval(autoFetchInterval);
-        setAutoFetchInterval(null);
-      }
-    };
-  }, [accessToken, fetchAdSpendData, autoFetchInterval]);
-
-  useEffect(() => {
-    if (accessToken && accessToken.length >= 100) {
-      // Reset the timer to 180 on token set
-      setTimer(180);
-
-      const countdownInterval = setInterval(() => {
-        setTimer((prevTimer) => {
-          if (prevTimer <= 1) return 180; // Reset after reaching 0
-          return prevTimer - 1;
-        });
-      }, 1000);
-
-      return () => clearInterval(countdownInterval);
     }
   }, [accessToken]);
 
@@ -271,8 +335,6 @@ const ReportsPage = () => {
   };
 
   const handleStopFetching = () => {
-    clearInterval(autoFetchInterval);
-    setAutoFetchInterval(null);
     setFetching(false);
     setAccessToken(""); // Clear the token so it becomes editable again
   };
@@ -283,32 +345,30 @@ const ReportsPage = () => {
       return;
     }
 
+    // Updated CSV headers to include ad_account_name
     const csvHeaders = [
-      "ad_account_id",
-      "ad_account_name",
       "campaign_name",
-      "status",
+      "ad_account_name",
+      "delivery_status",
+      "spent",
       "daily_budget",
       "budget_remaining",
-      "spent",
     ];
 
-    // Convert table data to CSV rows
+    // Export ALL campaigns, not just filtered
     const csvRows = [
       csvHeaders.join(","),
       ...adspentData.map(row =>
-        csvHeaders.map(header => `"${row[header] || ""}"`).join(",")
+        csvHeaders.map(header => `"${row[header] !== undefined ? row[header] : ""}"`).join(",")
       ),
-      "", // Blank row as a separator
-      "-- Summary --",
+      "", // Blank row as separator
+      "-- Summary (All Campaigns) --",
       ...summaryData.map(item =>
         `"${item.label}","${item.value}"`
-      ),
+      )
     ];
 
-    const csvContent =
-      "data:text/csv;charset=utf-8,\uFEFF" + csvRows.join("\n");
-
+    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + csvRows.join("\n");
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -324,6 +384,20 @@ const ReportsPage = () => {
   const getCurrentTime = () => {
     const now = new Date();
     return now.toISOString().split('T')[0] + "_" + now.toISOString().split('T')[1].split('.')[0].replace(/:/g, '-');
+  };
+
+  // Helper function to get status display text with icons
+  const getStatusDisplayText = () => {
+    const totalDisplayed = filteredData.length;
+    const statusText = statusFilter === "all" ? "All Statuses" : 
+                     statusFilter === "ACTIVE" ? "Active" :
+                     statusFilter === "INACTIVE" ? "Inactive" : "Not Delivering";
+    
+    const statusIcon = statusFilter === "ACTIVE" ? "✅" :
+                      statusFilter === "INACTIVE" ? "⏸️" :
+                      statusFilter === "NOT_DELIVERING" ? "❌" : "📊";
+    
+    return `${statusIcon} ${statusText} (${totalDisplayed})`;
   };
 
   // JSX Rendering
@@ -349,23 +423,6 @@ const ReportsPage = () => {
               helperText="Enter your Meta Ads Manager Access Token"
               disabled={accessToken && accessToken.length >= 100}
             />
-            
-            {/* Page Limit for ad account fetching */}
-            <FormControl fullWidth size="small">
-              <InputLabel id="page-limit-label">Accounts Per Page</InputLabel>
-              <Select
-                labelId="page-limit-label"
-                value={pageLimit}
-                label="Accounts Per Page"
-                onChange={(e) => setPageLimit(e.target.value)}
-                disabled={fetching}
-              >
-                <MenuItem value={10}>10</MenuItem>
-                <MenuItem value={25}>25</MenuItem>
-                <MenuItem value={50}>50</MenuItem>
-                <MenuItem value={100}>100</MenuItem>
-              </Select>
-            </FormControl>
 
             {/* Row with Fetch and Export Buttons */}
             <Box sx={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
@@ -397,7 +454,7 @@ const ReportsPage = () => {
           </Box>
         </Box>
 
-        {/* Middle Column - Summary Table */}
+        {/* Middle Column - Enhanced Summary Table */}
         <Box
           sx={{
             width: "30%",
@@ -412,7 +469,7 @@ const ReportsPage = () => {
           }}
         >
           <Typography variant="h6" mb={2} textAlign="center">
-            Active Campaign Summary
+            Campaign Summary
           </Typography>
           <SummaryTable data={summaryData} />
         </Box>
@@ -425,7 +482,7 @@ const ReportsPage = () => {
 
       {/* Second Row (Dynamic Table) */}
       <Box sx={{ flex: 1 }}>
-        {/* User Welcome and Ad Account Filter in one row */}
+        {/* User Welcome and Filters in one row */}
         <Box sx={{ 
           mt: 2, 
           mb: 2, 
@@ -433,7 +490,7 @@ const ReportsPage = () => {
           flexDirection: "row",
           justifyContent: "space-between", 
           alignItems: "center",
-          position: "relative"  // Add position relative
+          position: "relative"
         }}>
           {/* Welcome message on the left */}
           {userName && (
@@ -450,47 +507,51 @@ const ReportsPage = () => {
             </Typography>
           )}
 
-          {/* Timer position underneath welcome message */}
-          {accessToken && accessToken.length >= 100 && (
-            <Typography 
-              variant="caption" 
-              sx={{ 
-                position: "absolute",
-                top: "calc(100% - 5px)",
-                left: 0,
-                color: "text.secondary"
-              }}
-            >
-              Auto-refresh in: {timer} seconds
-            </Typography>
-          )}
+          {/* Filters on the right */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+            {/* Status Filter */}
+            <Typography>Filter by Status:</Typography>
+            <FormControl sx={{ minWidth: 200 }}>
+              <Select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                displayEmpty
+                size="small"
+              >
+                <MenuItem value="ACTIVE">✅ Active Only</MenuItem>
+                <MenuItem value="all">📊 All Statuses</MenuItem>
+                <MenuItem value="INACTIVE">⏸️ Inactive</MenuItem>
+                <MenuItem value="NOT_DELIVERING">❌ Not Delivering</MenuItem>
+              </Select>
+            </FormControl>
 
-          {/* Ad Account Filter on the right */}
-          {adAccounts.length > 0 && (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
-              <Typography>Filter by Ad Account:</Typography>
-              <FormControl sx={{ minWidth: 250 }}>
-                <Select
-                  value={selectedAdAccount}
-                  onChange={(e) => setSelectedAdAccount(e.target.value)}
-                  displayEmpty
-                  size="small"
-                >
-                  <MenuItem value="all">All Ad Accounts</MenuItem>
-                  {adAccounts.map((account) => (
-                    <MenuItem key={account.id} value={account.id}>
-                      {account.name}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Box>
-          )}
+            {/* Ad Account Filter */}
+            {adAccounts.length > 0 && (
+              <>
+                <Typography sx={{ ml: 2 }}>Ad Account:</Typography>
+                <FormControl sx={{ minWidth: 250 }}>
+                  <Select
+                    value={selectedAdAccount}
+                    onChange={(e) => setSelectedAdAccount(e.target.value)}
+                    displayEmpty
+                    size="small"
+                  >
+                    <MenuItem value="all">All Ad Accounts</MenuItem>
+                    {adAccounts.map((account) => (
+                      <MenuItem key={account.id} value={account.id}>
+                        {account.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </>
+            )}
+          </Box>
         </Box>
 
         {adspentData.length > 0 ? (
           <WidgetCard 
-            title={`Active Campaigns ${selectedAdAccount !== "all" 
+            title={`${getStatusDisplayText()} ${selectedAdAccount !== "all" 
               ? `- ${adAccounts.find(a => a.id === selectedAdAccount)?.name || selectedAdAccount}` 
               : '(All Accounts)'}`} 
             height="95.5%"
@@ -500,7 +561,14 @@ const ReportsPage = () => {
               data={filteredData}
               rowsPerPage={100}
               compact={true}
-              nonEditableHeaders={"Actions"}
+              nonEditableHeaders={[
+                "campaign_name",
+                "ad_account_name",
+                "delivery_status",
+                "daily_budget",
+                "budget_remaining",
+                "spent",
+              ]}
               page={currentPage}
               onPageChange={(event, newPage) => setCurrentPage(newPage)}
             />

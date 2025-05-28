@@ -38,7 +38,6 @@ def fetch_facebook_data(url, access_token):
         logging.error(f"Error fetching data from Facebook API: {e}")
         return {"error": {"message": str(e), "type": "RequestException"}}
 
-
 def get_cpp_from_insights(ad_account_id, access_token, level, cpp_date_start, cpp_date_end):
     """
     Fetch CPP values from Facebook insights API within a specific date range.
