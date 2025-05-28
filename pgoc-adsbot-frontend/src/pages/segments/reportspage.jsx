@@ -18,8 +18,10 @@ import {
 const ReportsPage = () => {
   const apiUrl = import.meta.env.VITE_API_URL;
 
+  // Updated headers to include ad_account_name
   const headers = [
     "campaign_name",
+    "ad_account_name",
     "delivery_status",
     "daily_budget",
     "budget_remaining",
@@ -172,7 +174,8 @@ const ReportsPage = () => {
 
           formattedData.push({
             ad_account_id: accountId,
-            campaign_id: campaign.id || campaign.campaign_id || "N/A", // Add campaign ID
+            ad_account_name: account.name || "Unknown Account", // Add account name
+            campaign_id: campaign.id || campaign.campaign_id || "N/A",
             campaign_name: campaign.name || "Unnamed Campaign",
             status: campaign.status || "UNKNOWN",
             delivery_status: campaign.delivery_status || "N/A",
@@ -218,7 +221,9 @@ const ReportsPage = () => {
       uniqueAccounts.add(accountId);
       
       if (!accountsMap[accountId]) {
-        accountsMap[accountId] = { name: `Account ${accountId}` };
+        accountsMap[accountId] = { 
+          name: campaign.ad_account_name || `Account ${accountId}` 
+        };
       }
     });
     
@@ -231,8 +236,8 @@ const ReportsPage = () => {
       
       formattedData.push({
         ad_account_id: accountId,
-        ad_account_name: accountsMap[accountId].name,
-        campaign_id: campaign.id || campaign.campaign_id || "N/A", // Add campaign ID
+        ad_account_name: campaign.ad_account_name || accountsMap[accountId].name,
+        campaign_id: campaign.id || campaign.campaign_id || "N/A",
         campaign_name: campaign.campaign_name,
         status: campaign.status,
         delivery_status: campaign.delivery_status || campaign.status || "N/A",
@@ -340,15 +345,14 @@ const ReportsPage = () => {
       return;
     }
 
+    // Updated CSV headers to include ad_account_name
     const csvHeaders = [
-      "ad_account_id",
-      "campaign_id",
       "campaign_name",
+      "ad_account_name",
       "delivery_status",
-      "effective_status",
+      "spent",
       "daily_budget",
       "budget_remaining",
-      "spent"
     ];
 
     // Export ALL campaigns, not just filtered
@@ -559,6 +563,7 @@ const ReportsPage = () => {
               compact={true}
               nonEditableHeaders={[
                 "campaign_name",
+                "ad_account_name",
                 "delivery_status",
                 "daily_budget",
                 "budget_remaining",
