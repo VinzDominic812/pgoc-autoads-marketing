@@ -19,6 +19,7 @@ import { AddCircleOutline, RemoveCircleOutline } from "@mui/icons-material";
 import CustomButton from "../../components/buttons";
 import notify from "../../components/toast";
 import { getUserData } from "../../../services/user_data";
+import axios from "axios";
 
 const generateHourOptions = () =>
   Array.from({ length: 25 }, (_, i) => i.toString().padStart(2, "0"));
@@ -59,7 +60,8 @@ const AddAdAccountWidget = ({ open, handleClose, fetchSchedules }) => {
   const [campaignTypes, setCampaignTypes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [adAccountId, setAdAccountId] = useState("");
-  const [accessToken, setAccessToken] = useState("");
+  const [facebookName, setFacebookName] = useState("");
+  const [accessTokenMap, setAccessTokenMap] = useState({});
   const [scheduleData, setScheduleData] = useState([
     {
       hour: "",
@@ -72,6 +74,32 @@ const AddAdAccountWidget = ({ open, handleClose, fetchSchedules }) => {
   ]);
 
   const { id: uid } = getUserData();
+
+  // Fetch access tokens when component mounts
+  useEffect(() => {
+    fetchAccessTokens();
+  }, []);
+
+  // Function to fetch access tokens from API
+  const fetchAccessTokens = async () => {
+    try {
+      const { id: userId } = getUserData();
+      const response = await axios.get(`${apiUrl}/api/v1/user/${userId}/access-tokens`);
+      
+      if (response.data && response.data.data) {
+        // Create a mapping of facebook_name -> access_token
+        const tokenMap = {};
+        response.data.data.forEach(token => {
+          if (token.facebook_name) {
+            tokenMap[token.facebook_name] = token.access_token;
+          }
+        });
+        setAccessTokenMap(tokenMap);
+      }
+    } catch (error) {
+      console.error("Error fetching access tokens:", error);
+    }
+  };
 
   useEffect(() => {
     const fetchCampaignTypes = async () => {
@@ -131,8 +159,14 @@ const AddAdAccountWidget = ({ open, handleClose, fetchSchedules }) => {
   };
 
   const handleSubmit = async () => {
-    if (!adAccountId || !accessToken) {
-      notify("Ad Account ID and Access Token are required!", "error");
+    if (!adAccountId || !facebookName) {
+      notify("Ad Account ID and Facebook Name are required!", "error");
+      return;
+    }
+
+    // Check if the Facebook name exists in our mapping
+    if (!accessTokenMap[facebookName]) {
+      notify("Invalid Facebook Name. Please select a valid Facebook Name from the list.", "error");
       return;
     }
 
@@ -148,8 +182,8 @@ const AddAdAccountWidget = ({ open, handleClose, fetchSchedules }) => {
 
     const payload = {
       ad_account_id: adAccountId,
-      user_id: id, // You should replace this with the actual user ID
-      access_token: accessToken,
+      user_id: id,
+      access_token: accessTokenMap[facebookName], // Use the actual token from the mapping
       schedule_data: formattedSchedules,
     };
 
@@ -201,23 +235,27 @@ const AddAdAccountWidget = ({ open, handleClose, fetchSchedules }) => {
             sx={{ ...inputStyles, mt: 2 }}
             size="small"
             InputLabelProps={{
-              shrink: true, // Prevents label from overlapping the border
-              sx: { fontSize: "12px" }, // Reduces label font size
+              shrink: true,
+              sx: { fontSize: "12px" },
             }}
           />
-          <TextField
-            label="Access Token"
-            fullWidth
-            variant="outlined"
-            value={accessToken}
-            onChange={(e) => setAccessToken(e.target.value)}
-            sx={{ ...inputStyles, mt: 2 }}
-            size="small"
-            InputLabelProps={{
-              shrink: true, // Prevents label from overlapping the border
-              sx: { fontSize: "12px" }, // Reduces label font size
-            }}
-          />
+          <FormControl fullWidth size="small" sx={{ mt: 2 }}>
+            <InputLabel shrink sx={labelStyles}>
+              Facebook Name
+            </InputLabel>
+            <Select
+              value={facebookName}
+              onChange={(e) => setFacebookName(e.target.value)}
+              sx={selectStyles}
+              MenuProps={menuProps}
+            >
+              {Object.keys(accessTokenMap).map((name) => (
+                <MenuItem key={name} value={name} sx={{ fontSize: "12px" }}>
+                  {name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
         </Box>
 
         {/* Schedule Section */}
@@ -325,7 +363,7 @@ const AddAdAccountWidget = ({ open, handleClose, fetchSchedules }) => {
                     </MenuItem>
                   ))
                 ) : (
-                  <MenuItem disabled>No campaign types found</MenuItem>
+                  <MenuItem disabled>No campaign codes found</MenuItem>
                 )}
               </Select>
             </FormControl>
@@ -364,8 +402,8 @@ const AddAdAccountWidget = ({ open, handleClose, fetchSchedules }) => {
               sx={{ ...inputStyles, mt: 2 }}
               size="small"
               InputLabelProps={{
-                shrink: true, // Prevents label from overlapping the border
-                sx: { fontSize: "12px" }, // Reduces label font size
+                shrink: true,
+                sx: { fontSize: "12px" },
               }}
             />
 
