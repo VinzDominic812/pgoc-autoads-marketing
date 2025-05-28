@@ -71,9 +71,14 @@ def process_paginated_results(url, access_token, process_func):
 def get_ad_accounts(access_token):
     logger.info("Fetching ad accounts...")
     url = f"{FACEBOOK_GRAPH_URL}/me/adaccounts?fields=id,name&limit=1000"
-    accounts = process_paginated_results(url, access_token, lambda data: [acc["id"].replace("act_", "") for acc in data])
+    accounts = process_paginated_results(
+        url,
+        access_token,
+        lambda data: [{"id": acc["id"].replace("act_", ""), "name": acc["name"]} for acc in data]
+    )
     logger.info(f"Found {len(accounts)} ad accounts")
     return accounts
+
 
 def get_campaigns(access_token, ad_account_id):
     logger.info(f"Fetching campaigns for ad account {ad_account_id}...")
@@ -217,7 +222,8 @@ def fetch_ad_spend_data(user_id, access_token):
                 'total_spend': 0.0,
                 'total_active_campaigns': 0,
                 'total_active_spend': 0.0,
-                'total_active_daily_budget': 0.0
+                'total_active_daily_budget': 0.0,
+                'total_campaigns_with_spend': 0  # New field to track campaigns with spend > 0
             },
             'campaigns': []
         }
@@ -234,7 +240,7 @@ def fetch_ad_spend_data(user_id, access_token):
             f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing {total_accounts} ad accounts in {total_batches} batches..."
         )
 
-        def process_account(ad_account_id):
+        def process_account(ad_account_id, ad_account_name):
             
             try:
                 campaigns = get_campaigns(access_token, ad_account_id)
@@ -258,60 +264,65 @@ def fetch_ad_spend_data(user_id, access_token):
                 total_active_campaigns = 0
                 total_active_spend = 0.0
                 total_active_daily_budget = 0.0
-                all_campaigns = []
+                campaigns_with_spend = []  # Only store campaigns with spend > 0
 
                 for campaign in campaigns:
                     campaign_id = campaign['id']
                     spend = campaign_spends.get(campaign_id, "0")
                     spend_float = float(spend)
-                    account_spend += spend_float
+                    
+                    # FILTER: Only process campaigns with spend > 0
+                    if spend_float > 0:
+                        account_spend += spend_float
 
-                    daily_budget = float(campaign.get('daily_budget', '0')) / 100
-                    budget_remaining = float(campaign.get('budget_remaining', '0')) / 100
-                    campaign_status = campaign.get('status', '').upper()
+                        daily_budget = float(campaign.get('daily_budget', '0')) / 100
+                        budget_remaining = float(campaign.get('budget_remaining', '0')) / 100
+                        campaign_status = campaign.get('status', '').upper()
 
-                    # Get all ad effective statuses under this campaign
-                    ad_effective_statuses = []
-                    for adset in adsets_by_campaign.get(campaign_id, []):
-                        ads = adset.get("ads", {}).get("data", [])
-                        for ad in ads:
-                            ad_status = ad.get("effective_status", "")
-                            if ad_status:
-                                ad_effective_statuses.append(ad_status)
+                        # Get all ad effective statuses under this campaign
+                        ad_effective_statuses = []
+                        for adset in adsets_by_campaign.get(campaign_id, []):
+                            ads = adset.get("ads", {}).get("data", [])
+                            for ad in ads:
+                                ad_status = ad.get("effective_status", "")
+                                if ad_status:
+                                    ad_effective_statuses.append(ad_status)
 
-                    # Determine delivery status using the updated logic
-                    delivery_status = determine_delivery_status(campaign_status, ad_effective_statuses)
+                        # Determine delivery status using the updated logic
+                        delivery_status = determine_delivery_status(campaign_status, ad_effective_statuses)
 
-                    # Prepare campaign data
-                    campaign_data = {
-                        'campaign_id': campaign_id,
-                        'campaign_name': campaign['name'],
-                        'status': campaign_status,
-                        'daily_budget': daily_budget,
-                        'budget_remaining': budget_remaining,
-                        'spend': spend_float,
-                        'ad_account_id': ad_account_id,
-                        'delivery_status': delivery_status,
-                        'ad_statuses_summary': {
-                            'total_ads': len(ad_effective_statuses),
-                            'unique_statuses': list(set(ad_effective_statuses)) if ad_effective_statuses else []
+                        # Prepare campaign data
+                        campaign_data = {
+                            'campaign_id': campaign_id,
+                            'campaign_name': campaign['name'],
+                            'status': campaign_status,
+                            'daily_budget': daily_budget,
+                            'budget_remaining': budget_remaining,
+                            'spend': spend_float,
+                            'ad_account_id': ad_account_id,
+                            'ad_account_name': ad_account_name,
+                            'delivery_status': delivery_status,
+                            'ad_statuses_summary': {
+                                'total_ads': len(ad_effective_statuses),
+                                'unique_statuses': list(set(ad_effective_statuses)) if ad_effective_statuses else []
+                            }
                         }
-                    }
 
-                    all_campaigns.append(campaign_data)
+                        campaigns_with_spend.append(campaign_data)
 
-                    if delivery_status == "ACTIVE":
-                        total_active_campaigns += 1
-                        total_active_spend += spend_float
-                        total_active_daily_budget += daily_budget
+                        if delivery_status == "ACTIVE":
+                            total_active_campaigns += 1
+                            total_active_spend += spend_float
+                            total_active_daily_budget += daily_budget
 
                 return {
-                    'campaigns': all_campaigns,
+                    'campaigns': campaigns_with_spend,
                     'summary': {
                         'total_spend': account_spend,
                         'total_active_campaigns': total_active_campaigns,
                         'total_active_spend': total_active_spend,
-                        'total_active_daily_budget': total_active_daily_budget
+                        'total_active_daily_budget': total_active_daily_budget,
+                        'campaigns_with_spend_count': len(campaigns_with_spend)
                     }
                 }
 
@@ -323,7 +334,8 @@ def fetch_ad_spend_data(user_id, access_token):
                         'total_spend': 0.0,
                         'total_active_campaigns': 0,
                         'total_active_spend': 0.0,
-                        'total_active_daily_budget': 0.0
+                        'total_active_daily_budget': 0.0,
+                        'campaigns_with_spend_count': 0
                     }
                 }
 
@@ -340,7 +352,7 @@ def fetch_ad_spend_data(user_id, access_token):
             )
 
             with ThreadPoolExecutor(max_workers=batch_size) as executor:
-                futures = [executor.submit(process_account, acc) for acc in batch_accounts]
+                futures = [executor.submit(process_account, acc["id"], acc["name"]) for acc in batch_accounts]
                 batch_results = [f.result() for f in futures]
 
             for account_result in batch_results:
@@ -353,13 +365,15 @@ def fetch_ad_spend_data(user_id, access_token):
                 result['summary']['total_active_campaigns'] += account_result['summary']['total_active_campaigns']
                 result['summary']['total_active_spend'] += account_result['summary']['total_active_spend']
                 result['summary']['total_active_daily_budget'] += account_result['summary']['total_active_daily_budget']
+                result['summary']['total_campaigns_with_spend'] += account_result['summary']['campaigns_with_spend_count']
 
-        logger.info(f"Completed fetching. Total Active Spend: {result['summary']['total_active_spend']:.2f}, "
+        logger.info(f"Completed fetching. Total campaigns with spend > 0: {result['summary']['total_campaigns_with_spend']}, "
+                    f"Total Active Spend: {result['summary']['total_active_spend']:.2f}, "
                     f"Total Active Daily Budget: {result['summary']['total_active_daily_budget']:.2f}")
 
         append_redis_message_adspent(
             user_id,
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Completed fetching. Total Active Spend: {result['summary']['total_active_spend']:.2f}"
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Completed fetching. Found {result['summary']['total_campaigns_with_spend']} campaigns with spend > 0. Total Active Spend: {result['summary']['total_active_spend']:.2f}"
         )
         return result
 
