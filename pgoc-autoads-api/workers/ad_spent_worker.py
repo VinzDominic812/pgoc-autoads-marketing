@@ -20,6 +20,14 @@ logging.basicConfig(level=logging.INFO)
 session = requests.Session()
 session.mount('https://', requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=50, max_retries=3))
 
+def get_current_time():
+    """Get current time in Manila timezone"""
+    return datetime.now(manila_tz).strftime("%Y-%m-%d %H:%M:%S")
+
+def append_message(user_id, message):
+    """Append message with current Manila time"""
+    timestamp = get_current_time()
+    append_redis_message_adspent(user_id, f"[{timestamp}] {message}")
 
 def get_facebook_user_info(access_token):
     url = f"{FACEBOOK_GRAPH_URL}/me"
@@ -87,7 +95,7 @@ def determine_delivery_status(campaign_status, ad_effective_statuses):
 def process_single_account_batch(account_data):
     ad_account_id, ad_account_name, access_token, user_id = account_data
     try:
-        append_redis_message_adspent(user_id, f"🔄 Processing account: {ad_account_name} ({ad_account_id})")
+        append_message(user_id, f"🔄 Processing account: {ad_account_name} ({ad_account_id})")
 
         batch = [
             {"method": "GET", "relative_url": f"act_{ad_account_id}/campaigns?fields=id,name,status,daily_budget,budget_remaining&limit=500"},
@@ -102,7 +110,7 @@ def process_single_account_batch(account_data):
         )
 
         if response.status_code != 200:
-            append_redis_message_adspent(user_id, f"❌ Batch error for {ad_account_id}: {response.status_code}")
+            append_message(user_id, f"❌ Batch error for {ad_account_id}: {response.status_code}")
             return None
 
         responses = response.json()
@@ -128,14 +136,16 @@ def process_single_account_batch(account_data):
 @shared_task
 def fetch_ad_spend_data(user_id, access_token, max_workers=10):
     try:
-        append_redis_message_adspent(user_id, "🚀 Starting ad spend fetch")
+        append_message(user_id, "🚀 Starting ad spend fetch")
 
         user_info = get_facebook_user_info(access_token)
         if not user_info:
+            append_message(user_id, "❌ Failed to get user info")
             return {"error": "Failed to get user info"}
 
         ad_accounts = get_ad_accounts(access_token)
         if not ad_accounts:
+            append_message(user_id, "❌ No ad accounts found")
             return {"error": "No ad accounts found"}
 
         account_data_list = [(acc['id'], acc['name'], access_token, user_id) for acc in ad_accounts]
@@ -182,33 +192,29 @@ def fetch_ad_spend_data(user_id, access_token, max_workers=10):
 
                 campaigns.append({
                     "campaign_id": cid,
-                    "Campaign Name": campaign.get("name", ""),
-                    "Account ID": r['ad_account_id'],      # Add this line
-                    "Account Name": r['ad_account_name'],
-                    "Delivery Status": delivery_status,
-                    "Spend": spend,
-                    "Daily Budget": daily_budget,
-                    "Budget Remaining": budget_remaining
+                    "campaign_name": campaign.get("name", ""),
+                    "ad_account_id": r['ad_account_id'],
+                    "ad_account_name": r['ad_account_name'],
+                    "delivery_status": delivery_status,
+                    "spend": spend,
+                    "daily_budget": daily_budget,
+                    "budget_remaining": budget_remaining
                 })
 
-        append_redis_message_adspent(user_id, f"✅ Done! Fetched {len(campaigns)} campaigns with spend.")
+        append_message(user_id, f"✅ Done! Fetched {len(campaigns)} campaigns with spend.")
+        
         return {
             "campaign_spending_data": {
-                "campaigns": [
-                    {
-                        "campaign_id": c.get("campaign_id", ""),
-                        "campaign_name": c.get("Campaign Name", ""),
-                        "ad_account_id": c.get("Account ID", ""),    # Add this line
-                        "ad_account_name": c.get("Account Name", ""),
-                        "delivery_status": c.get("Delivery Status", ""),
-                        "spend": c.get("Spend", 0),
-                        "daily_budget": c.get("Daily Budget", 0),
-                        "budget_remaining": c.get("Budget Remaining", 0)
-                    } for c in campaigns
-                ]
+                "campaigns": campaigns,
+                "user_name": user_info.get("name", ""),
+                "total_campaigns": len(campaigns),
+                "total_accounts": len(ad_accounts),
+                "updated_at": get_current_time()
             }
         }
 
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
+        error_msg = f"Unexpected error: {str(e)}"
+        logger.error(error_msg)
+        append_message(user_id, f"❌ {error_msg}")
         return {"error": str(e)}
