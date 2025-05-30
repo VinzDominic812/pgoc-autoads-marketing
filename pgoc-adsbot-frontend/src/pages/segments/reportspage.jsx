@@ -359,30 +359,32 @@ const ReportsPage = () => {
             />
 
             {/* Row with Fetch and Export Buttons */}
-            <Box sx={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              {/* Manual Refresh Button */}
-              <CustomButton
-                name={fetching ? "Fetching..." : "Refresh Data"}
-                onClick={fetchAdSpendData}
-                type="primary"
-                icon={fetching ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
-                disabled={!accessToken || accessToken.length < 100 || fetching}
-              />
-              {/* Custom Stop Fetching Button */}
-              <CustomButton
-                name="Stop Fetching"
-                onClick={handleStopFetching}
-                type="tertiary"
-                icon={null}
-                disabled={!accessToken || accessToken.length < 100}
-              />
-              {/* Custom Export Button */}
+            <Box sx={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              {/* First row with Refresh and Stop buttons */}
+              <Box sx={{ display: "flex", gap: "10px" }}>
+                {/* Manual Refresh Button */}
+                <CustomButton
+                  name={fetching ? "Fetching..." : "Refresh Data"}
+                  onClick={fetchAdSpendData}
+                  type="primary"
+                  icon={fetching ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
+                  disabled={!accessToken || accessToken.length < 100 || fetching}
+                />
+                {/* Custom Stop Fetching Button */}
+                <CustomButton
+                  name="Stop Fetching"
+                  onClick={handleStopFetching}
+                  type="tertiary"
+                  icon={null}
+                  disabled={!accessToken || accessToken.length < 100}
+                />
+              </Box>
+              {/* Export Button in second row */}
               <CustomButton
                 name="Export"
                 onClick={handleExportData}
-                type="tertiary"
+                type="primary"
                 icon={<CloudExportIcon />}
-                sx={{ flex: 1 }} // Ensure it takes up available space if needed
               />
             </Box>
           </Box>
