@@ -18,7 +18,7 @@ import {
 const ReportsPage = () => {
   const apiUrl = import.meta.env.VITE_API_URL;
 
-  // Updated headers to include ad_account_name
+  // Updated headers to show only essential data
   const headers = [
     "campaign_name",
     "ad_account_name",
@@ -86,185 +86,74 @@ const ReportsPage = () => {
   }, [adspentData, selectedAdAccount, statusFilter]);
 
   // Fetch data function
-  const fetchAdSpendData = useCallback(async () => {
-    if (!accessToken || accessToken.length < 100) return;
+  const fetchAdSpendData = async () => {
+    if (!accessToken) {
+      notify("Please enter an access token", "error");
+      return;
+    }
+
+    setFetching(true);
+    setMessages([]);
 
     try {
-      setFetching(true);
-      setMessages(prevMessages => [
-        ...prevMessages,
-        `[${new Date().toISOString().replace('T', ' ').split('.')[0]}] Starting data fetch...`
-      ]);
-
       const { id: user_id } = getUserData();
-      console.log("User ID inside fetchAdSpendData:", user_id);
+      console.log("Starting data fetch for user:", user_id);
+
       const response = await fetch(`${apiUrl}/api/v1/adspent`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          skip_zrok_interstitial: "true",
-          Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           user_id,
-          access_token: accessToken
+          access_token: accessToken,
         }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        console.log("Raw response from API:", data);
-        
-        if (data && data.campaign_spending_data) {
-          console.log("Campaign spending data structure:", data.campaign_spending_data);
-          
-          // Handle both structured formats for compatibility
-          if (data.campaign_spending_data.accounts) {
-            // Format from the transformed controller
-            processAccountsData(data.campaign_spending_data);
-          } else if (Array.isArray(data.campaign_spending_data.campaigns)) {
-            // Format directly from worker (fallback)
-            processRawCampaignsData(data.campaign_spending_data);
-          } else {
-            notify("Unknown data format received from server", "error");
-            console.error("Unknown data format:", data.campaign_spending_data);
-          }
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log("Raw API response:", data);
+
+      if (data.campaign_spending_data?.campaign_spending_data) {
+        const campaignData = data.campaign_spending_data.campaign_spending_data;
+        console.log("Campaign data structure:", campaignData);
+
+        if (campaignData.campaigns) {
+          const formattedData = campaignData.campaigns.map(campaign => ({
+            ad_account_id: campaign.ad_account_id,
+            ad_account_name: campaign.ad_account_name,
+            campaign_id: campaign.campaign_id,
+            campaign_name: campaign.campaign_name,
+            delivery_status: campaign.delivery_status,
+            daily_budget: parseFloat(campaign.daily_budget || 0).toFixed(2),
+            budget_remaining: parseFloat(campaign.budget_remaining || 0).toFixed(2),
+            spent: parseFloat(campaign.spend || 0).toFixed(2),
+          }));
+
+          // Update ad accounts list for filter dropdown
+          const uniqueAccounts = [...new Set(campaignData.campaigns.map(c => c.ad_account_name))];
+          setAdAccounts(uniqueAccounts);
+
+          setAdspentData(formattedData);
+          setUserName(campaignData.user_name || "");
+          console.log(`Fetched ${formattedData.length} campaigns from ${uniqueAccounts.length} accounts`);
         } else {
-          notify("No campaign data received from server", "warning");
+          console.error("No campaigns found in data");
+          notify("No campaign data found", "error");
         }
       } else {
-        try {
-          const errorData = await response.json();
-          notify(errorData.error || "Failed to fetch campaign data.", "error");
-        } catch (e) {
-          notify("Failed to fetch campaign data.", "error");
-        }
+        console.error("Unexpected data format:", data);
+        notify("Received unknown data format", "error");
       }
     } catch (error) {
-      console.error("Error:", error);
-      notify("Network error. Please try again later.", "error");
+      console.error("Error fetching data:", error);
+      notify("Failed to fetch data: " + error.message, "error");
     } finally {
       setFetching(false);
     }
-  }, [accessToken, apiUrl]);
-
-  const processAccountsData = (campaignData) => {
-    const formattedData = [];
-    let newUserName = campaignData.facebook_name || "";
-    const uniqueAccounts = new Set();
-    let totalCampaigns = 0;
-
-    Object.keys(campaignData.accounts).forEach((accountId) => {
-      const account = campaignData.accounts[accountId];
-      uniqueAccounts.add(accountId);
-
-      if (account.campaigns && Array.isArray(account.campaigns)) {
-        account.campaigns.forEach((campaign) => {
-          const daily_budget = parseFloat(campaign.daily_budget || 0);
-          const budget_remaining = parseFloat(campaign.budget_remaining || 0);
-
-          let spent = 0;
-          if (campaign.spent !== undefined) {
-            spent = parseFloat(campaign.spent);
-          } else if (campaign.spend !== undefined) {
-            spent = parseFloat(campaign.spend);
-          } else {
-            spent = parseFloat((daily_budget - budget_remaining).toFixed(2));
-          }
-
-          formattedData.push({
-            ad_account_id: accountId,
-            ad_account_name: account.name || "Unknown Account", // Add account name
-            campaign_id: campaign.id || campaign.campaign_id || "N/A",
-            campaign_name: campaign.name || "Unnamed Campaign",
-            status: campaign.status || "UNKNOWN",
-            delivery_status: campaign.delivery_status || "N/A",
-            effective_status: campaign.effective_status || "",
-            delivery_reasons: campaign.delivery_reasons || [],
-            daily_budget: daily_budget,
-            budget_remaining: budget_remaining,
-            spent: spent,
-          });
-
-          totalCampaigns += 1;
-        });
-      }
-    });
-
-    const accountOptions = Array.from(uniqueAccounts).map(id => {
-      const accountName = campaignData.accounts[id].name || "Unknown";
-      return { id, name: `${accountName} (${id})` };
-    });
-
-    setAdAccounts(accountOptions);
-    setAdspentData(formattedData);
-    setUserName(newUserName);
-
-    setMessages(prevMessages => [
-      ...prevMessages,
-      `[${new Date().toISOString().replace('T', ' ').split('.')[0]}] Fetched ${accountOptions.length} ad accounts with a total of ${totalCampaigns} campaigns.`
-    ]);
-
-    console.log("Formatted data for display:", formattedData);
-  };
-
-  // Process raw campaigns data (fallback for direct worker format)
-  const processRawCampaignsData = (campaignData) => {
-    // This is a fallback in case the controller doesn't transform the data
-    const formattedData = [];
-    const uniqueAccounts = new Set();
-    const accountsMap = {};
-    
-    // First pass - collect account IDs and build account map
-    campaignData.campaigns.forEach(campaign => {
-      const accountId = campaign.ad_account_id;
-      uniqueAccounts.add(accountId);
-      
-      if (!accountsMap[accountId]) {
-        accountsMap[accountId] = { 
-          name: campaign.ad_account_name || `Account ${accountId}` 
-        };
-      }
-    });
-    
-    // Second pass - format the campaign data
-    campaignData.campaigns.forEach(campaign => {
-      const accountId = campaign.ad_account_id;
-      const daily_budget = parseFloat(campaign.daily_budget || 0);
-      const budget_remaining = parseFloat(campaign.budget_remaining || 0);
-      const spent = parseFloat(campaign.spend || 0);
-      
-      formattedData.push({
-        ad_account_id: accountId,
-        ad_account_name: campaign.ad_account_name || accountsMap[accountId].name,
-        campaign_id: campaign.id || campaign.campaign_id || "N/A",
-        campaign_name: campaign.campaign_name,
-        status: campaign.status,
-        delivery_status: campaign.delivery_status || campaign.status || "N/A",
-        effective_status: campaign.effective_status || "",
-        delivery_reasons: campaign.delivery_reasons || [],
-        daily_budget: daily_budget,
-        budget_remaining: budget_remaining,
-        spent: spent,
-      });
-    });
-    
-    // Update the list of ad accounts for the filter dropdown
-    const accountOptions = Array.from(uniqueAccounts).map(id => {
-      return { id, name: `${accountsMap[id].name} (${id})` };
-    });
-    
-    setAdAccounts(accountOptions);
-    setAdspentData(formattedData);
-    setUserName(campaignData.user_name || "");
-    
-    // Log the number of accounts and campaigns
-    setMessages(prevMessages => [
-      ...prevMessages,
-      `[${new Date().toISOString().replace('T', ' ').split('.')[0]}] Fetched ${accountOptions.length} ad accounts with a total of ${formattedData.length} campaigns.`
-    ]);
-    
-    console.log("Formatted data for display (from raw campaigns):", formattedData);
   };
 
   useEffect(() => {
@@ -280,7 +169,7 @@ const ReportsPage = () => {
     const eventSourceUrl = `${apiUrl}/api/v1/messageevents-adspentreport?keys=${user_id}-key`;
 
     if (eventSourceRef.current) {
-      eventSourceRef.current.close(); // Close any existing connection
+      eventSourceRef.current.close();
     }
 
     const eventSource = new EventSource(eventSourceUrl);
@@ -288,19 +177,40 @@ const ReportsPage = () => {
     eventSource.onmessage = (event) => {
       console.log("SSE Message:", event.data);
       try {
-        const parsedData = JSON.parse(event.data); // Parse the JSON data
+        const parsedData = JSON.parse(event.data);
 
-        // Extract and format the desired message
         if (parsedData.data && parsedData.data.message) {
           const rawMessage = parsedData.data.message.join(" ");
 
-          // Check if the message already contains a timestamp
           const timestampRegex = /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]/;
           const formattedMessage = timestampRegex.test(rawMessage)
-            ? rawMessage // Use the message as is if it already has a timestamp
+            ? rawMessage
             : `[${new Date().toISOString().replace('T', ' ').split('.')[0]}] ${rawMessage}`;
 
           setMessages((prevMessages) => [...prevMessages, formattedMessage]);
+
+          // ✅ Detect completion messages and stop fetching
+          const completionIndicators = [
+            "✅ Completed fetching",
+            "Completed fetching. Total campaigns",
+            "Processing complete",
+            "Data fetch completed"
+          ];
+          
+          const errorIndicators = [
+            "❌ Error",
+            "Failed to fetch",
+            "No ad accounts found",
+            "Failed to get user info"
+          ];
+
+          if (completionIndicators.some(indicator => rawMessage.includes(indicator))) {
+            console.log("Detected completion message, stopping fetching state");
+            setFetching(false);
+          } else if (errorIndicators.some(indicator => rawMessage.includes(indicator))) {
+            console.log("Detected error message, stopping fetching state");
+            setFetching(false);
+          }
         }
       } catch (e) {
         console.error("Error parsing SSE data:", e);
@@ -321,6 +231,30 @@ const ReportsPage = () => {
       }
     };
   }, [apiUrl]);
+
+  // ✅ Add timeout fallback to prevent infinite fetching state
+  useEffect(() => {
+    let timeoutId;
+    
+    if (fetching) {
+      // Set a maximum timeout (e.g., 10 minutes) to prevent infinite fetching
+      timeoutId = setTimeout(() => {
+        console.log("Fetching timeout reached, stopping fetching state");
+        setFetching(false);
+        setMessages(prevMessages => [
+          ...prevMessages,
+          `[${new Date().toISOString().replace('T', ' ').split('.')[0]}] ⚠️ Fetch timeout reached. Process may still be running in background.`
+        ]);
+        notify("Fetch timeout reached. Check terminal for status.", "warning");
+      }, 10 * 60 * 1000); // 10 minutes
+    }
+    
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [fetching]);
 
   const handleFetchUser = () => {
     if (!accessToken) {
@@ -425,30 +359,32 @@ const ReportsPage = () => {
             />
 
             {/* Row with Fetch and Export Buttons */}
-            <Box sx={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              {/* Manual Refresh Button */}
-              <CustomButton
-                name={fetching ? "Fetching..." : "Refresh Data"}
-                onClick={fetchAdSpendData}
-                type="primary"
-                icon={fetching ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
-                disabled={!accessToken || accessToken.length < 100 || fetching}
-              />
-              {/* Custom Stop Fetching Button */}
-              <CustomButton
-                name="Stop Fetching"
-                onClick={handleStopFetching}
-                type="tertiary"
-                icon={null}
-                disabled={!accessToken || accessToken.length < 100}
-              />
-              {/* Custom Export Button */}
+            <Box sx={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              {/* First row with Refresh and Stop buttons */}
+              <Box sx={{ display: "flex", gap: "10px" }}>
+                {/* Manual Refresh Button */}
+                <CustomButton
+                  name={fetching ? "Fetching..." : "Refresh Data"}
+                  onClick={fetchAdSpendData}
+                  type="primary"
+                  icon={fetching ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
+                  disabled={!accessToken || accessToken.length < 100 || fetching}
+                />
+                {/* Custom Stop Fetching Button */}
+                <CustomButton
+                  name="Stop Fetching"
+                  onClick={handleStopFetching}
+                  type="tertiary"
+                  icon={null}
+                  disabled={!accessToken || accessToken.length < 100}
+                />
+              </Box>
+              {/* Export Button in second row */}
               <CustomButton
                 name="Export"
                 onClick={handleExportData}
-                type="tertiary"
+                type="primary"
                 icon={<CloudExportIcon />}
-                sx={{ flex: 1 }} // Ensure it takes up available space if needed
               />
             </Box>
           </Box>
@@ -538,8 +474,8 @@ const ReportsPage = () => {
                   >
                     <MenuItem value="all">All Ad Accounts</MenuItem>
                     {adAccounts.map((account) => (
-                      <MenuItem key={account.id} value={account.id}>
-                        {account.name}
+                      <MenuItem key={account} value={account}>
+                        {account}
                       </MenuItem>
                     ))}
                   </Select>
@@ -552,8 +488,8 @@ const ReportsPage = () => {
         {adspentData.length > 0 ? (
           <WidgetCard 
             title={`${getStatusDisplayText()} ${selectedAdAccount !== "all" 
-              ? `- ${adAccounts.find(a => a.id === selectedAdAccount)?.name || selectedAdAccount}` 
-              : '(All Accounts)'}`} 
+              ? `- ${adAccounts.find(a => a === selectedAdAccount) || selectedAdAccount}` 
+              : '(All Accounts)'}`}
             height="95.5%"
           >
             <DynamicTable
