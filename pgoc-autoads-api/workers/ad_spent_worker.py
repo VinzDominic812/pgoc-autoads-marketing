@@ -44,7 +44,7 @@ def get_facebook_user_info(access_token):
 
 def get_ad_accounts(access_token):
     url = f"{FACEBOOK_GRAPH_URL}/me/adaccounts"
-    params = {"access_token": access_token, "fields": "id,name", "limit": 500}
+    params = {"access_token": access_token, "fields": "id,name", "limit": 1000}
     ad_accounts = []
     try:
         while url:
@@ -98,9 +98,9 @@ def process_single_account_batch(account_data):
         append_message(user_id, f"🔄 Processing account: {ad_account_name} ({ad_account_id})")
 
         batch = [
-            {"method": "GET", "relative_url": f"act_{ad_account_id}/campaigns?fields=id,name,status,daily_budget,budget_remaining&limit=500"},
-            {"method": "GET", "relative_url": f"act_{ad_account_id}/adsets?fields=id,campaign_id,status,ads{{effective_status}}&limit=500"},
-            {"method": "GET", "relative_url": f"act_{ad_account_id}/insights?fields=campaign_id,campaign_name,spend&level=campaign&date_preset=today&limit=500"}
+            {"method": "GET", "relative_url": f"act_{ad_account_id}/campaigns?fields=id,name,status,daily_budget,budget_remaining&limit=1000"},
+            {"method": "GET", "relative_url": f"act_{ad_account_id}/adsets?fields=id,campaign_id,status,ads{{effective_status}}&limit=1000"},
+            {"method": "GET", "relative_url": f"act_{ad_account_id}/insights?fields=campaign_id,campaign_name,spend&level=campaign&date_preset=today&limit=1000"}
         ]
 
         response = session.post(
