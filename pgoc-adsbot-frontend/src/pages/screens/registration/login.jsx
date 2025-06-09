@@ -73,14 +73,14 @@ const Login = () => {
       if (response.ok) {
         console.log("Login successful, data received:", data);
 
-        if (!data.access_token || !data.user_id || !data.redis_key) {
+        if (!data.access_token || !data.id || !data.redis_key) {
           console.error("Missing required fields in response data:", data);
           return;
         }
 
         Cookies.set("xsid", encryptData(data.access_token), { expires: 1, secure: true, sameSite: "Strict" });
-        Cookies.set("xsid_g", encryptData(data.user_id), { expires: 1, secure: true, sameSite: "Strict" });
-        Cookies.set("usr", encryptData(data.user_id), { expires: 1, secure: true, sameSite: "Strict" });
+        Cookies.set("xsid_g", encryptData(data.id), { expires: 1, secure: true, sameSite: "Strict" });
+        Cookies.set("usr", encryptData(data.id), { expires: 1, secure: true, sameSite: "Strict" });
         Cookies.set("rsid", encryptData(data.redis_key), { expires: 1, secure: true, sameSite: "Strict" });
         Cookies.set("isxd", encryptData("true"), { expires: 1, secure: true, sameSite: "Strict" });
 
