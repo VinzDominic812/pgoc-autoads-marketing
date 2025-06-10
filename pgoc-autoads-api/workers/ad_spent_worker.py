@@ -79,15 +79,21 @@ def determine_delivery_status(campaign_status, ad_effective_statuses):
 
     active_count = sum(1 for s in ad_statuses if s in ACTIVE_STATUSES)
     adset_paused_count = sum(1 for s in ad_statuses if s == "ADSET_PAUSED")
+    disapproved_count = sum(1 for s in ad_statuses if s == "DISAPPROVED")
 
     if campaign_status == "ACTIVE":
-        if active_count == len(ad_statuses):
+        # If there are any active ads, campaign is active
+        if active_count > 0:
             return "ACTIVE"
-        if active_count > 0 and adset_paused_count > 0 and (active_count + adset_paused_count == len(ad_statuses)):
-            return "ACTIVE"
-        if any(s in NOT_DELIVERING_STATUSES for s in ad_statuses):
-            if not (active_count + adset_paused_count == len(ad_statuses)):
-                return "NOT_DELIVERING"
+        # If all ads are disapproved, campaign is recently rejected
+        if disapproved_count == len(ad_statuses):
+            return "RECENTLY_REJECTED"
+        # If all ads are paused, campaign is not delivering
+        if adset_paused_count == len(ad_statuses):
+            return "NOT_DELIVERING"
+        # If there are no active ads and some are in not delivering state
+        if active_count == 0 and any(s in NOT_DELIVERING_STATUSES for s in ad_statuses):
+            return "NOT_DELIVERING"
 
     return "INACTIVE"
 
