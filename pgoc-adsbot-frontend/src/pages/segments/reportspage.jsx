@@ -45,7 +45,7 @@ const ReportsPage = () => {
     const inactiveRows = adspentData.filter(row => row.delivery_status === "INACTIVE");
     const notDeliveringRows = adspentData.filter(row => row.delivery_status === "NOT_DELIVERING");
 
-    const totalBudget = activeRows.reduce(
+    const totalBudget = adspentData.reduce(
       (sum, row) => sum + Number(row.daily_budget || 0),
       0
     );
@@ -53,14 +53,14 @@ const ReportsPage = () => {
       (sum, row) => sum + Number(row.budget_remaining || 0),
       0
     );
-    const spent = activeRows.reduce(
+    const spent = adspentData.reduce(
       (sum, row) => sum + Number(row.spent || 0),
       0
     );
 
     return [
-      { label: "Total Budget (Active)", value: `₱${totalBudget.toFixed(2)}` },
-      { label: "Budget Remaining", value: `₱${budgetRemaining.toFixed(2)}` },
+      { label: "Total Budget", value: `₱${totalBudget.toFixed(2)}` },
+      { label: "Budget Remaining (Active)", value: `₱${budgetRemaining.toFixed(2)}` },
       { label: "Spent", value: `₱${spent.toFixed(2)}` },
       { label: "Active Campaigns", value: activeRows.length },
       { label: "Inactive Campaigns", value: inactiveRows.length },
@@ -281,6 +281,8 @@ const ReportsPage = () => {
 
     // Updated CSV headers to include ad_account_name
     const csvHeaders = [
+      // "ad_account_id",
+      // "campaign_id",
       "campaign_name",
       "ad_account_name",
       "delivery_status",
@@ -288,7 +290,6 @@ const ReportsPage = () => {
       "daily_budget",
       "budget_remaining",
     ];
-
     // Export ALL campaigns, not just filtered
     const csvRows = [
       csvHeaders.join(","),
