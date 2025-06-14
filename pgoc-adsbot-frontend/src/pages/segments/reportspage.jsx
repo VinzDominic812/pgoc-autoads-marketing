@@ -37,7 +37,7 @@ const ReportsPage = () => {
   const eventSourceRef = useRef(null);
   const [selectedAdAccount, setSelectedAdAccount] = useState("all");
   const [adAccounts, setAdAccounts] = useState([]);
-  const [statusFilter, setStatusFilter] = useState("ACTIVE"); // New state for status filtering
+  const [statusFilter, setStatusFilter] = useState("all"); // Changed from "ACTIVE" to "all"
 
   // Enhanced summary data with breakdown by status
   const summaryData = React.useMemo(() => {
@@ -370,6 +370,7 @@ const ReportsPage = () => {
                   type="primary"
                   icon={fetching ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
                   disabled={!accessToken || accessToken.length < 100 || fetching}
+                  sx={{ flexGrow: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                 />
                 {/* Custom Stop Fetching Button */}
                 <CustomButton
@@ -378,6 +379,14 @@ const ReportsPage = () => {
                   type="tertiary"
                   icon={null}
                   disabled={!accessToken || accessToken.length < 100}
+                  sx={{ 
+                    flexGrow: 1,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    backgroundColor: '#4CAF50', // A shade of green
+                    '&:hover': { backgroundColor: '#45a049' }, // Darker green on hover
+                  }}
                 />
               </Box>
               {/* Export Button in second row */}
@@ -447,20 +456,24 @@ const ReportsPage = () => {
           {/* Filters on the right */}
           <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
             {/* Status Filter */}
-            <Typography>Filter by Status:</Typography>
-            <FormControl sx={{ minWidth: 200 }}>
-              <Select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                displayEmpty
-                size="small"
-              >
-                <MenuItem value="ACTIVE">✅ Active Only</MenuItem>
-                <MenuItem value="all">📊 All Statuses</MenuItem>
-                <MenuItem value="INACTIVE">⏸️ Inactive</MenuItem>
-                <MenuItem value="NOT_DELIVERING">❌ Not Delivering</MenuItem>
-              </Select>
-            </FormControl>
+            {adspentData.length > 0 && (
+              <>
+                <Typography>Filter by Status:</Typography>
+                <FormControl sx={{ minWidth: 200 }}>
+                  <Select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    displayEmpty
+                    size="small"
+                  >
+                    <MenuItem value="all">📊 All Statuses</MenuItem>
+                    <MenuItem value="ACTIVE">✅ Active Only</MenuItem>
+                    <MenuItem value="INACTIVE">⏸️ Inactive</MenuItem>
+                    <MenuItem value="NOT_DELIVERING">❌ Not Delivering</MenuItem>
+                  </Select>
+                </FormControl>
+              </>
+            )}
 
             {/* Ad Account Filter */}
             {adAccounts.length > 0 && (
