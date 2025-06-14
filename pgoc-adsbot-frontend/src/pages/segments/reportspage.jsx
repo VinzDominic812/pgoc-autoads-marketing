@@ -384,8 +384,8 @@ const ReportsPage = () => {
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
-                    backgroundColor: '#4CAF50', // A shade of green
-                    '&:hover': { backgroundColor: '#45a049' }, // Darker green on hover
+                    backgroundColor: '#F44336', // Red color
+                    '&:hover': { backgroundColor: '#D32F2F' }, // Darker red on hover
                   }}
                 />
               </Box>
