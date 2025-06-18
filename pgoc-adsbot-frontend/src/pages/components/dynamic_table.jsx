@@ -26,6 +26,7 @@ const DynamicTable = ({
   nonEditableHeaders = [],
   customRenderers = {}, //icons
   compact = false,
+  showCheckbox = false,
 }) => {
   
   const [page, setPage] = useState(1);
@@ -136,32 +137,52 @@ const DynamicTable = ({
         <Table stickyHeader sx={{ minWidth: "800px", tableLayout: "fixed" }}>
           <TableHead>
             <TableRow sx={{ height: "30px" }}>
-              {/* <TableCell
-                sx={{
-                  backgroundColor: "#d32f2f",
-                  color: "white",
-                  fontWeight: "bold",
-                  padding: "8px",
-                  textAlign: "center",
-                  width: `${100 / (headers.length + 2)}%`,
-                }}
-              >
-                <Checkbox
-                  sx={{ color: "white", padding: "2px" }}
-                  checked={paginatedData.every((_, index) =>
-                    selectedRows.get(page)?.has(index)
-                  )}
-                  indeterminate={
-                    paginatedData.some((_, index) =>
+              {showCheckbox && (
+                <TableCell
+                  sx={{
+                    backgroundColor: "#d32f2f",
+                    color: "white",
+                    fontWeight: "bold",
+                    padding: "8px",
+                    textAlign: "center",
+                    width: `${100 / (headers.length + 2)}%`,
+                  }}
+                >
+                  <Checkbox
+                    sx={{
+                      color: "white",
+                      padding: "2px",
+                      '& .MuiSvgIcon-root': {
+                        border: '1px solid #c4c4c4',
+                        borderRadius: '2px',
+                        width: '20px',
+                        height: '20px',
+                        backgroundColor: 'white',
+                      },
+                      '&.Mui-checked .MuiSvgIcon-root': {
+                        backgroundColor: '#e0f2f7',
+                        borderColor: '#2196f3',
+                        '& path': {
+                          fill: '#2196f3',
+                        },
+                      },
+                    }}
+                    checked={paginatedData.length > 0 && paginatedData.every((_, index) =>
                       selectedRows.get(page)?.has(index)
-                    ) &&
-                    !paginatedData.every((_, index) =>
-                      selectedRows.get(page)?.has(index)
-                    )
-                  }
-                  onChange={handleSelectAll}
-                />
-              </TableCell> */}
+                    )}
+                    indeterminate={
+                      paginatedData.length > 0 && 
+                      paginatedData.some((_, index) =>
+                        selectedRows.get(page)?.has(index)
+                      ) &&
+                      !paginatedData.every((_, index) =>
+                        selectedRows.get(page)?.has(index)
+                      )
+                    }
+                    onChange={handleSelectAll}
+                  />
+                </TableCell>
+              )}
               {/* <TableCell
                 sx={{
                   backgroundColor: "#d32f2f",
@@ -204,26 +225,34 @@ const DynamicTable = ({
                   "&:hover": { backgroundColor: "#f5f5f5" },
                 }}
               >
-                {/* <TableCell
-                  sx={{ textAlign: "center", padding: "8px", width: `${100 / (headers.length + 2)}%` }}
-                >
-                  <Checkbox
-                    color="primary"
-                    checked={selectedRows.get(page)?.has(rowIndex) || false}
-                    onChange={() => handleSelect(rowIndex)}
-                    sx={{ padding: "2px" }}
-                  />
-                </TableCell>
-                <TableCell
-                  sx={{
-                    textAlign: "center",
-                    fontWeight: "bold",
-                    padding: "8px",
-                    width: `${100 / (headers.length + 2)}%`,
-                  }}
-                >
-                  {startIndex + rowIndex + 1}
-                </TableCell> */}
+                {showCheckbox && (
+                  <TableCell
+                    sx={{ textAlign: "center", padding: "8px", width: `${100 / (headers.length + 2)}%` }}
+                  >
+                    <Checkbox
+                      color="primary"
+                      checked={selectedRows.get(page)?.has(rowIndex) || false}
+                      onChange={() => handleSelect(rowIndex)}
+                      sx={{
+                        padding: "2px",
+                        '& .MuiSvgIcon-root': {
+                          border: '1px solid #c4c4c4',
+                          borderRadius: '2px',
+                          width: '20px',
+                          height: '20px',
+                          backgroundColor: 'white',
+                        },
+                        '&.Mui-checked .MuiSvgIcon-root': {
+                          backgroundColor: '#e0f2f7',
+                          borderColor: '#2196f3',
+                          '& path': {
+                            fill: '#2196f3',
+                          },
+                        },
+                      }}
+                    />
+                  </TableCell>
+                )}
                 {headers.map((header, colIndex) => (
                   <TableCell
                     key={colIndex}

@@ -37,7 +37,7 @@ const ReportsPage = () => {
   const eventSourceRef = useRef(null);
   const [selectedAdAccount, setSelectedAdAccount] = useState("all");
   const [adAccounts, setAdAccounts] = useState([]);
-  const [statusFilter, setStatusFilter] = useState("ACTIVE"); // New state for status filtering
+  const [statusFilter, setStatusFilter] = useState("all"); // Changed from "ACTIVE" to "all"
 
   // Enhanced summary data with breakdown by status
   const summaryData = React.useMemo(() => {
@@ -45,7 +45,7 @@ const ReportsPage = () => {
     const inactiveRows = adspentData.filter(row => row.delivery_status === "INACTIVE");
     const notDeliveringRows = adspentData.filter(row => row.delivery_status === "NOT_DELIVERING");
 
-    const totalBudget = activeRows.reduce(
+    const totalBudget = adspentData.reduce(
       (sum, row) => sum + Number(row.daily_budget || 0),
       0
     );
@@ -53,14 +53,14 @@ const ReportsPage = () => {
       (sum, row) => sum + Number(row.budget_remaining || 0),
       0
     );
-    const spent = activeRows.reduce(
+    const spent = adspentData.reduce(
       (sum, row) => sum + Number(row.spent || 0),
       0
     );
 
     return [
-      { label: "Total Budget (Active)", value: `₱${totalBudget.toFixed(2)}` },
-      { label: "Budget Remaining", value: `₱${budgetRemaining.toFixed(2)}` },
+      { label: "Total Budget", value: `₱${totalBudget.toFixed(2)}` },
+      { label: "Budget Remaining (Active)", value: `₱${budgetRemaining.toFixed(2)}` },
       { label: "Spent", value: `₱${spent.toFixed(2)}` },
       { label: "Active Campaigns", value: activeRows.length },
       { label: "Inactive Campaigns", value: inactiveRows.length },
@@ -281,6 +281,8 @@ const ReportsPage = () => {
 
     // Updated CSV headers to include ad_account_name
     const csvHeaders = [
+      // "ad_account_id",
+      // "campaign_id",
       "campaign_name",
       "ad_account_name",
       "delivery_status",
@@ -288,7 +290,6 @@ const ReportsPage = () => {
       "daily_budget",
       "budget_remaining",
     ];
-
     // Export ALL campaigns, not just filtered
     const csvRows = [
       csvHeaders.join(","),
@@ -369,6 +370,7 @@ const ReportsPage = () => {
                   type="primary"
                   icon={fetching ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
                   disabled={!accessToken || accessToken.length < 100 || fetching}
+                  sx={{ flexGrow: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                 />
                 {/* Custom Stop Fetching Button */}
                 <CustomButton
@@ -377,6 +379,14 @@ const ReportsPage = () => {
                   type="tertiary"
                   icon={null}
                   disabled={!accessToken || accessToken.length < 100}
+                  sx={{ 
+                    flexGrow: 1,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    backgroundColor: '#F44336', // Red color
+                    '&:hover': { backgroundColor: '#D32F2F' }, // Darker red on hover
+                  }}
                 />
               </Box>
               {/* Export Button in second row */}
@@ -446,20 +456,24 @@ const ReportsPage = () => {
           {/* Filters on the right */}
           <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
             {/* Status Filter */}
-            <Typography>Filter by Status:</Typography>
-            <FormControl sx={{ minWidth: 200 }}>
-              <Select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                displayEmpty
-                size="small"
-              >
-                <MenuItem value="ACTIVE">✅ Active Only</MenuItem>
-                <MenuItem value="all">📊 All Statuses</MenuItem>
-                <MenuItem value="INACTIVE">⏸️ Inactive</MenuItem>
-                <MenuItem value="NOT_DELIVERING">❌ Not Delivering</MenuItem>
-              </Select>
-            </FormControl>
+            {adspentData.length > 0 && (
+              <>
+                <Typography>Filter by Status:</Typography>
+                <FormControl sx={{ minWidth: 200 }}>
+                  <Select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    displayEmpty
+                    size="small"
+                  >
+                    <MenuItem value="all">📊 All Statuses</MenuItem>
+                    <MenuItem value="ACTIVE">✅ Active Only</MenuItem>
+                    <MenuItem value="INACTIVE">⏸️ Inactive</MenuItem>
+                    <MenuItem value="NOT_DELIVERING">❌ Not Delivering</MenuItem>
+                  </Select>
+                </FormControl>
+              </>
+            )}
 
             {/* Ad Account Filter */}
             {adAccounts.length > 0 && (
