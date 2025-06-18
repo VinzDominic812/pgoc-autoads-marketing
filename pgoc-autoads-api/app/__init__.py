@@ -24,7 +24,7 @@ from routes.on_off_page_route import pagename_on_off
 from routes.ad_spend_route import ad_spent_bp
 from routes.user_settings_route import user_routes
 from routes.verify_campaign_code_route import verify_campaign_code
-
+from routes.dashboard_route import dashboard_bp
 import logging
 from flask_mail import Mail
 from models.models import db, PHRegionTable  # Import PHRegionTable
@@ -158,6 +158,7 @@ def create_app():
     app.register_blueprint(schedule_campaign_only_bp, url_prefix="/api/v1/campaign-only")
     app.register_blueprint(ad_spent_bp, url_prefix='/api/v1')
     app.register_blueprint(user_routes, url_prefix='/api/v1')
+    app.register_blueprint(dashboard_bp, url_prefix='/api/v1')
     
     return app
 
