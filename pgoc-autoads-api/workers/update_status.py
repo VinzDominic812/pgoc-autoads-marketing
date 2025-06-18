@@ -285,28 +285,27 @@ def process_adsets(user_id, ad_account_id, access_token, schedule_data, campaign
                     adset_cpp_str = f"${adset_cpp:.2f}"
                     if on_off == "ON":
                         # For ON mode:
-                        # - If CPP < 16: Turn ON (good performance)
-                        # - If CPP >= 16: Turn OFF (poor performance)
+                        # - If CPP < threshold: Keep ACTIVE if already ACTIVE, or turn ON if PAUSED
+                        # - If CPP >= threshold: Turn PAUSED
                         if adset_cpp < cpp_metric:
                             should_update = adset_status != "ACTIVE"
                             new_status = "ACTIVE"
                             reason = f"CPP {adset_cpp_str} is below threshold (${cpp_metric}) - turning ON"
                         else:
-                            should_update = adset_status != "PAUSED"
+                            should_update = True
                             new_status = "PAUSED"
                             reason = f"CPP {adset_cpp_str} is above/equal to threshold (${cpp_metric}) - turning OFF"
                     else:  # OFF mode
                         # For OFF mode:
-                        # - If CPP >= 16: Turn OFF (poor performance)
-                        # - If CPP < 16: Turn ON (good performance)
+                        # - If CPP >= threshold: Turn PAUSED
+                        # - If CPP < threshold: Keep current state
                         if adset_cpp >= cpp_metric:
                             should_update = adset_status != "PAUSED"
                             new_status = "PAUSED"
                             reason = f"CPP {adset_cpp_str} is above/equal to threshold (${cpp_metric}) - turning OFF"
                         else:
-                            should_update = adset_status != "ACTIVE"
-                            new_status = "ACTIVE"
-                            reason = f"CPP {adset_cpp_str} is below threshold (${cpp_metric}) - turning ON"
+                            should_update = False
+                            reason = f"CPP {adset_cpp_str} is below threshold (${cpp_metric}) - keeping current state"
 
                 # Log the evaluation with clear decision making
                 append_redis_message_adsets(
