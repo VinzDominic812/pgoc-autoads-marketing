@@ -14,6 +14,7 @@ import {
   encryptData,
   decryptData,
 } from "../../services/user_data.js";
+import axios from "axios";
 
 const ReportsPage = () => {
   const apiUrl = import.meta.env.VITE_API_URL;
@@ -37,7 +38,34 @@ const ReportsPage = () => {
   const eventSourceRef = useRef(null);
   const [selectedAdAccount, setSelectedAdAccount] = useState("all");
   const [adAccounts, setAdAccounts] = useState([]);
-  const [statusFilter, setStatusFilter] = useState("all"); // Changed from "ACTIVE" to "all"
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [accessTokenMap, setAccessTokenMap] = useState({});
+
+  // Fetch access tokens when component mounts
+  useEffect(() => {
+    fetchAccessTokens();
+  }, []);
+
+  // Function to fetch access tokens from API
+  const fetchAccessTokens = async () => {
+    try {
+      const { id: userId } = getUserData();
+      const response = await axios.get(`${apiUrl}/api/v1/user/${userId}/access-tokens`);
+      
+      if (response.data && response.data.data) {
+        // Create a mapping of facebook_name -> access_token
+        const tokenMap = {};
+        response.data.data.forEach(token => {
+          if (token.facebook_name) {
+            tokenMap[token.facebook_name] = token.access_token;
+          }
+        });
+        setAccessTokenMap(tokenMap);
+      }
+    } catch (error) {
+      console.error("Error fetching access tokens:", error);
+    }
+  };
 
   // Enhanced summary data with breakdown by status
   const summaryData = React.useMemo(() => {
@@ -88,7 +116,7 @@ const ReportsPage = () => {
   // Fetch data function
   const fetchAdSpendData = async () => {
     if (!accessToken) {
-      notify("Please enter an access token", "error");
+      notify("Please enter a Facebook name", "error");
       return;
     }
 
@@ -106,12 +134,13 @@ const ReportsPage = () => {
         },
         body: JSON.stringify({
           user_id,
-          access_token: accessToken,
+          access_token: accessToken, // Send the Facebook name
         }),
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
@@ -150,15 +179,15 @@ const ReportsPage = () => {
       }
     } catch (error) {
       console.error("Error fetching data:", error);
-      notify("Failed to fetch data: " + error.message, "error");
+      notify(error.message || "Failed to fetch data", "error");
     } finally {
       setFetching(false);
     }
   };
 
   useEffect(() => {
-    if (accessToken && accessToken.length >= 100 && !fetching) {
-      handleFetchUser();
+    if (accessToken && accessToken.length > 0 && !fetching) {
+      fetchAdSpendData();
     }
   }, [accessToken]);
 
@@ -258,11 +287,7 @@ const ReportsPage = () => {
 
   const handleFetchUser = () => {
     if (!accessToken) {
-      alert("Please enter your access token.");
-      return;
-    }
-    if (accessToken.length < 100) {
-      alert("Access token seems invalid.");
+      notify("Please enter a Facebook name", "error");
       return;
     }
     fetchAdSpendData();
@@ -350,13 +375,13 @@ const ReportsPage = () => {
           <Box sx={{ flex: 1 }} />
 
           <Box sx={{ display: "flex", flexDirection: "column", gap: "15px" }}>
-            {/* Access Token Text Field */}
+            {/* Facebook Name Text Field */}
             <TextField
-              label="Access Token"
+              label="Facebook Name"
               value={accessToken}
               onChange={(e) => setAccessToken(e.target.value)}
-              helperText="Enter your Meta Ads Manager Access Token"
-              disabled={accessToken && accessToken.length >= 100}
+              helperText="Enter your Facebook name from Settings page"
+              disabled={fetching}
             />
 
             {/* Row with Fetch and Export Buttons */}
@@ -369,7 +394,7 @@ const ReportsPage = () => {
                   onClick={fetchAdSpendData}
                   type="primary"
                   icon={fetching ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
-                  disabled={!accessToken || accessToken.length < 100 || fetching}
+                  disabled={!accessToken || fetching}
                   sx={{ flexGrow: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                 />
                 {/* Custom Stop Fetching Button */}
@@ -378,7 +403,7 @@ const ReportsPage = () => {
                   onClick={handleStopFetching}
                   type="tertiary"
                   icon={null}
-                  disabled={!accessToken || accessToken.length < 100}
+                  disabled={!accessToken}
                   sx={{ 
                     flexGrow: 1,
                     whiteSpace: 'nowrap',
