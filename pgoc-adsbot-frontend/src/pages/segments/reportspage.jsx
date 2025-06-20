@@ -9,6 +9,7 @@ import SummaryTable from "../widgets/reports/summary_table.jsx";
 import CustomButton from "../components/buttons.jsx";
 import CloudExportIcon from "@mui/icons-material/BackupRounded";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import DeleteIcon from "@mui/icons-material/Delete";
 import {
   getUserData,
   encryptData,
@@ -29,94 +30,220 @@ const ReportsPage = () => {
     "spent",
   ];
 
-  const [adspentData, setAdspentData] = useState([]);
-  const [accessToken, setAccessToken] = useState("");
-  const [userName, setUserName] = useState("");
+  // Helper function to get persisted state from localStorage
+  const getPersistedState = (key, defaultValue) => {
+    try {
+      const encryptedData = localStorage.getItem(key);
+      if (!encryptedData) return defaultValue;
+      const decryptedData = decryptData(encryptedData);
+      if (!decryptedData) return defaultValue;
+
+      if (Array.isArray(decryptedData)) {
+        return decryptedData;
+      }
+
+      if (typeof decryptedData === "string") {
+        try {
+          const parsed = JSON.parse(decryptedData);
+          return Array.isArray(parsed) ? parsed : defaultValue;
+        } catch {
+          return defaultValue;
+        }
+      }
+      return defaultValue;
+    } catch (error) {
+      console.error(`Error loading ${key}:`, error);
+      return defaultValue;
+    }
+  };
+
+  // Initialize state with persisted data
+  const [adspentData, setAdspentData] = useState(() => {
+    const data = getPersistedState("reportsAdspentData", []);
+    return Array.isArray(data) ? data : [];
+  });
+
+  const [selectedFacebookName, setSelectedFacebookName] = useState(() => {
+    return localStorage.getItem("reportsSelectedFacebookName") || "";
+  });
+
+  const [userName, setUserName] = useState(() => {
+    return localStorage.getItem("reportsUserName") || "";
+  });
+
+  const [adAccounts, setAdAccounts] = useState(() => {
+    const data = getPersistedState("reportsAdAccounts", []);
+    return Array.isArray(data) ? data : [];
+  });
+
+  const [messages, setMessages] = useState(() => {
+    const data = getPersistedState("reportsMessages", []);
+    return Array.isArray(data) ? data : [];
+  });
+
   const [fetching, setFetching] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
-  const [messages, setMessages] = useState([]);
   const eventSourceRef = useRef(null);
   const [selectedAdAccount, setSelectedAdAccount] = useState("all");
-  const [adAccounts, setAdAccounts] = useState([]);
   const [statusFilter, setStatusFilter] = useState("all");
   const [accessTokenMap, setAccessTokenMap] = useState({});
+  const [facebookNames, setFacebookNames] = useState([]);
+  const [loadingTokens, setLoadingTokens] = useState(false);
+  const [userRelationship, setUserRelationship] = useState(null);
+  const [loadingRelationship, setLoadingRelationship] = useState(false);
 
   // Fetch access tokens when component mounts
   useEffect(() => {
     fetchAccessTokens();
+    checkUserRelationship();
   }, []);
+
+  // Persist data to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      const encryptedData = encryptData(adspentData);
+      localStorage.setItem("reportsAdspentData", encryptedData);
+    } catch (error) {
+      console.error("Error saving adspent data:", error);
+    }
+  }, [adspentData]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("reportsSelectedFacebookName", selectedFacebookName);
+    } catch (error) {
+      console.error("Error saving selected Facebook name:", error);
+    }
+  }, [selectedFacebookName]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("reportsUserName", userName);
+    } catch (error) {
+      console.error("Error saving user name:", error);
+    }
+  }, [userName]);
+
+  useEffect(() => {
+    try {
+      const encryptedData = encryptData(adAccounts);
+      localStorage.setItem("reportsAdAccounts", encryptedData);
+    } catch (error) {
+      console.error("Error saving ad accounts:", error);
+    }
+  }, [adAccounts]);
+
+  useEffect(() => {
+    try {
+      const encryptedData = encryptData(messages);
+      localStorage.setItem("reportsMessages", encryptedData);
+    } catch (error) {
+      console.error("Error saving messages:", error);
+    }
+  }, [messages]);
 
   // Function to fetch access tokens from API
   const fetchAccessTokens = async () => {
     try {
+      setLoadingTokens(true);
       const { id: userId } = getUserData();
       const response = await axios.get(`${apiUrl}/api/v1/user/${userId}/access-tokens`);
       
       if (response.data && response.data.data) {
         // Create a mapping of facebook_name -> access_token
         const tokenMap = {};
+        const names = [];
+        
         response.data.data.forEach(token => {
           if (token.facebook_name) {
             tokenMap[token.facebook_name] = token.access_token;
+            names.push({
+              name: token.facebook_name,
+              token: token.access_token,
+              isExpired: token.is_expire
+            });
           }
         });
+        
         setAccessTokenMap(tokenMap);
+        setFacebookNames(names);
+        
+        // Don't auto-select - let user choose
+        // If current selection is no longer valid, clear it
+        if (selectedFacebookName && !tokenMap[selectedFacebookName]) {
+          setSelectedFacebookName("");
+        }
+      } else {
+        setFacebookNames([]);
+        setAccessTokenMap({});
+        setSelectedFacebookName("");
       }
     } catch (error) {
       console.error("Error fetching access tokens:", error);
+      notify("Failed to fetch Facebook names. Please check your connection.", "error");
+      setFacebookNames([]);
+      setAccessTokenMap({});
+      setSelectedFacebookName("");
+    } finally {
+      setLoadingTokens(false);
     }
   };
 
-  // Enhanced summary data with breakdown by status
-  const summaryData = React.useMemo(() => {
-    const activeRows = adspentData.filter(row => row.delivery_status === "ACTIVE");
-    const inactiveRows = adspentData.filter(row => row.delivery_status === "INACTIVE");
-    const notDeliveringRows = adspentData.filter(row => row.delivery_status === "NOT_DELIVERING");
-
-    const totalBudget = adspentData.reduce(
-      (sum, row) => sum + Number(row.daily_budget || 0),
-      0
-    );
-    const budgetRemaining = activeRows.reduce(
-      (sum, row) => sum + Number(row.budget_remaining || 0),
-      0
-    );
-    const spent = adspentData.reduce(
-      (sum, row) => sum + Number(row.spent || 0),
-      0
-    );
-
-    return [
-      { label: "Total Budget", value: `₱${totalBudget.toFixed(2)}` },
-      { label: "Budget Remaining (Active)", value: `₱${budgetRemaining.toFixed(2)}` },
-      { label: "Spent", value: `₱${spent.toFixed(2)}` },
-      { label: "Active Campaigns", value: activeRows.length },
-      { label: "Inactive Campaigns", value: inactiveRows.length },
-      { label: "Not Delivering", value: notDeliveringRows.length }
-    ];
-  }, [adspentData]);
-
-  // Enhanced filtering logic to include status filter
-  const filteredData = React.useMemo(() => {
-    let filtered = adspentData;
-    
-    // Filter by ad account
-    if (selectedAdAccount !== "all") {
-      filtered = filtered.filter(row => row.ad_account_id === selectedAdAccount);
+  // Function to check user relationship status
+  const checkUserRelationship = async () => {
+    try {
+      setLoadingRelationship(true);
+      const { id: userId } = getUserData();
+      const response = await axios.get(`${apiUrl}/api/v1/check-relationship?user_id=${userId}`);
+      
+      if (response.data) {
+        setUserRelationship(response.data);
+      }
+    } catch (error) {
+      console.error("Error checking user relationship:", error);
+      // Set default relationship status as false if check fails
+      setUserRelationship({ relationship: false });
+    } finally {
+      setLoadingRelationship(false);
     }
-    
-    // Filter by delivery status
-    if (statusFilter !== "all") {
-      filtered = filtered.filter(row => row.delivery_status === statusFilter);
-    }
-    
-    return filtered;
-  }, [adspentData, selectedAdAccount, statusFilter]);
+  };
 
-  // Fetch data function
-  const fetchAdSpendData = async () => {
+  // Get the access token for the selected Facebook name
+  const getSelectedAccessToken = () => {
+    return accessTokenMap[selectedFacebookName] || "";
+  };
+
+  // Handle Facebook name selection
+  const handleFacebookNameChange = (facebookName) => {
+    setSelectedFacebookName(facebookName);
+    
+    // Clear previous data when selection changes
+    setAdspentData([]);
+    setMessages([]);
+    setUserName("");
+    setAdAccounts([]);
+    setCurrentPage(0);
+    
+    // Only fetch data if a valid Facebook name is selected
+    if (facebookName && facebookName.length > 0) {
+      // Get the access token for the selected Facebook name
+      const accessToken = accessTokenMap[facebookName];
+      if (accessToken) {
+        // Use setTimeout to ensure state is updated before fetching
+        setTimeout(() => {
+          fetchAdSpendDataWithToken(accessToken);
+        }, 0);
+      } else {
+        console.error("Access token not found for Facebook name:", facebookName);
+        notify("Access token not found for selected Facebook account", "error");
+      }
+    }
+  };
+
+  // Fetch data function with explicit access token parameter
+  const fetchAdSpendDataWithToken = async (accessToken) => {
     if (!accessToken) {
-      notify("Please enter a Facebook name", "error");
+      notify("Please select a Facebook account", "error");
       return;
     }
 
@@ -134,7 +261,7 @@ const ReportsPage = () => {
         },
         body: JSON.stringify({
           user_id,
-          access_token: accessToken, // Send the Facebook name
+          access_token: accessToken,
         }),
       });
 
@@ -185,11 +312,51 @@ const ReportsPage = () => {
     }
   };
 
-  useEffect(() => {
-    if (accessToken && accessToken.length > 0 && !fetching) {
-      fetchAdSpendData();
+  // Enhanced summary data with breakdown by status
+  const summaryData = React.useMemo(() => {
+    const activeRows = adspentData.filter(row => row.delivery_status === "ACTIVE");
+    const inactiveRows = adspentData.filter(row => row.delivery_status === "INACTIVE");
+    const notDeliveringRows = adspentData.filter(row => row.delivery_status === "NOT_DELIVERING");
+
+    const totalBudget = adspentData.reduce(
+      (sum, row) => sum + Number(row.daily_budget || 0),
+      0
+    );
+    const budgetRemaining = activeRows.reduce(
+      (sum, row) => sum + Number(row.budget_remaining || 0),
+      0
+    );
+    const spent = adspentData.reduce(
+      (sum, row) => sum + Number(row.spent || 0),
+      0
+    );
+
+    return [
+      { label: "Total Budget", value: `₱${totalBudget.toFixed(2)}` },
+      { label: "Budget Remaining (Active)", value: `₱${budgetRemaining.toFixed(2)}` },
+      { label: "Spent", value: `₱${spent.toFixed(2)}` },
+      { label: "Active Campaigns", value: activeRows.length },
+      { label: "Inactive Campaigns", value: inactiveRows.length },
+      { label: "Not Delivering", value: notDeliveringRows.length }
+    ];
+  }, [adspentData]);
+
+  // Enhanced filtering logic to include status filter
+  const filteredData = React.useMemo(() => {
+    let filtered = adspentData;
+    
+    // Filter by ad account
+    if (selectedAdAccount !== "all") {
+      filtered = filtered.filter(row => row.ad_account_id === selectedAdAccount);
     }
-  }, [accessToken]);
+    
+    // Filter by delivery status
+    if (statusFilter !== "all") {
+      filtered = filtered.filter(row => row.delivery_status === statusFilter);
+    }
+    
+    return filtered;
+  }, [adspentData, selectedAdAccount, statusFilter]);
 
   useEffect(() => {
     const { id: user_id } = getUserData();
@@ -286,16 +453,58 @@ const ReportsPage = () => {
   }, [fetching]);
 
   const handleFetchUser = () => {
-    if (!accessToken) {
-      notify("Please enter a Facebook name", "error");
+    if (!selectedFacebookName) {
+      notify("Please select a Facebook account", "error");
       return;
     }
-    fetchAdSpendData();
+    const accessToken = getSelectedAccessToken();
+    if (accessToken) {
+      fetchAdSpendDataWithToken(accessToken);
+    } else {
+      notify("Access token not found for selected Facebook account", "error");
+    }
   };
 
   const handleStopFetching = () => {
     setFetching(false);
-    setAccessToken(""); // Clear the token so it becomes editable again
+    setSelectedFacebookName(""); // Clear the selected name so it becomes editable again
+    setAdspentData([]); // Clear the data
+    setMessages([]); // Clear messages
+    setUserName(""); // Clear user name
+    setAdAccounts([]); // Clear ad accounts
+    
+    // Clear persisted data from localStorage
+    try {
+      localStorage.removeItem("reportsAdspentData");
+      localStorage.removeItem("reportsSelectedFacebookName");
+      localStorage.removeItem("reportsUserName");
+      localStorage.removeItem("reportsAdAccounts");
+      localStorage.removeItem("reportsMessages");
+    } catch (error) {
+      console.error("Error clearing persisted data:", error);
+    }
+  };
+
+  const handleClearAllData = () => {
+    setAdspentData([]);
+    setMessages([]);
+    setUserName("");
+    setAdAccounts([]);
+    setSelectedFacebookName("");
+    setCurrentPage(0);
+    
+    // Clear persisted data from localStorage
+    try {
+      localStorage.removeItem("reportsAdspentData");
+      localStorage.removeItem("reportsSelectedFacebookName");
+      localStorage.removeItem("reportsUserName");
+      localStorage.removeItem("reportsAdAccounts");
+      localStorage.removeItem("reportsMessages");
+      notify("All data cleared successfully!", "success");
+    } catch (error) {
+      console.error("Error clearing persisted data:", error);
+      notify("Failed to clear data", "error");
+    }
   };
 
   const handleExportData = () => {
@@ -375,52 +584,117 @@ const ReportsPage = () => {
           <Box sx={{ flex: 1 }} />
 
           <Box sx={{ display: "flex", flexDirection: "column", gap: "15px" }}>
-            {/* Facebook Name Text Field */}
-            <TextField
-              label="Facebook Name"
-              value={accessToken}
-              onChange={(e) => setAccessToken(e.target.value)}
-              helperText="Enter your Facebook name from Settings page"
-              disabled={fetching}
-            />
+            {/* Facebook Name Dropdown */}
+            <FormControl sx={{ minWidth: 200 }}>
+              <Select
+                value={selectedFacebookName}
+                onChange={(e) => handleFacebookNameChange(e.target.value)}
+                displayEmpty
+                disabled={fetching || loadingTokens}
+                startAdornment={loadingTokens ? <CircularProgress size={20} /> : null}
+                placeholder="Select Facebook"
+              >
+                <MenuItem value="">
+                  <em>Select Facebook</em>
+                </MenuItem>
+                {facebookNames.map((name) => (
+                  <MenuItem key={name.name} value={name.name}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <span>{name.name}</span>
+                      {name.isExpired && (
+                        <Typography variant="caption" color="error">
+                          ⚠️ Expired
+                        </Typography>
+                      )}
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Select>
+              <Typography variant="caption" color="text.secondary">
+                {facebookNames.length > 0 
+                  ? `Select a Facebook account to fetch campaign data (${facebookNames.length} available)`
+                  : loadingRelationship 
+                    ? "Checking account status..."
+                    : userRelationship?.relationship 
+                      ? "No Facebook accounts found. Inform your supervisor."
+                      : "No Facebook accounts found. Enter your invite code from your supervisor."
+                }
+              </Typography>
+              {adspentData.length > 0 && (
+                <Typography variant="caption" color="success.main" sx={{ display: 'block', mt: 0.5 }}>
+                  📊 {adspentData.length} campaigns loaded • Ready to export
+                </Typography>
+              )}
+            </FormControl>
 
-            {/* Row with Fetch and Export Buttons */}
-            <Box sx={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              {/* First row with Refresh and Stop buttons */}
-              <Box sx={{ display: "flex", gap: "10px" }}>
-                {/* Manual Refresh Button */}
+            {/* Button Container */}
+            <Box
+              sx={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: "12px",
+                marginBottom: "12px",
+              }}
+            >
+              {/* First Row: Refresh and Stop */}
+              <Box sx={{ display: "flex", gap: "15px" }}>
                 <CustomButton
                   name={fetching ? "Fetching..." : "Refresh Data"}
-                  onClick={fetchAdSpendData}
-                  type="primary"
-                  icon={fetching ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
-                  disabled={!accessToken || fetching}
-                  sx={{ flexGrow: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                  onClick={handleFetchUser}
+                  type="tertiary"
+                  icon={
+                    fetching ? (
+                      <CircularProgress size={20} color="inherit" />
+                    ) : (
+                      <RefreshIcon />
+                    )
+                  }
+                  disabled={!selectedFacebookName || fetching}
                 />
-                {/* Custom Stop Fetching Button */}
                 <CustomButton
                   name="Stop Fetching"
                   onClick={handleStopFetching}
-                  type="tertiary"
+                  type="primary"
                   icon={null}
-                  disabled={!accessToken}
-                  sx={{ 
-                    flexGrow: 1,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    backgroundColor: '#F44336', // Red color
-                    '&:hover': { backgroundColor: '#D32F2F' }, // Darker red on hover
-                  }}
+                  disabled={!selectedFacebookName || !fetching}
                 />
               </Box>
-              {/* Export Button in second row */}
+
+              {/* Second Row: Refresh Tokens, Export, Clear */}
+              <Box sx={{ display: "flex", gap: "15px" }}>
+                <CustomButton
+                  name={loadingTokens ? "Refreshing..." : "Refresh Tokens"}
+                  onClick={fetchAccessTokens}
+                  type="secondary"
+                  icon={
+                    loadingTokens ? (
+                      <CircularProgress size={20} color="inherit" />
+                    ) : (
+                      <RefreshIcon />
+                    )
+                  }
+                  disabled={loadingTokens}
+                />
               <CustomButton
                 name="Export"
                 onClick={handleExportData}
+                  type="tertiary"
+                  icon={<CloudExportIcon />}
+                  disabled={adspentData.length === 0}
+                />
+                <CustomButton
+                  name="Clear Data"
+                  onClick={handleClearAllData}
                 type="primary"
-                icon={<CloudExportIcon />}
-              />
+                  icon={<DeleteIcon />}
+                  disabled={
+                    adspentData.length === 0 &&
+                    messages.length === 0 &&
+                    userName === ""
+                  }
+                />
+              </Box>
             </Box>
           </Box>
         </Box>
