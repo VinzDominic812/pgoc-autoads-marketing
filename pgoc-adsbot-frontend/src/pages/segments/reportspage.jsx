@@ -76,10 +76,7 @@ const ReportsPage = () => {
     return Array.isArray(data) ? data : [];
   });
 
-  const [messages, setMessages] = useState(() => {
-    const data = getPersistedState("reportsMessages", []);
-    return Array.isArray(data) ? data : [];
-  });
+  const [messages, setMessages] = useState([]);
 
   const [fetching, setFetching] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
@@ -132,15 +129,6 @@ const ReportsPage = () => {
       console.error("Error saving ad accounts:", error);
     }
   }, [adAccounts]);
-
-  useEffect(() => {
-    try {
-      const encryptedData = encryptData(messages);
-      localStorage.setItem("reportsMessages", encryptedData);
-    } catch (error) {
-      console.error("Error saving messages:", error);
-    }
-  }, [messages]);
 
   // Function to fetch access tokens from API
   const fetchAccessTokens = async () => {
@@ -459,7 +447,9 @@ const ReportsPage = () => {
     }
     const accessToken = getSelectedAccessToken();
     if (accessToken) {
-      fetchAdSpendDataWithToken(accessToken);
+      fetchAdSpendDataWithToken(accessToken).then(() => {
+        setMessages((prev) => prev.length > 0 ? [prev[prev.length - 1]] : []);
+      });
     } else {
       notify("Access token not found for selected Facebook account", "error");
     }
@@ -479,7 +469,6 @@ const ReportsPage = () => {
       localStorage.removeItem("reportsSelectedFacebookName");
       localStorage.removeItem("reportsUserName");
       localStorage.removeItem("reportsAdAccounts");
-      localStorage.removeItem("reportsMessages");
     } catch (error) {
       console.error("Error clearing persisted data:", error);
     }
@@ -499,7 +488,6 @@ const ReportsPage = () => {
       localStorage.removeItem("reportsSelectedFacebookName");
       localStorage.removeItem("reportsUserName");
       localStorage.removeItem("reportsAdAccounts");
-      localStorage.removeItem("reportsMessages");
       notify("All data cleared successfully!", "success");
     } catch (error) {
       console.error("Error clearing persisted data:", error);
