@@ -9,11 +9,14 @@ import SummaryTable from "../widgets/reports/summary_table.jsx";
 import CustomButton from "../components/buttons.jsx";
 import CloudExportIcon from "@mui/icons-material/BackupRounded";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import DeleteIcon from "@mui/icons-material/Delete";
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import {
   getUserData,
   encryptData,
   decryptData,
 } from "../../services/user_data.js";
+import axios from "axios";
 
 const ReportsPage = () => {
   const apiUrl = import.meta.env.VITE_API_URL;
@@ -28,16 +31,275 @@ const ReportsPage = () => {
     "spent",
   ];
 
-  const [adspentData, setAdspentData] = useState([]);
-  const [accessToken, setAccessToken] = useState("");
-  const [userName, setUserName] = useState("");
+  // Helper function to get persisted state from localStorage
+  const getPersistedState = (key, defaultValue) => {
+    try {
+      const encryptedData = localStorage.getItem(key);
+      if (!encryptedData) return defaultValue;
+      const decryptedData = decryptData(encryptedData);
+      if (!decryptedData) return defaultValue;
+
+      if (Array.isArray(decryptedData)) {
+        return decryptedData;
+      }
+
+      if (typeof decryptedData === "string") {
+        try {
+          const parsed = JSON.parse(decryptedData);
+          return Array.isArray(parsed) ? parsed : defaultValue;
+        } catch {
+          return defaultValue;
+        }
+      }
+      return defaultValue;
+    } catch (error) {
+      console.error(`Error loading ${key}:`, error);
+      return defaultValue;
+    }
+  };
+
+  // Initialize state with persisted data
+  const [adspentData, setAdspentData] = useState(() => {
+    const data = getPersistedState("reportsAdspentData", []);
+    return Array.isArray(data) ? data : [];
+  });
+
+  const [selectedFacebookName, setSelectedFacebookName] = useState(() => {
+    return localStorage.getItem("reportsSelectedFacebookName") || "";
+  });
+
+  const [userName, setUserName] = useState(() => {
+    return localStorage.getItem("reportsUserName") || "";
+  });
+
+  const [adAccounts, setAdAccounts] = useState(() => {
+    const data = getPersistedState("reportsAdAccounts", []);
+    return Array.isArray(data) ? data : [];
+  });
+
+  const [messages, setMessages] = useState([]);
+
   const [fetching, setFetching] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
-  const [messages, setMessages] = useState([]);
   const eventSourceRef = useRef(null);
   const [selectedAdAccount, setSelectedAdAccount] = useState("all");
-  const [adAccounts, setAdAccounts] = useState([]);
-  const [statusFilter, setStatusFilter] = useState("all"); // Changed from "ACTIVE" to "all"
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [accessTokenMap, setAccessTokenMap] = useState({});
+  const [facebookNames, setFacebookNames] = useState([]);
+  const [loadingTokens, setLoadingTokens] = useState(false);
+  const [userRelationship, setUserRelationship] = useState(null);
+  const [loadingRelationship, setLoadingRelationship] = useState(false);
+
+  // Fetch access tokens when component mounts
+  useEffect(() => {
+    fetchAccessTokens();
+    checkUserRelationship();
+  }, []);
+
+  // Persist data to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      const encryptedData = encryptData(adspentData);
+      localStorage.setItem("reportsAdspentData", encryptedData);
+    } catch (error) {
+      console.error("Error saving adspent data:", error);
+    }
+  }, [adspentData]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("reportsSelectedFacebookName", selectedFacebookName);
+    } catch (error) {
+      console.error("Error saving selected Facebook name:", error);
+    }
+  }, [selectedFacebookName]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("reportsUserName", userName);
+    } catch (error) {
+      console.error("Error saving user name:", error);
+    }
+  }, [userName]);
+
+  useEffect(() => {
+    try {
+      const encryptedData = encryptData(adAccounts);
+      localStorage.setItem("reportsAdAccounts", encryptedData);
+    } catch (error) {
+      console.error("Error saving ad accounts:", error);
+    }
+  }, [adAccounts]);
+
+  // Function to fetch access tokens from API
+  const fetchAccessTokens = async () => {
+    try {
+      setLoadingTokens(true);
+      const { id: userId } = getUserData();
+      const response = await axios.get(`${apiUrl}/api/v1/user/${userId}/access-tokens`);
+      
+      if (response.data && response.data.data) {
+        // Create a mapping of facebook_name -> access_token
+        const tokenMap = {};
+        const names = [];
+        
+        response.data.data.forEach(token => {
+          if (token.facebook_name) {
+            tokenMap[token.facebook_name] = token.access_token;
+            names.push({
+              name: token.facebook_name,
+              token: token.access_token,
+              isExpired: token.is_expire
+            });
+          }
+        });
+        
+        setAccessTokenMap(tokenMap);
+        setFacebookNames(names);
+        
+        // Don't auto-select - let user choose
+        // If current selection is no longer valid, clear it
+        if (selectedFacebookName && !tokenMap[selectedFacebookName]) {
+          setSelectedFacebookName("");
+        }
+      } else {
+        setFacebookNames([]);
+        setAccessTokenMap({});
+        setSelectedFacebookName("");
+      }
+    } catch (error) {
+      console.error("Error fetching access tokens:", error);
+      notify("Failed to fetch Facebook names. Please check your connection.", "error");
+      setFacebookNames([]);
+      setAccessTokenMap({});
+      setSelectedFacebookName("");
+    } finally {
+      setLoadingTokens(false);
+    }
+  };
+
+  // Function to check user relationship status
+  const checkUserRelationship = async () => {
+    try {
+      setLoadingRelationship(true);
+      const { id: userId } = getUserData();
+      const response = await axios.get(`${apiUrl}/api/v1/check-relationship?user_id=${userId}`);
+      
+      if (response.data) {
+        setUserRelationship(response.data);
+      }
+    } catch (error) {
+      console.error("Error checking user relationship:", error);
+      // Set default relationship status as false if check fails
+      setUserRelationship({ relationship: false });
+    } finally {
+      setLoadingRelationship(false);
+    }
+  };
+
+  // Get the access token for the selected Facebook name
+  const getSelectedAccessToken = () => {
+    return accessTokenMap[selectedFacebookName] || "";
+  };
+
+  // Handle Facebook name selection
+  const handleFacebookNameChange = (facebookName) => {
+    setSelectedFacebookName(facebookName);
+    
+    // Clear previous data when selection changes
+    setAdspentData([]);
+    setMessages([]);
+    setUserName("");
+    setAdAccounts([]);
+    setCurrentPage(0);
+    
+    // Only fetch data if a valid Facebook name is selected
+    if (facebookName && facebookName.length > 0) {
+      // Get the access token for the selected Facebook name
+      const accessToken = accessTokenMap[facebookName];
+      if (accessToken) {
+        // Use setTimeout to ensure state is updated before fetching
+        setTimeout(() => {
+          fetchAdSpendDataWithToken(accessToken);
+        }, 0);
+      } else {
+        console.error("Access token not found for Facebook name:", facebookName);
+        notify("Access token not found for selected Facebook account", "error");
+      }
+    }
+  };
+
+  // Fetch data function with explicit access token parameter
+  const fetchAdSpendDataWithToken = async (accessToken) => {
+    if (!accessToken) {
+      notify("Please select a Facebook account", "error");
+      return;
+    }
+
+    setFetching(true);
+    setMessages([]);
+
+    try {
+      const { id: user_id } = getUserData();
+      console.log("Starting data fetch for user:", user_id);
+
+      const response = await fetch(`${apiUrl}/api/v1/adspent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          user_id,
+          access_token: accessToken,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log("Raw API response:", data);
+
+      if (data.campaign_spending_data?.campaign_spending_data) {
+        const campaignData = data.campaign_spending_data.campaign_spending_data;
+        console.log("Campaign data structure:", campaignData);
+
+        if (campaignData.campaigns) {
+          const formattedData = campaignData.campaigns.map(campaign => ({
+            ad_account_id: campaign.ad_account_id,
+            ad_account_name: campaign.ad_account_name,
+            campaign_id: campaign.campaign_id,
+            campaign_name: campaign.campaign_name,
+            delivery_status: campaign.delivery_status,
+            daily_budget: parseFloat(campaign.daily_budget || 0).toFixed(2),
+            budget_remaining: parseFloat(campaign.budget_remaining || 0).toFixed(2),
+            spent: parseFloat(campaign.spend || 0).toFixed(2),
+          }));
+
+          // Update ad accounts list for filter dropdown
+          const uniqueAccounts = [...new Set(campaignData.campaigns.map(c => c.ad_account_name))];
+          setAdAccounts(uniqueAccounts);
+
+          setAdspentData(formattedData);
+          setUserName(campaignData.user_name || "");
+          console.log(`Fetched ${formattedData.length} campaigns from ${uniqueAccounts.length} accounts`);
+        } else {
+          console.error("No campaigns found in data");
+          notify("No campaign data found", "error");
+        }
+      } else {
+        console.error("Unexpected data format:", data);
+        notify("Received unknown data format", "error");
+      }
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      notify(error.message || "Failed to fetch data", "error");
+    } finally {
+      setFetching(false);
+    }
+  };
 
   // Enhanced summary data with breakdown by status
   const summaryData = React.useMemo(() => {
@@ -84,83 +346,6 @@ const ReportsPage = () => {
     
     return filtered;
   }, [adspentData, selectedAdAccount, statusFilter]);
-
-  // Fetch data function
-  const fetchAdSpendData = async () => {
-    if (!accessToken) {
-      notify("Please enter an access token", "error");
-      return;
-    }
-
-    setFetching(true);
-    setMessages([]);
-
-    try {
-      const { id: user_id } = getUserData();
-      console.log("Starting data fetch for user:", user_id);
-
-      const response = await fetch(`${apiUrl}/api/v1/adspent`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          user_id,
-          access_token: accessToken,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log("Raw API response:", data);
-
-      if (data.campaign_spending_data?.campaign_spending_data) {
-        const campaignData = data.campaign_spending_data.campaign_spending_data;
-        console.log("Campaign data structure:", campaignData);
-
-        if (campaignData.campaigns) {
-          const formattedData = campaignData.campaigns.map(campaign => ({
-            ad_account_id: campaign.ad_account_id,
-            ad_account_name: campaign.ad_account_name,
-            campaign_id: campaign.campaign_id,
-            campaign_name: campaign.campaign_name,
-            delivery_status: campaign.delivery_status,
-            daily_budget: parseFloat(campaign.daily_budget || 0).toFixed(2),
-            budget_remaining: parseFloat(campaign.budget_remaining || 0).toFixed(2),
-            spent: parseFloat(campaign.spend || 0).toFixed(2),
-          }));
-
-          // Update ad accounts list for filter dropdown
-          const uniqueAccounts = [...new Set(campaignData.campaigns.map(c => c.ad_account_name))];
-          setAdAccounts(uniqueAccounts);
-
-          setAdspentData(formattedData);
-          setUserName(campaignData.user_name || "");
-          console.log(`Fetched ${formattedData.length} campaigns from ${uniqueAccounts.length} accounts`);
-        } else {
-          console.error("No campaigns found in data");
-          notify("No campaign data found", "error");
-        }
-      } else {
-        console.error("Unexpected data format:", data);
-        notify("Received unknown data format", "error");
-      }
-    } catch (error) {
-      console.error("Error fetching data:", error);
-      notify("Failed to fetch data: " + error.message, "error");
-    } finally {
-      setFetching(false);
-    }
-  };
-
-  useEffect(() => {
-    if (accessToken && accessToken.length >= 100 && !fetching) {
-      handleFetchUser();
-    }
-  }, [accessToken]);
 
   useEffect(() => {
     const { id: user_id } = getUserData();
@@ -256,22 +441,102 @@ const ReportsPage = () => {
     };
   }, [fetching]);
 
+  useEffect(() => {
+    // When fetching completes and we have new data, automatically send to sheets.
+    if (adspentData.length > 0) {
+      handleSendToSheets();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adspentData]); // Trigger only when adspentData itself changes.
+
   const handleFetchUser = () => {
-    if (!accessToken) {
-      alert("Please enter your access token.");
+    if (!selectedFacebookName) {
+      notify("Please select a Facebook account", "error");
       return;
     }
-    if (accessToken.length < 100) {
-      alert("Access token seems invalid.");
-      return;
+    const accessToken = getSelectedAccessToken();
+    if (accessToken) {
+      fetchAdSpendDataWithToken(accessToken).then(() => {
+        setMessages((prev) => prev.length > 0 ? [prev[prev.length - 1]] : []);
+      });
+    } else {
+      notify("Access token not found for selected Facebook account", "error");
     }
-    fetchAdSpendData();
   };
 
   const handleStopFetching = () => {
     setFetching(false);
-    setAccessToken(""); // Clear the token so it becomes editable again
+    setSelectedFacebookName(""); // Clear the selected name so it becomes editable again
+    setAdspentData([]); // Clear the data
+    setMessages([]); // Clear messages
+    setUserName(""); // Clear user name
+    setAdAccounts([]); // Clear ad accounts
+    
+    // Clear persisted data from localStorage
+    try {
+      localStorage.removeItem("reportsAdspentData");
+      localStorage.removeItem("reportsSelectedFacebookName");
+      localStorage.removeItem("reportsUserName");
+      localStorage.removeItem("reportsAdAccounts");
+    } catch (error) {
+      console.error("Error clearing persisted data:", error);
+    }
   };
+
+  const handleClearAllData = () => {
+    setAdspentData([]);
+    setMessages([]);
+    setUserName("");
+    setAdAccounts([]);
+    setSelectedFacebookName("");
+    setCurrentPage(0);
+    
+    // Clear persisted data from localStorage
+    try {
+      localStorage.removeItem("reportsAdspentData");
+      localStorage.removeItem("reportsSelectedFacebookName");
+      localStorage.removeItem("reportsUserName");
+      localStorage.removeItem("reportsAdAccounts");
+      notify("All data cleared successfully!", "success");
+    } catch (error) {
+      console.error("Error clearing persisted data:", error);
+      notify("Failed to clear data", "error");
+    }
+  };
+
+  const handleSendToSheets = useCallback(async () => {
+    const budgetItem = summaryData.find(
+      (item) => item.label === "Budget Remaining (Active)"
+    );
+
+    if (!budgetItem || !budgetItem.value) {
+      console.log("Budget data not ready to be sent to sheets.");
+      return;
+    }
+
+    // Extract the numeric value from the string (e.g., "₱1234.56")
+    const budgetValue = budgetItem.value.replace(/[^0-9.-]+/g, "");
+    
+    // Only send if there's a positive budget remaining
+    if (parseFloat(budgetValue) <= 0) {
+        console.log("No active budget remaining to send to sheets.");
+        return;
+    }
+
+    try {
+      await axios.post(
+        `${apiUrl}/api/v1/sheets/update-budget`,
+        {
+          budget_remaining: budgetValue,
+        }
+      );
+      // Using console.log instead of notify to avoid user-facing popups for this background task.
+      console.log(`Successfully sent budget data to Google Sheets: ${budgetItem.value}`);
+    } catch (error) {
+      console.error("Error auto-sending data to Google Sheets:", error);
+      // Silent error for the user, logged to console for developers.
+    }
+  }, [summaryData, apiUrl]);
 
   const handleExportData = () => {
     if (adspentData.length === 0) {
@@ -350,52 +615,117 @@ const ReportsPage = () => {
           <Box sx={{ flex: 1 }} />
 
           <Box sx={{ display: "flex", flexDirection: "column", gap: "15px" }}>
-            {/* Access Token Text Field */}
-            <TextField
-              label="Access Token"
-              value={accessToken}
-              onChange={(e) => setAccessToken(e.target.value)}
-              helperText="Enter your Meta Ads Manager Access Token"
-              disabled={accessToken && accessToken.length >= 100}
-            />
+            {/* Facebook Name Dropdown */}
+            <FormControl sx={{ minWidth: 200 }}>
+              <Select
+                value={selectedFacebookName}
+                onChange={(e) => handleFacebookNameChange(e.target.value)}
+                displayEmpty
+                disabled={fetching || loadingTokens}
+                startAdornment={loadingTokens ? <CircularProgress size={20} /> : null}
+                placeholder="Select Facebook"
+              >
+                <MenuItem value="">
+                  <em>Select Facebook</em>
+                </MenuItem>
+                {facebookNames.map((name) => (
+                  <MenuItem key={name.name} value={name.name}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <span>{name.name}</span>
+                      {name.isExpired && (
+                        <Typography variant="caption" color="error">
+                          ⚠️ Expired
+                        </Typography>
+                      )}
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Select>
+              <Typography variant="caption" color="text.secondary">
+                {facebookNames.length > 0 
+                  ? `Select a Facebook account to fetch campaign data (${facebookNames.length} available)`
+                  : loadingRelationship 
+                    ? "Checking account status..."
+                    : userRelationship?.relationship 
+                      ? "No Facebook accounts found. Inform your supervisor."
+                      : "No Facebook accounts found. Enter your invite code from your supervisor."
+                }
+              </Typography>
+              {adspentData.length > 0 && (
+                <Typography variant="caption" color="success.main" sx={{ display: 'block', mt: 0.5 }}>
+                  📊 {adspentData.length} campaigns loaded • Ready to export
+                </Typography>
+              )}
+            </FormControl>
 
-            {/* Row with Fetch and Export Buttons */}
-            <Box sx={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              {/* First row with Refresh and Stop buttons */}
-              <Box sx={{ display: "flex", gap: "10px" }}>
-                {/* Manual Refresh Button */}
+            {/* Button Container */}
+            <Box
+              sx={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: "12px",
+                marginBottom: "12px",
+              }}
+            >
+              {/* First Row: Refresh and Stop */}
+              <Box sx={{ display: "flex", gap: "15px" }}>
                 <CustomButton
                   name={fetching ? "Fetching..." : "Refresh Data"}
-                  onClick={fetchAdSpendData}
-                  type="primary"
-                  icon={fetching ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
-                  disabled={!accessToken || accessToken.length < 100 || fetching}
-                  sx={{ flexGrow: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                  onClick={handleFetchUser}
+                  type="tertiary"
+                  icon={
+                    fetching ? (
+                      <CircularProgress size={20} color="inherit" />
+                    ) : (
+                      <RefreshIcon />
+                    )
+                  }
+                  disabled={!selectedFacebookName || fetching}
                 />
-                {/* Custom Stop Fetching Button */}
                 <CustomButton
                   name="Stop Fetching"
                   onClick={handleStopFetching}
-                  type="tertiary"
+                  type="primary"
                   icon={null}
-                  disabled={!accessToken || accessToken.length < 100}
-                  sx={{ 
-                    flexGrow: 1,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    backgroundColor: '#F44336', // Red color
-                    '&:hover': { backgroundColor: '#D32F2F' }, // Darker red on hover
-                  }}
+                  disabled={!selectedFacebookName || !fetching}
                 />
               </Box>
-              {/* Export Button in second row */}
-              <CustomButton
-                name="Export"
-                onClick={handleExportData}
-                type="primary"
-                icon={<CloudExportIcon />}
-              />
+
+              {/* Second Row: Refresh Tokens, Export, Clear */}
+              <Box sx={{ display: "flex", gap: "15px" }}>
+                <CustomButton
+                  name={loadingTokens ? "Refreshing..." : "Refresh Tokens"}
+                  onClick={fetchAccessTokens}
+                  type="secondary"
+                  icon={
+                    loadingTokens ? (
+                      <CircularProgress size={20} color="inherit" />
+                    ) : (
+                      <RefreshIcon />
+                    )
+                  }
+                  disabled={loadingTokens}
+                />
+                <CustomButton
+                  name="Export"
+                  onClick={handleExportData}
+                  type="tertiary"
+                  icon={<CloudExportIcon />}
+                  disabled={adspentData.length === 0}
+                />
+                <CustomButton
+                  name="Clear Data"
+                  onClick={handleClearAllData}
+                  type="primary"
+                  icon={<DeleteIcon />}
+                  disabled={
+                    adspentData.length === 0 &&
+                    messages.length === 0 &&
+                    userName === ""
+                  }
+                />
+              </Box>
             </Box>
           </Box>
         </Box>
