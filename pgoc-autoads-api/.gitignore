@@ -21,3 +21,6 @@ __pycache__/
 
 # Ignore VSCode settings (if applicable)
 .vscode/
+
+# Google credentials
+google_credentials.json
