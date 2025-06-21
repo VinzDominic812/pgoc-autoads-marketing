@@ -10,6 +10,7 @@ import CustomButton from "../components/buttons.jsx";
 import CloudExportIcon from "@mui/icons-material/BackupRounded";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import DeleteIcon from "@mui/icons-material/Delete";
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import {
   getUserData,
   encryptData,
@@ -440,6 +441,14 @@ const ReportsPage = () => {
     };
   }, [fetching]);
 
+  useEffect(() => {
+    // When fetching completes and we have new data, automatically send to sheets.
+    if (adspentData.length > 0) {
+      handleSendToSheets();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adspentData]); // Trigger only when adspentData itself changes.
+
   const handleFetchUser = () => {
     if (!selectedFacebookName) {
       notify("Please select a Facebook account", "error");
@@ -494,6 +503,40 @@ const ReportsPage = () => {
       notify("Failed to clear data", "error");
     }
   };
+
+  const handleSendToSheets = useCallback(async () => {
+    const budgetItem = summaryData.find(
+      (item) => item.label === "Budget Remaining (Active)"
+    );
+
+    if (!budgetItem || !budgetItem.value) {
+      console.log("Budget data not ready to be sent to sheets.");
+      return;
+    }
+
+    // Extract the numeric value from the string (e.g., "₱1234.56")
+    const budgetValue = budgetItem.value.replace(/[^0-9.-]+/g, "");
+    
+    // Only send if there's a positive budget remaining
+    if (parseFloat(budgetValue) <= 0) {
+        console.log("No active budget remaining to send to sheets.");
+        return;
+    }
+
+    try {
+      await axios.post(
+        `${apiUrl}/api/v1/sheets/update-budget`,
+        {
+          budget_remaining: budgetValue,
+        }
+      );
+      // Using console.log instead of notify to avoid user-facing popups for this background task.
+      console.log(`Successfully sent budget data to Google Sheets: ${budgetItem.value}`);
+    } catch (error) {
+      console.error("Error auto-sending data to Google Sheets:", error);
+      // Silent error for the user, logged to console for developers.
+    }
+  }, [summaryData, apiUrl]);
 
   const handleExportData = () => {
     if (adspentData.length === 0) {
@@ -664,9 +707,9 @@ const ReportsPage = () => {
                   }
                   disabled={loadingTokens}
                 />
-              <CustomButton
-                name="Export"
-                onClick={handleExportData}
+                <CustomButton
+                  name="Export"
+                  onClick={handleExportData}
                   type="tertiary"
                   icon={<CloudExportIcon />}
                   disabled={adspentData.length === 0}
@@ -674,7 +717,7 @@ const ReportsPage = () => {
                 <CustomButton
                   name="Clear Data"
                   onClick={handleClearAllData}
-                type="primary"
+                  type="primary"
                   icon={<DeleteIcon />}
                   disabled={
                     adspentData.length === 0 &&
