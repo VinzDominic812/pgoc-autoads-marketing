@@ -270,49 +270,47 @@ def process_adsets(user_id, ad_account_id, access_token, schedule_data, campaign
 
                 # Handle different CPP scenarios with clear decision tree
                 if adset_cpp == float('inf') or adset_cpp == 0 or adset_cpp is None:
-                    # For missing/zero CPP data:
-                    # If current status is ON, turn it OFF
-                    # If current status is OFF, keep it OFF
+                    # For missing/zero CPP data - always pause for safety
                     adset_cpp_str = "No CPP data"
-                    if adset_status == "ACTIVE":
-                        should_update = True
-                        new_status = "PAUSED"
-                        reason = "No CPP data - turning OFF for safety"
-                    else:
-                        should_update = False
-                        reason = "No CPP data - keeping OFF"
+                    should_update = adset_status != "PAUSED"
+                    new_status = "PAUSED"
+                    reason = "No CPP data - pausing for safety"
                 else:
                     adset_cpp_str = f"${adset_cpp:.2f}"
+                    
                     if on_off == "ON":
-                        # For ON mode:
-                        # - If CPP < threshold: Keep ACTIVE if already ACTIVE, or turn ON if PAUSED
-                        # - If CPP >= threshold: Turn PAUSED
+                        # ON Mode: Optimize performance - turn ON good performers, turn OFF bad performers
                         if adset_cpp < cpp_metric:
+                            # Good performance - should be ACTIVE
                             should_update = adset_status != "ACTIVE"
                             new_status = "ACTIVE"
-                            reason = f"CPP {adset_cpp_str} is below threshold (${cpp_metric}) - turning ON"
+                            reason = f"CPP {adset_cpp_str} < ${cpp_metric} (good) - turning ON"
                         else:
-                            should_update = True
-                            new_status = "PAUSED"
-                            reason = f"CPP {adset_cpp_str} is above/equal to threshold (${cpp_metric}) - turning OFF"
-                    else:  # OFF mode
-                        # For OFF mode:
-                        # - If CPP >= threshold: Turn PAUSED
-                        # - If CPP < threshold: Keep current state
-                        if adset_cpp >= cpp_metric:
+                            # Poor performance - should be PAUSED
                             should_update = adset_status != "PAUSED"
                             new_status = "PAUSED"
-                            reason = f"CPP {adset_cpp_str} is above/equal to threshold (${cpp_metric}) - turning OFF"
+                            reason = f"CPP {adset_cpp_str} >= ${cpp_metric} (poor) - turning OFF"
+                    
+                    else:  # OFF mode
+                        # OFF Mode: Turn OFF poor performers, leave good performers unchanged
+                        if adset_cpp >= cpp_metric:
+                            # Poor performance - turn OFF
+                            should_update = adset_status != "PAUSED"
+                            new_status = "PAUSED"
+                            reason = f"CPP {adset_cpp_str} >= ${cpp_metric} (poor) - turning OFF"
                         else:
+                            # Good performance - leave as is (don't force ON in OFF mode)
                             should_update = False
-                            reason = f"CPP {adset_cpp_str} is below threshold (${cpp_metric}) - keeping current state"
+                            new_status = adset_status  # Keep current status
+                            reason = f"CPP {adset_cpp_str} < ${cpp_metric} (good) - leaving unchanged"
 
                 # Log the evaluation with clear decision making
                 append_redis_message_adsets(
                     user_id,
                     f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] AdSet {adset_name} | "
-                    f"CPP: {adset_cpp_str} | Current: {adset_status} | "
-                    f"Target: {new_status} | Decision: {'Update' if should_update else 'No Update'} | "
+                    f"CPP: {adset_cpp_str} vs Threshold: ${cpp_metric} | "
+                    f"Current: {adset_status} → Target: {new_status} | "
+                    f"Action: {'Update' if should_update else 'No Change'} | "
                     f"Reason: {reason}"
                 )
 
