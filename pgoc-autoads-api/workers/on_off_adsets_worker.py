@@ -30,9 +30,6 @@ FACEBOOK_GRAPH_URL = f"https://graph.facebook.com/{FACEBOOK_API_VERSION}"
 # Compile regex once for performance
 NON_ALPHANUMERIC_REGEX = re.compile(r'[^a-zA-Z0-9]+')
 
-# Constants for CPP calculation
-DEFAULT_CPP_WINDOW_DAYS = 3  # Number of days to use for consistent CPP calculation
-
 
 def normalize_text(text):
     """Replace all non-alphanumeric characters with spaces and split into words."""
@@ -68,24 +65,16 @@ def fetch_facebook_data(url, access_token):
         return {"error": {"message": str(e), "type": "RequestException"}}
 
 
-def get_consistent_cpp_date_range():
-    """
-    Returns a consistent date range for CPP calculations.
-    Uses a rolling window ending yesterday to ensure completeness.
-    """
-    end_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")  # Yesterday
-    start_date = (datetime.now() - timedelta(days=DEFAULT_CPP_WINDOW_DAYS)).strftime("%Y-%m-%d")
-    return start_date, end_date
-
-
 def get_cpp_from_insights(ad_account_id, access_token, level, cpp_date_start, cpp_date_end, user_id=None):
     """
     Fetch CPP values from Facebook insights API within a specific date range.
     Returns a dictionary mapping campaign_id or adset_id to CPP values.
     """
     cpp_data = {}
+    
+    # Updated URL format as requested
     url = (f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/insights"
-           f"?level={level}&fields={level}_id,actions,spend,impressions"
+           f"?level={level}&fields=campaign_name,campaign_id,{level}_id,{level}_name,spend,actions,impressions"
            f"&time_range[since]={cpp_date_start}&time_range[until]={cpp_date_end}")
 
     if user_id:
@@ -209,14 +198,16 @@ def fetch_adsets(user_id, ad_account_id, access_token, matched_schedule):
     try:
         campaign_data = {}
 
-        # Get a consistent date range for CPP calculation
-        cpp_date_start, cpp_date_end = get_consistent_cpp_date_range()
+        # Get date range from user input, with fallback to today's date
+        cpp_date_start = matched_schedule.get("date_start", datetime.now().strftime("%Y-%m-%d"))
+        cpp_date_end = matched_schedule.get("date_end", datetime.now().strftime("%Y-%m-%d"))
+        
         campaign_code = matched_schedule.get("campaign_code")
 
         # Log the date range being used
         append_redis_message_adsets(
             user_id, 
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Using consistent CPP date range: {cpp_date_start} to {cpp_date_end}"
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Using CPP date range: {cpp_date_start} to {cpp_date_end}"
         )
         
         # First, verify the ad account is accessible
