@@ -200,7 +200,7 @@ def process_scheduled_campaigns(user_id, ad_account_id, access_token, schedule_d
         return f"Error processing scheduled {watch} for Ad Account {ad_account_id}: {e}"
     
 @shared_task
-def process_adsets_debug(user_id, ad_account_id, access_token, schedule_data, campaigns_data):
+def process_adsets(user_id, ad_account_id, access_token, schedule_data, campaigns_data):
     try:
         # Extract schedule parameters
         campaign_code = schedule_data["campaign_code"]
