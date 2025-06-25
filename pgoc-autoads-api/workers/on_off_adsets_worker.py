@@ -72,50 +72,82 @@ def get_cpp_from_insights(ad_account_id, access_token, level, cpp_date_start, cp
     """
     cpp_data = {}
     
-    # Updated URL format as requested
+    # Updated URL format - more explicit about fields needed
     url = (f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/insights"
-           f"?level={level}&fields=campaign_name,campaign_id,{level}_id,{level}_name,spend,actions,impressions"
-           f"&time_range[since]={cpp_date_start}&time_range[until]={cpp_date_end}")
+           f"?level={level}"
+           f"&fields=campaign_name,campaign_id,{level}_id,{level}_name,spend,actions,impressions"
+           f"&time_range[since]={cpp_date_start}"
+           f"&time_range[until]={cpp_date_end}"
+           f"&limit=1000")  # Add limit for better pagination handling
 
     if user_id:
         append_redis_message_adsets(
             user_id, 
             f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Fetching {level} insights from {cpp_date_start} to {cpp_date_end}"
         )
+        append_redis_message_adsets(
+            user_id, 
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] API URL: {url}"
+        )
 
-    debug_insights = {}  # Store detailed insight data for debugging
+    debug_insights = {}
+    total_requests = 0
     
     while url:
+        total_requests += 1
         response_data = fetch_facebook_data(url, access_token)
+        
         if "error" in response_data:
-            error_msg = f"Error fetching {level} insights: {response_data['error'].get('message', 'Unknown error')}"
+            error_msg = f"Error fetching {level} insights (request #{total_requests}): {response_data['error'].get('message', 'Unknown error')}"
             logging.error(error_msg)
             if user_id:
                 append_redis_message_adsets(user_id, f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {error_msg}")
             break
 
-        for item in response_data.get("data", []):
+        data_items = response_data.get("data", [])
+        if user_id:
+            append_redis_message_adsets(
+                user_id,
+                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing {len(data_items)} {level}s from request #{total_requests}"
+            )
+
+        for item in data_items:
             entity_id = item.get(f"{level}_id")
+            entity_name = item.get(f"{level}_name", "Unknown")
             spend = float(item.get("spend", 0))
             impressions = float(item.get("impressions", 0))
 
             # Store debug information
             debug_insights[entity_id] = {
+                "name": entity_name,
                 "spend": spend,
                 "impressions": impressions,
                 "actions": {}
             }
 
             actions = item.get("actions", [])
-            initiate_checkout_value = 0
             
+            # Look for different possible checkout action types
+            checkout_actions = [
+                "omni_initiated_checkout",
+                "initiate_checkout",
+                "offsite_conversion.fb_pixel_initiate_checkout",
+                "checkout_initiated"
+            ]
+            
+            initiate_checkout_value = 0
+            found_action_type = None
+            
+            # Check all actions to find checkout-related ones
             for action in actions:
                 action_type = action.get("action_type")
                 action_value = float(action.get("value", 0))
                 debug_insights[entity_id]["actions"][action_type] = action_value
                 
-                if action_type == "omni_initiated_checkout":
-                    initiate_checkout_value = action_value
+                # Check if this is a checkout action type we're looking for
+                if action_type in checkout_actions:
+                    initiate_checkout_value += action_value  # Sum all checkout types
+                    found_action_type = action_type
 
             # Calculate CPP with proper handling of zero values
             if initiate_checkout_value > 0:
@@ -125,28 +157,57 @@ def get_cpp_from_insights(ad_account_id, access_token, level, cpp_date_start, cp
                 
             cpp_data[entity_id] = cpp
 
-        url = response_data.get("paging", {}).get("next")  # Pagination
+            # Log individual entity CPP for debugging
+            if user_id and total_requests <= 2:  # Only log first 2 requests to avoid spam
+                cpp_display = f"${cpp:.2f}" if cpp != float('inf') else "No checkouts"
+                append_redis_message_adsets(
+                    user_id,
+                    f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {entity_name}: Spend=${spend:.2f}, Checkouts={initiate_checkout_value}, CPP={cpp_display}"
+                )
 
-    # Log detailed debug information about the fetched data
+        url = response_data.get("paging", {}).get("next")  # Pagination
+        
+        # Add delay between requests to respect rate limits
+        if url:
+            time.sleep(0.5)  # 500ms delay
+
+    # Send summary of CPP data
     if user_id:
-        # Send summary of CPP data
         cpp_summary = {}
+        no_checkout_count = 0
+        valid_cpp_count = 0
+        
         for entity_id, cpp_value in cpp_data.items():
+            entity_name = debug_insights.get(entity_id, {}).get("name", entity_id)
             if cpp_value == float('inf'):
-                cpp_summary[entity_id] = "No checkouts"
+                cpp_summary[entity_name] = "No checkouts"
+                no_checkout_count += 1
             else:
-                cpp_summary[entity_id] = f"${cpp_value:.2f}"
+                cpp_summary[entity_name] = f"${cpp_value:.2f}"
+                valid_cpp_count += 1
                 
         append_redis_message_adsets(
             user_id,
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {level.upper()} CPP VALUES: {json.dumps(cpp_summary, indent=2)}"
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] CPP SUMMARY: {valid_cpp_count} {level}s with valid CPP, {no_checkout_count} without checkouts"
         )
         
-        # Send detailed insights for debugging
-        append_redis_message_adsets(
-            user_id,
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] DEBUG INSIGHTS: {json.dumps(debug_insights, indent=2)}"
-        )
+        # Only show detailed CPP values if there are not too many
+        if len(cpp_summary) <= 20:
+            append_redis_message_adsets(
+                user_id,
+                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {level.upper()} CPP VALUES: {json.dumps(cpp_summary, indent=2)}"
+            )
+        
+        # Send action types found for debugging
+        all_action_types = set()
+        for debug_info in debug_insights.values():
+            all_action_types.update(debug_info["actions"].keys())
+        
+        if all_action_types:
+            append_redis_message_adsets(
+                user_id,
+                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ACTION TYPES FOUND: {list(all_action_types)}"
+            )
 
     return cpp_data
 

@@ -204,76 +204,81 @@ def process_adsets(user_id, ad_account_id, access_token, schedule_data, campaign
     try:
         # Extract schedule parameters
         campaign_code = schedule_data["campaign_code"]
-        cpp_metric = float(schedule_data.get("cpp_metric", 0))  # FIX: Use float instead of int
+        cpp_metric = float(schedule_data.get("cpp_metric", 0))
         on_off = schedule_data["on_off"].upper()
 
         # Add detailed logging
         append_redis_message_adsets(
             user_id,
-            f"[DEBUG] CPP Threshold: ${cpp_metric} (type: {type(cpp_metric)}), Mode: {on_off}"
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing adsets with CPP threshold: ${cpp_metric}, Mode: {on_off}"
         )
+
+        total_processed = 0
+        total_updated = 0
 
         for campaign_id, campaign_info in campaigns_data.items():
             campaign_name = campaign_info.get("campaign_name", "")
             
+            # Check if this campaign matches the campaign code
             if not is_campaign_code_match(campaign_name, campaign_code):
                 continue
+
+            append_redis_message_adsets(
+                user_id,
+                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing campaign: {campaign_name}"
+            )
 
             adsets = campaign_info.get("ADSETS", {})
             
             for adset_id, adset_info in adsets.items():
                 adset_cpp = adset_info.get("CPP", 0)
-                adset_status = adset_info.get("STATUS", "")
+                current_status = adset_info.get("STATUS", "")
                 adset_name = adset_info.get("NAME", "Unknown")
-
-                # Debug logging for each adset
-                append_redis_message_adsets(
-                    user_id,
-                    f"[DEBUG] {adset_name}: CPP=${adset_cpp} (type: {type(adset_cpp)}), "
-                    f"Threshold=${cpp_metric}, Current Status={adset_status}"
-                )
-
-                # Simplified logic based on mode
-                if on_off == "OFF":
-                    # OFF Mode: Turn off adsets with CPP >= threshold
-                    if adset_cpp == float('inf') or adset_cpp == 0 or adset_cpp is None:
-                        # No CPP data - pause for safety
-                        target_status = "PAUSED"
-                        reason = "No CPP data available"
-                    elif adset_cpp >= cpp_metric:
-                        # High CPP - pause it
-                        target_status = "PAUSED"
-                        reason = f"CPP ${adset_cpp:.2f} >= threshold ${cpp_metric}"
-                    else:
-                        # Low CPP - leave it as is
-                        target_status = adset_status
-                        reason = f"CPP ${adset_cpp:.2f} < threshold ${cpp_metric} - keeping current status"
                 
-                elif on_off == "ON":
-                    # ON Mode: Turn on good performers, turn off bad performers
-                    if adset_cpp == float('inf') or adset_cpp == 0 or adset_cpp is None:
+                total_processed += 1
+
+                # Skip if CPP data is invalid or missing
+                if adset_cpp == float('inf') or adset_cpp == 0 or adset_cpp is None:
+                    append_redis_message_adsets(
+                        user_id,
+                        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Skipping {adset_name} - No valid CPP data"
+                    )
+                    continue
+
+                # Determine target status based on CPP and mode
+                target_status = None
+                reason = ""
+
+                if on_off == "OFF":
+                    # OFF mode: Turn OFF adsets with CPP >= threshold
+                    if adset_cpp >= cpp_metric:
                         target_status = "PAUSED"
-                        reason = "No CPP data available"
-                    elif adset_cpp < cpp_metric:
-                        # Good CPP - activate it
-                        target_status = "ACTIVE"
-                        reason = f"CPP ${adset_cpp:.2f} < threshold ${cpp_metric}"
+                        reason = f"CPP ${adset_cpp:.2f} >= threshold ${cpp_metric} - turning OFF"
                     else:
-                        # High CPP - pause it
+                        # CPP is below threshold, should stay ACTIVE or turn ON if paused
+                        target_status = "ACTIVE"
+                        reason = f"CPP ${adset_cpp:.2f} < threshold ${cpp_metric} - should be ON"
+                        
+                elif on_off == "ON":
+                    # ON mode: Turn ON adsets with CPP < threshold, turn OFF those with CPP >= threshold
+                    if adset_cpp < cpp_metric:
+                        target_status = "ACTIVE"
+                        reason = f"CPP ${adset_cpp:.2f} < threshold ${cpp_metric} - turning ON"
+                    else:
                         target_status = "PAUSED"
-                        reason = f"CPP ${adset_cpp:.2f} >= threshold ${cpp_metric}"
+                        reason = f"CPP ${adset_cpp:.2f} >= threshold ${cpp_metric} - turning OFF"
 
                 # Log the decision
                 append_redis_message_adsets(
                     user_id,
-                    f"[DEBUG] {adset_name}: {adset_status} → {target_status} ({reason})"
+                    f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {adset_name}: Current={current_status}, Target={target_status} ({reason})"
                 )
 
                 # Update if status needs to change
-                if adset_status != target_status:
+                if current_status != target_status:
                     append_redis_message_adsets(
                         user_id,
-                        f"[UPDATE] Changing {adset_name} from {adset_status} to {target_status}"
+                        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Updating {adset_name} from {current_status} to {target_status}"
                     )
                     
                     success = update_facebook_status_with_retry(
@@ -282,26 +287,38 @@ def process_adsets(user_id, ad_account_id, access_token, schedule_data, campaign
                     
                     if success:
                         adset_info["STATUS"] = target_status
+                        total_updated += 1
                         append_redis_message_adsets(
                             user_id,
-                            f"[SUCCESS] {adset_name} updated to {target_status}"
+                            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✓ Successfully updated {adset_name} to {target_status}"
                         )
                     else:
                         append_redis_message_adsets(
                             user_id,
-                            f"[FAILED] Could not update {adset_name} to {target_status}"
+                            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✗ Failed to update {adset_name} to {target_status}"
                         )
                 else:
                     append_redis_message_adsets(
                         user_id,
-                        f"[NO CHANGE] {adset_name} already in correct state ({adset_status})"
+                        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ➤ {adset_name} already in correct state ({current_status})"
                     )
 
-    except Exception as e:
+        # Final summary
         append_redis_message_adsets(
             user_id,
-            f"[ERROR] Exception in process_adsets: {str(e)}"
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Processing complete: {total_processed} adsets processed, {total_updated} adsets updated"
         )
+
+        return f"Processed {total_processed} adsets, updated {total_updated} adsets for campaign code {campaign_code}"
+
+    except Exception as e:
+        error_msg = f"Error in process_adsets: {str(e)}"
+        logging.error(error_msg)
+        append_redis_message_adsets(
+            user_id,
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ERROR: {error_msg}"
+        )
+        return error_msg
 
 # Additional debugging function to check CPP values
 def debug_cpp_values(campaigns_data, cpp_threshold):
