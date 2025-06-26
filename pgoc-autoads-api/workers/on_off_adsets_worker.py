@@ -132,7 +132,9 @@ def get_cpp_from_insights(ad_account_id, access_token, level, cpp_date_start, cp
                 "omni_initiated_checkout",
                 "initiate_checkout",
                 "offsite_conversion.fb_pixel_initiate_checkout",
-                "checkout_initiated"
+                "checkout_initiated",
+                "onsite_conversion.initiate_checkout",
+                "onsite_web_initiate_checkout"
             ]
             
             initiate_checkout_value = 0
