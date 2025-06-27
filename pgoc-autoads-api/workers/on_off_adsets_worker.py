@@ -72,21 +72,20 @@ def get_cpp_from_insights(ad_account_id, access_token, level, cpp_date_start, cp
     """
     cpp_data = {}
     
-    # Updated URL format - more explicit about fields needed
     url = (f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/insights"
            f"?level={level}"
            f"&fields=campaign_name,campaign_id,{level}_id,{level}_name,spend,actions,impressions"
            f"&time_range[since]={cpp_date_start}"
            f"&time_range[until]={cpp_date_end}"
-           f"&limit=1000")  # Add limit for better pagination handling
+           f"&limit=1000")
 
     if user_id:
         append_redis_message_adsets(
-            user_id, 
+            user_id,
             f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Fetching {level} insights from {cpp_date_start} to {cpp_date_end}"
         )
         append_redis_message_adsets(
-            user_id, 
+            user_id,
             f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] API URL: {url}"
         )
 
@@ -117,7 +116,6 @@ def get_cpp_from_insights(ad_account_id, access_token, level, cpp_date_start, cp
             spend = float(item.get("spend", 0))
             impressions = float(item.get("impressions", 0))
 
-            # Store debug information
             debug_insights[entity_id] = {
                 "name": entity_name,
                 "spend": spend,
@@ -126,8 +124,7 @@ def get_cpp_from_insights(ad_account_id, access_token, level, cpp_date_start, cp
             }
 
             actions = item.get("actions", [])
-            
-            # Look for different possible checkout action types
+
             checkout_actions = [
                 "omni_initiated_checkout",
                 "initiate_checkout",
@@ -136,49 +133,44 @@ def get_cpp_from_insights(ad_account_id, access_token, level, cpp_date_start, cp
                 "onsite_conversion.initiate_checkout",
                 "onsite_web_initiate_checkout"
             ]
-            
-            initiate_checkout_value = 0
-            found_action_type = None
-            
-            # Check all actions to find checkout-related ones
+
+            checkout_values = []
+
             for action in actions:
                 action_type = action.get("action_type")
                 action_value = float(action.get("value", 0))
                 debug_insights[entity_id]["actions"][action_type] = action_value
-                
-                # Check if this is a checkout action type we're looking for
-                if action_type in checkout_actions:
-                    initiate_checkout_value += action_value  # Sum all checkout types
-                    found_action_type = action_type
 
-            # Calculate CPP with proper handling of zero values
+                if action_type in checkout_actions:
+                    checkout_values.append(action_value)
+
+            # Avoid double-counting by taking max, not sum
+            initiate_checkout_value = max(checkout_values) if checkout_values else 0
+
             if initiate_checkout_value > 0:
                 cpp = spend / initiate_checkout_value
             else:
-                cpp = float('inf')  # Use infinity to represent no checkouts
-                
+                cpp = float('inf')  # No valid checkouts
+
             cpp_data[entity_id] = cpp
 
-            # Log individual entity CPP for debugging
-            if user_id and total_requests <= 2:  # Only log first 2 requests to avoid spam
+            if user_id and total_requests <= 2:
                 cpp_display = f"${cpp:.2f}" if cpp != float('inf') else "No checkouts"
                 append_redis_message_adsets(
                     user_id,
                     f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {entity_name}: Spend=${spend:.2f}, Checkouts={initiate_checkout_value}, CPP={cpp_display}"
                 )
 
-        url = response_data.get("paging", {}).get("next")  # Pagination
-        
-        # Add delay between requests to respect rate limits
-        if url:
-            time.sleep(0.5)  # 500ms delay
+        url = response_data.get("paging", {}).get("next")
 
-    # Send summary of CPP data
+        if url:
+            time.sleep(0.5)
+
     if user_id:
         cpp_summary = {}
         no_checkout_count = 0
         valid_cpp_count = 0
-        
+
         for entity_id, cpp_value in cpp_data.items():
             entity_name = debug_insights.get(entity_id, {}).get("name", entity_id)
             if cpp_value == float('inf'):
@@ -187,24 +179,22 @@ def get_cpp_from_insights(ad_account_id, access_token, level, cpp_date_start, cp
             else:
                 cpp_summary[entity_name] = f"${cpp_value:.2f}"
                 valid_cpp_count += 1
-                
+
         append_redis_message_adsets(
             user_id,
             f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] CPP SUMMARY: {valid_cpp_count} {level}s with valid CPP, {no_checkout_count} without checkouts"
         )
-        
-        # Only show detailed CPP values if there are not too many
+
         if len(cpp_summary) <= 20:
             append_redis_message_adsets(
                 user_id,
                 f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {level.upper()} CPP VALUES: {json.dumps(cpp_summary, indent=2)}"
             )
-        
-        # Send action types found for debugging
+
         all_action_types = set()
         for debug_info in debug_insights.values():
             all_action_types.update(debug_info["actions"].keys())
-        
+
         if all_action_types:
             append_redis_message_adsets(
                 user_id,
