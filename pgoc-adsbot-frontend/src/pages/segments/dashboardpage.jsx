@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import Box from "@mui/material/Box";
 import { Typography, Tabs, Tab, Paper, Switch, TextField, Button, CircularProgress, MenuItem, Select, FormControl, InputLabel } from "@mui/material";
 import CampaignIcon from "@mui/icons-material/Campaign";
@@ -38,26 +38,131 @@ const DashboardPage = () => {
   const [accessToken, setAccessToken] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [adAccounts, setAdAccounts] = useState([]);
   const [selectedAccount, setSelectedAccount] = useState("");
-  const [campaigns, setCampaigns] = useState([]);
+  
+  // Store raw campaign data from API
+  const [rawCampaignData, setRawCampaignData] = useState([]);
 
-  const [adSets, setAdSets] = useState([]);
-
-  const [ads, setAds] = useState([]);
-
-  // Add useEffect for automatic fetch
-  useEffect(() => {
-    if (accessToken && accessToken.length >= 100 && !loading) {
-      fetchData();
+  // Memoized data processing
+  const processedData = useMemo(() => {
+    if (!rawCampaignData.length) {
+      return {
+        adAccounts: [],
+        campaigns: [],
+        adSets: [],
+        ads: []
+      };
     }
+
+    console.log("Processing data..."); // Debug log
+
+    // Extract unique ad accounts using a Map to prevent duplicates
+    const accountMap = new Map();
+    const allCampaigns = [];
+    const allAdSets = [];
+    const allAds = [];
+
+    rawCampaignData.forEach(campaign => {
+      // Process ad accounts
+      if (!accountMap.has(campaign.account_id)) {
+        accountMap.set(campaign.account_id, {
+          id: campaign.account_id,
+          name: campaign.account_name
+        });
+      }
+
+      // Process campaigns
+      allCampaigns.push({
+        id: campaign.campaign_id,
+        name: campaign.campaign_name,
+        status: campaign.status === 'ACTIVE',
+        account_id: campaign.account_id
+      });
+
+      // Process ad sets
+      if (campaign.adsets) {
+        campaign.adsets.forEach((adset, index) => {
+          allAdSets.push({
+            id: `${campaign.campaign_id}_${index}`, // Use index instead of name for uniqueness
+            name: adset.name,
+            status: adset.status === 'ACTIVE',
+            delivery: adset.status === 'ACTIVE' ? 'Active' : 'Off',
+            campaign_id: campaign.campaign_id,
+            account_id: campaign.account_id // Store account_id for faster filtering
+          });
+        });
+      }
+
+      // Process ads
+      if (campaign.ads) {
+        campaign.ads.forEach((ad, index) => {
+          allAds.push({
+            id: `${campaign.campaign_id}_ad_${index}`, // Use index for uniqueness
+            name: ad.name,
+            status: ad.status === 'ACTIVE',
+            delivery: ad.status === 'ACTIVE' ? 'Active' : 'Off',
+            campaign_id: campaign.campaign_id,
+            account_id: campaign.account_id // Store account_id for faster filtering
+          });
+        });
+      }
+    });
+
+    return {
+      adAccounts: Array.from(accountMap.values()),
+      campaigns: allCampaigns,
+      adSets: allAdSets,
+      ads: allAds
+    };
+  }, [rawCampaignData]);
+
+  // Memoized filtered data based on selected account
+  const filteredData = useMemo(() => {
+    if (!selectedAccount) {
+      return {
+        campaigns: processedData.campaigns,
+        adSets: processedData.adSets,
+        ads: processedData.ads
+      };
+    }
+
+    return {
+      campaigns: processedData.campaigns.filter(campaign => campaign.account_id === selectedAccount),
+      adSets: processedData.adSets.filter(adset => adset.account_id === selectedAccount),
+      ads: processedData.ads.filter(ad => ad.account_id === selectedAccount)
+    };
+  }, [processedData, selectedAccount]);
+
+  // Debounced access token to prevent multiple API calls
+  const [debouncedToken, setDebouncedToken] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedToken(accessToken);
+    }, 500); // 500ms debounce
+
+    return () => clearTimeout(timer);
   }, [accessToken]);
 
-  const handleTabChange = (event, newValue) => {
-    setActiveTab(newValue);
-  };
+  // Auto-fetch with debounced token
+  useEffect(() => {
+    if (debouncedToken && debouncedToken.length >= 100 && !loading) {
+      fetchData();
+    }
+  }, [debouncedToken]);
 
-  const fetchData = async () => {
+  // Set default selected account when accounts are loaded
+  useEffect(() => {
+    if (processedData.adAccounts.length > 0 && !selectedAccount) {
+      setSelectedAccount(processedData.adAccounts[0].id);
+    }
+  }, [processedData.adAccounts, selectedAccount]);
+
+  const handleTabChange = useCallback((event, newValue) => {
+    setActiveTab(newValue);
+  }, []);
+
+  const fetchData = useCallback(async () => {
     if (!accessToken) {
       notify("Please enter an access token", "error");
       return;
@@ -70,6 +175,7 @@ const DashboardPage = () => {
 
     setLoading(true);
     setError(null);
+    
     try {
       const response = await axios.post(`${apiUrl}/api/v1/dashboard`, {
         user_id: user_id || "dummy_user_id",
@@ -80,84 +186,16 @@ const DashboardPage = () => {
         throw new Error(response.data.error);
       }
 
-      console.log("API Response:", response.data); // Debug log
+      console.log("API Response:", response.data);
 
       if (!response.data || !response.data.dashboard_data || !response.data.dashboard_data.campaigns) {
-        console.error("Invalid response structure:", response.data); // Debug log
+        console.error("Invalid response structure:", response.data);
         throw new Error("Invalid response format from server");
       }
 
-      console.log("Campaigns data:", response.data.dashboard_data.campaigns); // Debug log
+      // Store raw data - processing will be handled by useMemo
+      setRawCampaignData(response.data.dashboard_data.campaigns);
 
-      // Log first campaign structure to see what fields are available
-      if (response.data.dashboard_data.campaigns.length > 0) {
-        console.log("First campaign structure:", response.data.dashboard_data.campaigns[0]);
-        console.log("First campaign adsets count:", response.data.dashboard_data.campaigns[0].adsets?.length || 0);
-        console.log("First campaign ads count:", response.data.dashboard_data.campaigns[0].ads?.length || 0);
-      }
-
-      // Extract unique ad accounts using a Map to prevent duplicates
-      const accountMap = new Map();
-      response.data.dashboard_data.campaigns.forEach(campaign => {
-        if (!accountMap.has(campaign.account_id)) {
-          accountMap.set(campaign.account_id, {
-            id: campaign.account_id,
-            name: campaign.account_name
-          });
-        }
-      });
-      const accounts = Array.from(accountMap.values());
-      setAdAccounts(accounts);
-
-      // Store all campaigns
-      const allCampaigns = response.data.dashboard_data.campaigns.map(campaign => ({
-        id: campaign.campaign_id,
-        name: campaign.campaign_name,
-        status: campaign.status === 'ACTIVE',
-        account_id: campaign.account_id
-      }));
-      setCampaigns(allCampaigns);
-
-      // Extract ad sets from all campaigns
-      const allAdSets = [];
-      response.data.dashboard_data.campaigns.forEach(campaign => {
-        if (campaign.adsets) {
-          campaign.adsets.forEach(adset => {
-            allAdSets.push({
-              id: `${campaign.campaign_id}_${adset.name}`, // Create unique ID
-              name: adset.name,
-              status: adset.status === 'ACTIVE',
-              delivery: adset.status === 'ACTIVE' ? 'Active' : 'Off',
-              campaign_id: campaign.campaign_id
-            });
-          });
-        }
-      });
-      setAdSets(allAdSets);
-      console.log("Extracted Ad Sets:", allAdSets); // Debug log
-
-      // Extract ads from all campaigns
-      const allAds = [];
-      response.data.dashboard_data.campaigns.forEach(campaign => {
-        if (campaign.ads) {
-          campaign.ads.forEach(ad => {
-            allAds.push({
-              id: `${campaign.campaign_id}_${ad.name}`, // Create unique ID
-              name: ad.name,
-              status: ad.status === 'ACTIVE',
-              delivery: ad.status === 'ACTIVE' ? 'Active' : 'Off',
-              campaign_id: campaign.campaign_id
-            });
-          });
-        }
-      });
-      setAds(allAds);
-      console.log("Extracted Ads:", allAds); // Debug log
-
-      // Set first account as selected by default
-      if (accounts.length > 0 && !selectedAccount) {
-        setSelectedAccount(accounts[0].id);
-      }
     } catch (err) {
       console.error("Failed to fetch dashboard data:", err);
       setError(err.response?.data?.error || err.message || "Failed to fetch data");
@@ -165,35 +203,31 @@ const DashboardPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [accessToken, user_id]);
 
-  const handleStopFetching = () => {
+  const handleStopFetching = useCallback(() => {
     setLoading(false);
-    setAccessToken(""); // Clear the token so it becomes editable again
-  };
+    setAccessToken("");
+  }, []);
 
-  // Filter campaigns based on selected account
-  const filteredCampaigns = campaigns.filter(campaign => campaign.account_id === selectedAccount);
+  // Memoized toggle handlers
+  const handleToggleCampaignStatus = useCallback((id) => {
+    setRawCampaignData(prevData => 
+      prevData.map(campaign => 
+        campaign.campaign_id === id 
+          ? { ...campaign, status: campaign.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE' }
+          : campaign
+      )
+    );
+  }, []);
 
-  // Filter ad sets based on selected account (through campaigns)
-  const filteredAdSets = adSets.filter(adset => {
-    const campaign = campaigns.find(c => c.id === adset.campaign_id);
-    return campaign && campaign.account_id === selectedAccount;
-  });
-
-  // Filter ads based on selected account (through campaigns)
-  const filteredAds = ads.filter(ad => {
-    const campaign = campaigns.find(c => c.id === ad.campaign_id);
-    return campaign && campaign.account_id === selectedAccount;
-  });
-
-  // Custom renderers for the tables
-  const customRenderers = {
+  // Custom renderers for the tables - memoized to prevent re-creation
+  const customRenderers = useMemo(() => ({
     "Off / On": (value, row) => (
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Switch
           checked={row.status}
-          onChange={() => handleToggleStatus(row.id, campaigns, setCampaigns)}
+          onChange={() => handleToggleCampaignStatus(row.id)}
           color="primary"
         />
       </Box>
@@ -202,14 +236,7 @@ const DashboardPage = () => {
     "Ad Set": (value, row) => row.name,
     "Ad": (value, row) => row.name,
     "Delivery": (value, row) => row.delivery
-  };
-
-  // Handler for toggling status
-  const handleToggleStatus = (id, currentData, setterFunction) => {
-    setterFunction(currentData.map(item => 
-      item.id === id ? { ...item, status: !item.status } : item
-    ));
-  };
+  }), [handleToggleCampaignStatus]);
 
   return (
     <Box>
@@ -226,7 +253,7 @@ const DashboardPage = () => {
           disabled={accessToken && accessToken.length >= 100}
           helperText="Enter your Meta Ads Manager Access Token"
         />
-        {adAccounts.length > 0 && (
+        {processedData.adAccounts.length > 0 && (
           <FormControl size="small" sx={{ minWidth: 180 }}>
             <InputLabel>Select Ad Account</InputLabel>
             <Select
@@ -234,7 +261,7 @@ const DashboardPage = () => {
               label="Select Ad Account"
               onChange={(e) => setSelectedAccount(e.target.value)}
             >
-              {adAccounts.map((account) => (
+              {processedData.adAccounts.map((account) => (
                 <MenuItem key={account.id} value={account.id}>
                   {account.name}
                 </MenuItem>
@@ -243,7 +270,7 @@ const DashboardPage = () => {
           </FormControl>
         )}
       </Box>
-      {/* Refresh and Stop buttons row */}
+
       <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 1, maxWidth: '300px' }}>
         <Button
           variant="contained"
@@ -299,13 +326,13 @@ const DashboardPage = () => {
         {/* Campaigns Tab */}
         <TabPanel value={activeTab} index={0}>
           <Box sx={{ px: 3 }}>
-            <Typography variant="h6" sx={{ mb: 2 }}>Campaigns Overview</Typography>
+            <Typography variant="h6" sx={{ mb: 2 }}>
+              Campaigns Overview ({filteredData.campaigns.length})
+            </Typography>
             <DynamicTable
               headers={["Off / On", "Campaign"]}
-              data={filteredCampaigns}
-              onDataChange={(updatedData) => {
-                setCampaigns(updatedData);
-              }}
+              data={filteredData.campaigns}
+              onDataChange={() => {}} // Remove if not needed
               rowsPerPage={10}
               compact={true}
               customRenderers={customRenderers}
@@ -318,28 +345,16 @@ const DashboardPage = () => {
         {/* Ad Sets Tab */}
         <TabPanel value={activeTab} index={1}>
           <Box sx={{ px: 3 }}>
-            <Typography variant="h6" sx={{ mb: 2 }}>Ad Sets Overview</Typography>
+            <Typography variant="h6" sx={{ mb: 2 }}>
+              Ad Sets Overview ({filteredData.adSets.length})
+            </Typography>
             <DynamicTable
               headers={["Off / On", "Ad Set", "Delivery"]}
-              data={filteredAdSets}
-              onDataChange={(updatedData) => {
-                setAdSets(updatedData);
-              }}
+              data={filteredData.adSets}
+              onDataChange={() => {}} // Remove if not needed
               rowsPerPage={8}
               compact={true}
-              customRenderers={{
-                "Off / On": (value, row) => (
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Switch
-                      checked={row.status}
-                      onChange={() => handleToggleStatus(row.id, adSets, setAdSets)}
-                      color="primary"
-                    />
-                  </Box>
-                ),
-                "Ad Set": (value, row) => row.name,
-                "Delivery": (value, row) => row.delivery
-              }}
+              customRenderers={customRenderers}
               nonEditableHeaders={"Off / On,Delivery"}
               showCheckbox={true}
             />
@@ -349,28 +364,16 @@ const DashboardPage = () => {
         {/* Ads Tab */}
         <TabPanel value={activeTab} index={2}>
           <Box sx={{ px: 3 }}>
-            <Typography variant="h6" sx={{ mb: 2 }}>Ads Overview</Typography>
+            <Typography variant="h6" sx={{ mb: 2 }}>
+              Ads Overview ({filteredData.ads.length})
+            </Typography>
             <DynamicTable
               headers={["Off / On", "Ad", "Delivery"]}
-              data={filteredAds}
-              onDataChange={(updatedData) => {
-                setAds(updatedData);
-              }}
+              data={filteredData.ads}
+              onDataChange={() => {}} // Remove if not needed
               rowsPerPage={8}
               compact={true}
-              customRenderers={{
-                "Off / On": (value, row) => (
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Switch
-                      checked={row.status}
-                      onChange={() => handleToggleStatus(row.id, ads, setAds)}
-                      color="primary"
-                    />
-                  </Box>
-                ),
-                "Ad": (value, row) => row.name,
-                "Delivery": (value, row) => row.delivery
-              }}
+              customRenderers={customRenderers}
               nonEditableHeaders={"Off / On,Delivery"}
               showCheckbox={true}
             />
