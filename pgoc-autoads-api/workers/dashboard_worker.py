@@ -11,9 +11,9 @@ from celery import shared_task
 FACEBOOK_GRAPH_URL = "https://graph.facebook.com/v22.0"
 manila_tz = pytz.timezone("Asia/Manila")
 
-# Logging
+# Logging - Set to WARNING to reduce noise
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 
 # Session with connection pooling
 session = requests.Session()
@@ -26,7 +26,7 @@ def get_facebook_user_info(access_token):
         response = session.get(url, params=params, timeout=10)
         if response.status_code == 200:
             return response.json()
-        logger.error(f"User info error: {response.status_code}, {response.text}")
+        logger.error(f"User info error: {response.status_code}")
     except Exception as e:
         logger.error(f"Exception in get_facebook_user_info: {e}")
     return None
@@ -39,7 +39,7 @@ def get_ad_accounts(access_token):
         while url:
             response = session.get(url, params=params if '?' not in url else {}, timeout=15)
             if response.status_code != 200:
-                logger.error(f"Ad accounts error: {response.status_code}, {response.text}")
+                logger.error(f"Ad accounts error: {response.status_code}")
                 break
             data = response.json()
             for acc in data.get("data", []):
@@ -56,8 +56,6 @@ def get_ad_accounts(access_token):
 def process_single_account_batch(account_data):
     ad_account_id, ad_account_name, access_token, user_id = account_data
     try:
-        #append_message(user_id, f"🔄 Processing account: {ad_account_name} ({ad_account_id})")
-
         batch = [
             {"method": "GET", "relative_url": f"act_{ad_account_id}/campaigns?fields=id,name,status,daily_budget,budget_remaining&limit=1000"},
             {"method": "GET", "relative_url": f"act_{ad_account_id}/adsets?fields=id,campaign_id,status,name&limit=1000"},
@@ -72,7 +70,7 @@ def process_single_account_batch(account_data):
         )
 
         if response.status_code != 200:
-            #append_message(user_id, f"❌ Batch error for {ad_account_id}: {response.status_code}")
+            logger.error(f"Batch error for account {ad_account_id}: {response.status_code}")
             return None
 
         responses = response.json()
@@ -83,9 +81,6 @@ def process_single_account_batch(account_data):
         adsets_data = json.loads(responses[1].get("body", "{}")).get("data", [])
         ads_data = json.loads(responses[2].get("body", "{}")).get("data", [])
         insights_data = json.loads(responses[3].get("body", "{}")).get("data", [])
-
-        # Debug logging
-        logger.info(f"Account {ad_account_id}: {len(campaigns_data)} campaigns, {len(adsets_data)} ad sets, {len(ads_data)} ads")
 
         return {
             "ad_account_id": ad_account_id,
@@ -102,17 +97,16 @@ def process_single_account_batch(account_data):
 @shared_task
 def fetch_ad_spend_data(user_id, access_token, max_workers=10):
     try:
-        #append_message(user_id, "🚀 Starting ad spend fetch")
-
         user_info = get_facebook_user_info(access_token)
         if not user_info:
-            #append_message(user_id, "❌ Failed to get user info")
             return {"error": "Failed to get user info"}
 
         ad_accounts = get_ad_accounts(access_token)
         if not ad_accounts:
-            #append_message(user_id, "❌ No ad accounts found")
             return {"error": "No ad accounts found"}
+
+        # Log summary info only
+        print(f"📊 Processing {len(ad_accounts)} ad accounts for user {user_info.get('name', 'Unknown')}")
 
         account_data_list = [(acc['id'], acc['name'], access_token, user_id) for acc in ad_accounts]
 
@@ -121,9 +115,16 @@ def fetch_ad_spend_data(user_id, access_token, max_workers=10):
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             results = list(executor.map(process_single_account_batch, account_data_list))
 
+        successful_accounts = 0
+        total_campaigns = 0
+        total_adsets = 0
+        total_ads = 0
+
         for r in results:
             if not r:
                 continue
+
+            successful_accounts += 1
 
             campaign_spends = {
                 i.get("campaign_id"): float(i.get("spend", "0"))
@@ -150,7 +151,14 @@ def fetch_ad_spend_data(user_id, access_token, max_workers=10):
                 if campaign_id:
                     ads_by_campaign[campaign_id].append(ad)
 
-            logger.info(f"Processing account {r['ad_account_id']}: {len(r.get('adsets', []))} ad sets, {len(r.get('ads', []))} ads, {len(ads_by_adset)} ad sets with ads")
+            # Count totals for summary
+            account_campaigns = len(r.get("campaigns", []))
+            account_adsets = len(r.get("adsets", []))
+            account_ads = len(r.get("ads", []))
+            
+            total_campaigns += account_campaigns
+            total_adsets += account_adsets
+            total_ads += account_ads
 
             for campaign in r.get("campaigns", []):
                 cid = campaign.get("id")
@@ -204,10 +212,12 @@ def fetch_ad_spend_data(user_id, access_token, max_workers=10):
                     "ads": ad_details
                 })
 
-        # Debug logging
-        logger.info(f"Total campaigns processed: {len(campaigns)}")
-        for campaign in campaigns:
-            logger.info(f"Campaign {campaign['campaign_name']}: {len(campaign.get('adsets', []))} ad sets, {len(campaign.get('ads', []))} ads")
+        # Clean summary logging
+        print(f"✅ Dashboard data processed successfully:")
+        print(f"   • {successful_accounts}/{len(ad_accounts)} accounts processed")
+        print(f"   • {total_campaigns} campaigns")
+        print(f"   • {total_adsets} ad sets")
+        print(f"   • {total_ads} ads")
         
         return {
             "campaign_spending_data": {
@@ -221,5 +231,4 @@ def fetch_ad_spend_data(user_id, access_token, max_workers=10):
     except Exception as e:
         error_msg = f"Unexpected error: {str(e)}"
         logger.error(error_msg)
-        #append_message(user_id, f"❌ {error_msg}")
         return {"error": str(e)}

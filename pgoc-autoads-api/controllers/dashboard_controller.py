@@ -34,11 +34,9 @@ def get_user_dashboard():
     if not isinstance(campaign_data, dict) or "campaigns" not in campaign_data:
         return jsonify({"error": "No campaigns data found"}), 500
 
-    # Debug logging
+    # Clean summary logging - only show totals
     campaigns = campaign_data.get("campaigns", [])
-    print(f"Total campaigns being sent to frontend: {len(campaigns)}")
-    for campaign in campaigns:
-        print(f"Campaign {campaign.get('campaign_name', 'Unknown')}: {len(campaign.get('adsets', []))} ad sets, {len(campaign.get('ads', []))} ads")
+    print(f"🚀 Dashboard API response: {len(campaigns)} campaigns sent to frontend")
 
     updated_at = datetime.now(pytz.timezone("Asia/Manila")).isoformat()
 
