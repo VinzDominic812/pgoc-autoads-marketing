@@ -40,8 +40,17 @@ const DashboardPage = () => {
   const [error, setError] = useState(null);
   const [selectedAccount, setSelectedAccount] = useState("");
   
+  // New state for access token dropdown
+  const [accessTokenMap, setAccessTokenMap] = useState({});
+  const [facebookNames, setFacebookNames] = useState([]);
+  const [loadingTokens, setLoadingTokens] = useState(false);
+  const [selectedFacebookName, setSelectedFacebookName] = useState("");
+
   // Store raw campaign data from API
   const [rawCampaignData, setRawCampaignData] = useState([]);
+  
+  // Track selected campaigns for filtering
+  const [selectedCampaigns, setSelectedCampaigns] = useState(new Set());
 
   // Memoized data processing
   const processedData = useMemo(() => {
@@ -76,7 +85,8 @@ const DashboardPage = () => {
         id: campaign.campaign_id,
         name: campaign.campaign_name,
         status: campaign.status === 'ACTIVE',
-        account_id: campaign.account_id
+        account_id: campaign.account_id,
+        campaign_id: campaign.campaign_id // Ensure we have campaign_id for filtering
       });
 
       // Process ad sets
@@ -116,40 +126,95 @@ const DashboardPage = () => {
     };
   }, [rawCampaignData]);
 
-  // Memoized filtered data based on selected account
+  // Handle Facebook name selection
+  const handleFacebookNameChange = (facebookName) => {
+    setSelectedFacebookName(facebookName);
+    const newAccessToken = accessTokenMap[facebookName] || "";
+    setAccessToken(newAccessToken);
+
+    // Clear previous data
+    setRawCampaignData([]);
+    setSelectedAccount("");
+    setSelectedCampaigns(new Set());
+    setError(null);
+  };
+
+  // Function to fetch access tokens from API
+  const fetchAccessTokens = async () => {
+    try {
+      setLoadingTokens(true);
+      const { id: userId } = getUserData();
+      const response = await axios.get(`${apiUrl}/api/v1/user/${userId}/access-tokens`);
+      
+      if (response.data && response.data.data) {
+        const tokenMap = {};
+        const names = [];
+        
+        response.data.data.forEach(token => {
+          if (token.facebook_name) {
+            tokenMap[token.facebook_name] = token.access_token;
+            names.push({
+              name: token.facebook_name,
+              isExpired: token.is_expire
+            });
+          }
+        });
+        
+        setAccessTokenMap(tokenMap);
+        setFacebookNames(names);
+        
+      } else {
+        setFacebookNames([]);
+        setAccessTokenMap({});
+      }
+    } catch (error) {
+      console.error("Error fetching access tokens:", error);
+      notify("Failed to fetch Facebook names. Please check your connection.", "error");
+      setFacebookNames([]);
+      setAccessTokenMap({});
+    } finally {
+      setLoadingTokens(false);
+    }
+  };
+
+  // Memoized filtered data based on selected account and selected campaigns
   const filteredData = useMemo(() => {
-    if (!selectedAccount) {
-      return {
-        campaigns: processedData.campaigns,
-        adSets: processedData.adSets,
-        ads: processedData.ads
-      };
+    let campaigns = processedData.campaigns;
+    let adSets = processedData.adSets;
+    let ads = processedData.ads;
+
+    // Filter by selected account first
+    if (selectedAccount) {
+      campaigns = campaigns.filter(campaign => campaign.account_id === selectedAccount);
+      adSets = adSets.filter(adset => adset.account_id === selectedAccount);
+      ads = ads.filter(ad => ad.account_id === selectedAccount);
+    }
+
+    // Filter ad sets and ads based on selected campaigns
+    if (selectedCampaigns.size > 0) {
+      adSets = adSets.filter(adset => selectedCampaigns.has(adset.campaign_id));
+      ads = ads.filter(ad => selectedCampaigns.has(ad.campaign_id));
     }
 
     return {
-      campaigns: processedData.campaigns.filter(campaign => campaign.account_id === selectedAccount),
-      adSets: processedData.adSets.filter(adset => adset.account_id === selectedAccount),
-      ads: processedData.ads.filter(ad => ad.account_id === selectedAccount)
+      campaigns,
+      adSets,
+      ads
     };
-  }, [processedData, selectedAccount]);
+  }, [processedData, selectedAccount, selectedCampaigns]);
 
-  // Debounced access token to prevent multiple API calls
-  const [debouncedToken, setDebouncedToken] = useState("");
-
+  // Auto-fetch when a facebook account is selected
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedToken(accessToken);
-    }, 500); // 500ms debounce
-
-    return () => clearTimeout(timer);
-  }, [accessToken]);
-
-  // Auto-fetch with debounced token
-  useEffect(() => {
-    if (debouncedToken && debouncedToken.length >= 100 && !loading) {
+    if (accessToken) {
       fetchData();
     }
-  }, [debouncedToken]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessToken]);
+
+  // Fetch access tokens when component mounts
+  useEffect(() => {
+    fetchAccessTokens();
+  }, []);
 
   // Set default selected account when accounts are loaded
   useEffect(() => {
@@ -164,12 +229,7 @@ const DashboardPage = () => {
 
   const fetchData = useCallback(async () => {
     if (!accessToken) {
-      notify("Please enter an access token", "error");
-      return;
-    }
-
-    if (accessToken.length < 100) {
-      notify("Access token seems invalid", "error");
+      notify("Please select a Facebook account to refresh.", "error");
       return;
     }
 
@@ -208,6 +268,7 @@ const DashboardPage = () => {
   const handleStopFetching = useCallback(() => {
     setLoading(false);
     setAccessToken("");
+    setSelectedFacebookName("");
   }, []);
 
   // Memoized toggle handlers
@@ -219,6 +280,20 @@ const DashboardPage = () => {
           : campaign
       )
     );
+  }, []);
+
+  // Handle campaign selection changes
+  const handleCampaignSelectionChange = useCallback((selectedRowIds) => {
+    // selectedRowIds contains the IDs of selected campaigns
+    const selectedCampaignIds = new Set(selectedRowIds);
+    setSelectedCampaigns(selectedCampaignIds);
+    
+    // Show notification about filtering
+    if (selectedCampaignIds.size > 0) {
+      notify(`Filtering ad sets and ads for ${selectedCampaignIds.size} selected campaign(s)`, "info");
+    } else {
+      notify("Showing all ad sets and ads", "info");
+    }
   }, []);
 
   // Custom renderers for the tables - memoized to prevent re-creation
@@ -243,16 +318,32 @@ const DashboardPage = () => {
       <Typography variant="h4" sx={{ mb: 3 }}>Dashboard</Typography>
 
       <Box sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 2 }}>
-        <TextField
-          label="Access Token"
-          variant="outlined"
-          value={accessToken}
-          onChange={(e) => setAccessToken(e.target.value)}
-          sx={{ flexGrow: 1, maxWidth: '300px' }}
-          size="small"
-          disabled={accessToken && accessToken.length >= 100}
-          helperText="Enter your Meta Ads Manager Access Token"
-        />
+        <FormControl size="small" sx={{ flexGrow: 1, maxWidth: '300px' }}>
+            <InputLabel>Select Facebook Account</InputLabel>
+            <Select
+              value={selectedFacebookName}
+              onChange={(e) => handleFacebookNameChange(e.target.value)}
+              disabled={loadingTokens || loading}
+              label="Select Facebook Account"
+            >
+              <MenuItem value="">
+                <em>None</em>
+              </MenuItem>
+              {facebookNames.map((fbAccount) => (
+                <MenuItem key={fbAccount.name} value={fbAccount.name}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <span>{fbAccount.name}</span>
+                    {fbAccount.isExpired && (
+                      <Typography variant="caption" color="error">
+                        ⚠️ Expired
+                      </Typography>
+                    )}
+                  </Box>
+                </MenuItem>
+              ))}
+            </Select>
+        </FormControl>
+
         {processedData.adAccounts.length > 0 && (
           <FormControl size="small" sx={{ minWidth: 180 }}>
             <InputLabel>Select Ad Account</InputLabel>
@@ -275,7 +366,7 @@ const DashboardPage = () => {
         <Button
           variant="contained"
           onClick={fetchData}
-          disabled={!accessToken || accessToken.length < 100 || loading}
+          disabled={!accessToken || loading}
           sx={{ height: '32px', minWidth: '140px', whiteSpace: 'nowrap' }}
           startIcon={!loading ? <RefreshIcon /> : undefined}
         >
@@ -295,6 +386,15 @@ const DashboardPage = () => {
         <Typography color="error" sx={{ mb: 2 }}>
           Error: {error}
         </Typography>
+      )}
+
+      {/* Campaign Selection Info */}
+      {selectedCampaigns.size > 0 && (
+        <Box sx={{ mb: 2, p: 2, backgroundColor: '#e3f2fd', borderRadius: 1 }}>
+          <Typography variant="body2" color="primary">
+            📊 Filtering data for {selectedCampaigns.size} selected campaign(s)
+          </Typography>
+        </Box>
       )}
 
       <Paper elevation={2} sx={{ mb: 4 }}>
@@ -333,6 +433,7 @@ const DashboardPage = () => {
               headers={["Off / On", "Campaign"]}
               data={filteredData.campaigns}
               onDataChange={() => {}} // Remove if not needed
+              onSelectionChange={handleCampaignSelectionChange}
               rowsPerPage={10}
               compact={true}
               customRenderers={customRenderers}
@@ -347,6 +448,11 @@ const DashboardPage = () => {
           <Box sx={{ px: 3 }}>
             <Typography variant="h6" sx={{ mb: 2 }}>
               Ad Sets Overview ({filteredData.adSets.length})
+              {selectedCampaigns.size > 0 && (
+                <Typography component="span" variant="body2" color="textSecondary" sx={{ ml: 1 }}>
+                  (Filtered by selected campaigns)
+                </Typography>
+              )}
             </Typography>
             <DynamicTable
               headers={["Off / On", "Ad Set", "Delivery"]}
@@ -366,6 +472,11 @@ const DashboardPage = () => {
           <Box sx={{ px: 3 }}>
             <Typography variant="h6" sx={{ mb: 2 }}>
               Ads Overview ({filteredData.ads.length})
+              {selectedCampaigns.size > 0 && (
+                <Typography component="span" variant="body2" color="textSecondary" sx={{ ml: 1 }}>
+                  (Filtered by selected campaigns)
+                </Typography>
+              )}
             </Typography>
             <DynamicTable
               headers={["Off / On", "Ad", "Delivery"]}
