@@ -42,17 +42,9 @@ const DashboardPage = () => {
   const [selectedAccount, setSelectedAccount] = useState("");
   const [campaigns, setCampaigns] = useState([]);
 
-  const [adSets, setAdSets] = useState([
-    { id: 1, name: 'Ad Set 1', status: true, delivery: 'Active' },
-    { id: 2, name: 'Ad Set 2', status: false, delivery: 'Off' },
-    { id: 3, name: 'Ad Set 3', status: true, delivery: 'Active' },
-  ]);
+  const [adSets, setAdSets] = useState([]);
 
-  const [ads, setAds] = useState([
-    { id: 1, name: 'Ad 1', status: false, delivery: 'Off' },
-    { id: 2, name: 'Ad 2', status: true, delivery: 'Active' },
-    { id: 3, name: 'Ad 3', status: false, delivery: 'Off' },
-  ]);
+  const [ads, setAds] = useState([]);
 
   // Add useEffect for automatic fetch
   useEffect(() => {
@@ -88,8 +80,20 @@ const DashboardPage = () => {
         throw new Error(response.data.error);
       }
 
+      console.log("API Response:", response.data); // Debug log
+
       if (!response.data || !response.data.dashboard_data || !response.data.dashboard_data.campaigns) {
+        console.error("Invalid response structure:", response.data); // Debug log
         throw new Error("Invalid response format from server");
+      }
+
+      console.log("Campaigns data:", response.data.dashboard_data.campaigns); // Debug log
+
+      // Log first campaign structure to see what fields are available
+      if (response.data.dashboard_data.campaigns.length > 0) {
+        console.log("First campaign structure:", response.data.dashboard_data.campaigns[0]);
+        console.log("First campaign adsets count:", response.data.dashboard_data.campaigns[0].adsets?.length || 0);
+        console.log("First campaign ads count:", response.data.dashboard_data.campaigns[0].ads?.length || 0);
       }
 
       // Extract unique ad accounts using a Map to prevent duplicates
@@ -114,6 +118,42 @@ const DashboardPage = () => {
       }));
       setCampaigns(allCampaigns);
 
+      // Extract ad sets from all campaigns
+      const allAdSets = [];
+      response.data.dashboard_data.campaigns.forEach(campaign => {
+        if (campaign.adsets) {
+          campaign.adsets.forEach(adset => {
+            allAdSets.push({
+              id: `${campaign.campaign_id}_${adset.name}`, // Create unique ID
+              name: adset.name,
+              status: adset.status === 'ACTIVE',
+              delivery: adset.status === 'ACTIVE' ? 'Active' : 'Off',
+              campaign_id: campaign.campaign_id
+            });
+          });
+        }
+      });
+      setAdSets(allAdSets);
+      console.log("Extracted Ad Sets:", allAdSets); // Debug log
+
+      // Extract ads from all campaigns
+      const allAds = [];
+      response.data.dashboard_data.campaigns.forEach(campaign => {
+        if (campaign.ads) {
+          campaign.ads.forEach(ad => {
+            allAds.push({
+              id: `${campaign.campaign_id}_${ad.name}`, // Create unique ID
+              name: ad.name,
+              status: ad.status === 'ACTIVE',
+              delivery: ad.status === 'ACTIVE' ? 'Active' : 'Off',
+              campaign_id: campaign.campaign_id
+            });
+          });
+        }
+      });
+      setAds(allAds);
+      console.log("Extracted Ads:", allAds); // Debug log
+
       // Set first account as selected by default
       if (accounts.length > 0 && !selectedAccount) {
         setSelectedAccount(accounts[0].id);
@@ -135,6 +175,18 @@ const DashboardPage = () => {
   // Filter campaigns based on selected account
   const filteredCampaigns = campaigns.filter(campaign => campaign.account_id === selectedAccount);
 
+  // Filter ad sets based on selected account (through campaigns)
+  const filteredAdSets = adSets.filter(adset => {
+    const campaign = campaigns.find(c => c.id === adset.campaign_id);
+    return campaign && campaign.account_id === selectedAccount;
+  });
+
+  // Filter ads based on selected account (through campaigns)
+  const filteredAds = ads.filter(ad => {
+    const campaign = campaigns.find(c => c.id === ad.campaign_id);
+    return campaign && campaign.account_id === selectedAccount;
+  });
+
   // Custom renderers for the tables
   const customRenderers = {
     "Off / On": (value, row) => (
@@ -146,7 +198,10 @@ const DashboardPage = () => {
         />
       </Box>
     ),
-    "Campaign": (value, row) => row.name
+    "Campaign": (value, row) => row.name,
+    "Ad Set": (value, row) => row.name,
+    "Ad": (value, row) => row.name,
+    "Delivery": (value, row) => row.delivery
   };
 
   // Handler for toggling status
@@ -251,7 +306,7 @@ const DashboardPage = () => {
               onDataChange={(updatedData) => {
                 setCampaigns(updatedData);
               }}
-              rowsPerPage={1000}
+              rowsPerPage={10}
               compact={true}
               customRenderers={customRenderers}
               nonEditableHeaders={"Off / On,Campaign"}
@@ -266,13 +321,25 @@ const DashboardPage = () => {
             <Typography variant="h6" sx={{ mb: 2 }}>Ad Sets Overview</Typography>
             <DynamicTable
               headers={["Off / On", "Ad Set", "Delivery"]}
-              data={adSets}
+              data={filteredAdSets}
               onDataChange={(updatedData) => {
                 setAdSets(updatedData);
               }}
               rowsPerPage={8}
               compact={true}
-              customRenderers={customRenderers}
+              customRenderers={{
+                "Off / On": (value, row) => (
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Switch
+                      checked={row.status}
+                      onChange={() => handleToggleStatus(row.id, adSets, setAdSets)}
+                      color="primary"
+                    />
+                  </Box>
+                ),
+                "Ad Set": (value, row) => row.name,
+                "Delivery": (value, row) => row.delivery
+              }}
               nonEditableHeaders={"Off / On,Delivery"}
               showCheckbox={true}
             />
@@ -285,13 +352,25 @@ const DashboardPage = () => {
             <Typography variant="h6" sx={{ mb: 2 }}>Ads Overview</Typography>
             <DynamicTable
               headers={["Off / On", "Ad", "Delivery"]}
-              data={ads}
+              data={filteredAds}
               onDataChange={(updatedData) => {
                 setAds(updatedData);
               }}
               rowsPerPage={8}
               compact={true}
-              customRenderers={customRenderers}
+              customRenderers={{
+                "Off / On": (value, row) => (
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Switch
+                      checked={row.status}
+                      onChange={() => handleToggleStatus(row.id, ads, setAds)}
+                      color="primary"
+                    />
+                  </Box>
+                ),
+                "Ad": (value, row) => row.name,
+                "Delivery": (value, row) => row.delivery
+              }}
               nonEditableHeaders={"Off / On,Delivery"}
               showCheckbox={true}
             />

@@ -1,5 +1,5 @@
 from flask import jsonify, request
-from workers.dashboard_worker import fetch_dashboard_data
+from workers.dashboard_worker import fetch_ad_spend_data
 import json
 from datetime import datetime
 import pytz
@@ -15,7 +15,7 @@ def get_user_dashboard():
 
     try:
         # Pass parameters in the correct order as defined in the worker
-        task = fetch_dashboard_data.apply_async(args=[access_token, user_id], countdown=0)
+        task = fetch_ad_spend_data.apply_async(args=[user_id, access_token], countdown=0)
 
         # Wait for the task result, timeout in seconds
         dashboard_data = task.get(timeout=300)
@@ -23,12 +23,26 @@ def get_user_dashboard():
     except Exception as e:
         return jsonify({"error": f"Task failed or timed out: {str(e)}"}), 500
 
-    if isinstance(dashboard_data, dict) and dashboard_data.get("status") == "error":
-        return jsonify({"error": dashboard_data.get("message")}), 400
+    if isinstance(dashboard_data, dict) and dashboard_data.get("error"):
+        return jsonify({"error": dashboard_data.get("error")}), 400
+
+    # Validate the response structure
+    if not isinstance(dashboard_data, dict) or "campaign_spending_data" not in dashboard_data:
+        return jsonify({"error": "Invalid response structure from worker"}), 500
+
+    campaign_data = dashboard_data.get("campaign_spending_data", {})
+    if not isinstance(campaign_data, dict) or "campaigns" not in campaign_data:
+        return jsonify({"error": "No campaigns data found"}), 500
+
+    # Debug logging
+    campaigns = campaign_data.get("campaigns", [])
+    print(f"Total campaigns being sent to frontend: {len(campaigns)}")
+    for campaign in campaigns:
+        print(f"Campaign {campaign.get('campaign_name', 'Unknown')}: {len(campaign.get('adsets', []))} ad sets, {len(campaign.get('ads', []))} ads")
 
     updated_at = datetime.now(pytz.timezone("Asia/Manila")).isoformat()
 
     return jsonify({
-        "dashboard_data": dashboard_data.get("data"),
+        "dashboard_data": campaign_data,
         "data_updated_at": updated_at
     }), 200
