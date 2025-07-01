@@ -126,19 +126,6 @@ const DashboardPage = () => {
     };
   }, [rawCampaignData]);
 
-  // Handle Facebook name selection
-  const handleFacebookNameChange = (facebookName) => {
-    setSelectedFacebookName(facebookName);
-    const newAccessToken = accessTokenMap[facebookName] || "";
-    setAccessToken(newAccessToken);
-
-    // Clear previous data
-    setRawCampaignData([]);
-    setSelectedAccount("");
-    setSelectedCampaigns(new Set());
-    setError(null);
-  };
-
   // Function to fetch access tokens from API
   const fetchAccessTokens = async () => {
     try {
@@ -203,11 +190,9 @@ const DashboardPage = () => {
     };
   }, [processedData, selectedAccount, selectedCampaigns]);
 
-  // Auto-fetch when a facebook account is selected
+  // We no longer auto-fetch when a facebook account is selected.
+  // The user will use the refresh button.
   useEffect(() => {
-    if (accessToken) {
-      fetchData();
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken]);
 
@@ -227,43 +212,34 @@ const DashboardPage = () => {
     setActiveTab(newValue);
   }, []);
 
-  const fetchData = useCallback(async () => {
-    if (!accessToken) {
+  const fetchData = useCallback(async (token) => {
+    const useToken = token || accessToken;
+    if (!useToken) {
       notify("Please select a Facebook account to refresh.", "error");
       return;
     }
-
     setLoading(true);
     setError(null);
-    
     try {
       const response = await axios.post(`${apiUrl}/api/v1/dashboard`, {
         user_id: user_id || "dummy_user_id",
-        access_token: accessToken,
+        access_token: useToken,
       });
-
       if (response.data.error) {
         throw new Error(response.data.error);
       }
-
-      console.log("API Response:", response.data);
-
       if (!response.data || !response.data.dashboard_data || !response.data.dashboard_data.campaigns) {
-        console.error("Invalid response structure:", response.data);
         throw new Error("Invalid response format from server");
       }
-
-      // Store raw data - processing will be handled by useMemo
-      setRawCampaignData(response.data.dashboard_data.campaigns);
-
+      const newRawData = response.data.dashboard_data.campaigns;
+      setRawCampaignData(newRawData);
     } catch (err) {
-      console.error("Failed to fetch dashboard data:", err);
       setError(err.response?.data?.error || err.message || "Failed to fetch data");
       notify("Failed to fetch data: " + err.message, "error");
     } finally {
       setLoading(false);
     }
-  }, [accessToken, user_id]);
+  }, [accessToken, user_id, apiUrl]);
 
   const handleStopFetching = useCallback(() => {
     setLoading(false);
@@ -287,13 +263,6 @@ const DashboardPage = () => {
     // selectedRowIds contains the IDs of selected campaigns
     const selectedCampaignIds = new Set(selectedRowIds);
     setSelectedCampaigns(selectedCampaignIds);
-    
-    // Show notification about filtering
-    if (selectedCampaignIds.size > 0) {
-      notify(`Filtering ad sets and ads for ${selectedCampaignIds.size} selected campaign(s)`, "info");
-    } else {
-      notify("Showing all ad sets and ads", "info");
-    }
   }, []);
 
   // Custom renderers for the tables - memoized to prevent re-creation
@@ -312,6 +281,23 @@ const DashboardPage = () => {
     "Ad": (value, row) => row.name,
     "Delivery": (value, row) => row.delivery
   }), [handleToggleCampaignStatus]);
+
+  const handleFacebookNameChange = (facebookName) => {
+    setSelectedFacebookName(facebookName);
+    const newAccessToken = accessTokenMap[facebookName] || "";
+    setAccessToken(newAccessToken);
+
+    // Clear previous data
+    setRawCampaignData([]);
+    setSelectedAccount("");
+    setSelectedCampaigns(new Set());
+    setError(null);
+
+    // Automatically fetch data if a valid access token is set
+    if (facebookName && newAccessToken) {
+      fetchData(newAccessToken);
+    }
+  };
 
   return (
     <Box>
@@ -365,7 +351,7 @@ const DashboardPage = () => {
       <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 1, maxWidth: '300px' }}>
         <Button
           variant="contained"
-          onClick={fetchData}
+          onClick={() => fetchData(accessToken)}
           disabled={!accessToken || loading}
           sx={{ height: '32px', minWidth: '140px', whiteSpace: 'nowrap' }}
           startIcon={!loading ? <RefreshIcon /> : undefined}
