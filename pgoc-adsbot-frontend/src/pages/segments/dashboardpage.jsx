@@ -51,6 +51,7 @@ const DashboardPage = () => {
   
   // Track selected campaigns for filtering
   const [selectedCampaigns, setSelectedCampaigns] = useState(new Set());
+  const [selectedCampaignIds, setSelectedCampaignIds] = useState([]);
 
   // Memoized data processing
   const processedData = useMemo(() => {
@@ -63,7 +64,24 @@ const DashboardPage = () => {
       };
     }
 
-    console.log("Processing data..."); // Debug log
+    // Debug: Log unique status values to understand what we're getting
+    const campaignStatuses = new Set();
+    const adsetStatuses = new Set();
+    const adStatuses = new Set();
+    
+    rawCampaignData.forEach(campaign => {
+      campaignStatuses.add(campaign.status);
+      if (campaign.adsets) {
+        campaign.adsets.forEach(adset => adsetStatuses.add(adset.status));
+      }
+      if (campaign.ads) {
+        campaign.ads.forEach(ad => adStatuses.add(ad.status));
+      }
+    });
+    
+    console.log("Campaign statuses found:", Array.from(campaignStatuses));
+    console.log("Adset statuses found:", Array.from(adsetStatuses));
+    console.log("Ad statuses found:", Array.from(adStatuses));
 
     // Extract unique ad accounts using a Map to prevent duplicates
     const accountMap = new Map();
@@ -85,8 +103,10 @@ const DashboardPage = () => {
         id: campaign.campaign_id,
         name: campaign.campaign_name,
         status: campaign.status === 'ACTIVE',
+        delivery: campaign.delivery_status || 'INACTIVE', // Add delivery status
         account_id: campaign.account_id,
-        campaign_id: campaign.campaign_id // Ensure we have campaign_id for filtering
+        campaign_id: campaign.campaign_id, // Ensure we have campaign_id for filtering
+        rawStatus: campaign.status // Store original status for debugging
       });
 
       // Process ad sets
@@ -98,7 +118,8 @@ const DashboardPage = () => {
             status: adset.status === 'ACTIVE',
             delivery: adset.status === 'ACTIVE' ? 'Active' : 'Off',
             campaign_id: campaign.campaign_id,
-            account_id: campaign.account_id // Store account_id for faster filtering
+            account_id: campaign.account_id, // Store account_id for faster filtering
+            rawStatus: adset.status // Store original status for debugging
           });
         });
       }
@@ -112,7 +133,8 @@ const DashboardPage = () => {
             status: ad.status === 'ACTIVE',
             delivery: ad.status === 'ACTIVE' ? 'Active' : 'Off',
             campaign_id: campaign.campaign_id,
-            account_id: campaign.account_id // Store account_id for faster filtering
+            account_id: campaign.account_id, // Store account_id for faster filtering
+            rawStatus: ad.status // Store original status for debugging
           });
         });
       }
@@ -179,8 +201,17 @@ const DashboardPage = () => {
 
     // Filter ad sets and ads based on selected campaigns
     if (selectedCampaigns.size > 0) {
+      const beforeFilterAdSets = adSets.length;
+      const beforeFilterAds = ads.length;
+      
+      console.log("Selected campaign IDs:", Array.from(selectedCampaigns));
+      console.log("Available campaign IDs in adSets:", [...new Set(adSets.map(adset => adset.campaign_id))]);
+      console.log("Available campaign IDs in ads:", [...new Set(ads.map(ad => ad.campaign_id))]);
+      
       adSets = adSets.filter(adset => selectedCampaigns.has(adset.campaign_id));
       ads = ads.filter(ad => selectedCampaigns.has(ad.campaign_id));
+      
+      console.log(`Filtering: ${beforeFilterAdSets} → ${adSets.length} ad sets, ${beforeFilterAds} → ${ads.length} ads`);
     }
 
     return {
@@ -262,8 +293,17 @@ const DashboardPage = () => {
   const handleCampaignSelectionChange = useCallback((selectedRowIds) => {
     // selectedRowIds contains the IDs of selected campaigns
     const selectedCampaignIds = new Set(selectedRowIds);
+    
+    // Only log when there are actual selections or when clearing
+    if (selectedRowIds.length > 0) {
+      console.log("Raw selected row IDs:", selectedRowIds);
+      console.log("Selected campaigns:", Array.from(selectedCampaignIds));
+      console.log("Available campaign IDs:", processedData.campaigns.map(c => c.id));
+    }
+    
     setSelectedCampaigns(selectedCampaignIds);
-  }, []);
+    setSelectedCampaignIds(selectedRowIds);
+  }, [processedData.campaigns]);
 
   // Custom renderers for the tables - memoized to prevent re-creation
   const customRenderers = useMemo(() => ({
@@ -279,7 +319,38 @@ const DashboardPage = () => {
     "Campaign": (value, row) => row.name,
     "Ad Set": (value, row) => row.name,
     "Ad": (value, row) => row.name,
-    "Delivery": (value, row) => row.delivery
+    "Delivery": (value, row) => {
+      const status = row.delivery || value;
+      const getStatusColor = (status) => {
+        switch (status) {
+          case 'ACTIVE':
+            return '#4caf50';
+          case 'NOT_DELIVERING':
+            return '#ff9800';
+          case 'RECENTLY_REJECTED':
+            return '#f44336';
+          case 'INACTIVE':
+          default:
+            return '#9e9e9e';
+        }
+      };
+      
+      return (
+        <Box sx={{ 
+          display: 'inline-block',
+          px: 1.5,
+          py: 0.5,
+          borderRadius: 1,
+          backgroundColor: getStatusColor(status),
+          color: 'white',
+          fontSize: '0.75rem',
+          fontWeight: 'medium',
+          textTransform: 'uppercase'
+        }}>
+          {status}
+        </Box>
+      );
+    }
   }), [handleToggleCampaignStatus]);
 
   const handleFacebookNameChange = (facebookName) => {
@@ -376,10 +447,21 @@ const DashboardPage = () => {
 
       {/* Campaign Selection Info */}
       {selectedCampaigns.size > 0 && (
-        <Box sx={{ mb: 2, p: 2, backgroundColor: '#e3f2fd', borderRadius: 1 }}>
+        <Box sx={{ mb: 2, p: 2, backgroundColor: '#e3f2fd', borderRadius: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="body2" color="primary">
             📊 Filtering data for {selectedCampaigns.size} selected campaign(s)
           </Typography>
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => {
+              setSelectedCampaigns(new Set());
+              setSelectedCampaignIds([]);
+            }}
+            sx={{ ml: 2 }}
+          >
+            Clear Selection
+          </Button>
         </Box>
       )}
 
@@ -416,14 +498,16 @@ const DashboardPage = () => {
               Campaigns Overview ({filteredData.campaigns.length})
             </Typography>
             <DynamicTable
-              headers={["Off / On", "Campaign"]}
+              key="campaigns-table"
+              headers={["Off / On", "Campaign", "Delivery"]}
               data={filteredData.campaigns}
               onDataChange={() => {}} // Remove if not needed
               onSelectionChange={handleCampaignSelectionChange}
+              selectedRowIds={selectedCampaignIds}
               rowsPerPage={10}
               compact={true}
               customRenderers={customRenderers}
-              nonEditableHeaders={"Off / On,Campaign"}
+              nonEditableHeaders={"Off / On,Delivery"}
               showCheckbox={true}
             />
           </Box>
@@ -441,6 +525,7 @@ const DashboardPage = () => {
               )}
             </Typography>
             <DynamicTable
+              key="adsets-table"
               headers={["Off / On", "Ad Set", "Delivery"]}
               data={filteredData.adSets}
               onDataChange={() => {}} // Remove if not needed
@@ -465,6 +550,7 @@ const DashboardPage = () => {
               )}
             </Typography>
             <DynamicTable
+              key="ads-table"
               headers={["Off / On", "Ad", "Delivery"]}
               data={filteredData.ads}
               onDataChange={() => {}} // Remove if not needed
