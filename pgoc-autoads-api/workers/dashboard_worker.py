@@ -52,13 +52,45 @@ def get_ad_accounts(access_token):
     except Exception as e:
         logger.error(f"Exception in get_ad_accounts: {e}")
         return []
+
+def determine_delivery_status(campaign_status, ad_effective_statuses):
+    campaign_status = campaign_status.upper() if campaign_status else ""
+    ad_statuses = [s.upper() for s in ad_effective_statuses if s]
+    if not ad_statuses:
+        return "INACTIVE"
+
+    ACTIVE_STATUSES = {"ACTIVE"}
+    NOT_DELIVERING_STATUSES = {
+        "ADSET_PAUSED", "DISAPPROVED", "PENDING_REVIEW",
+        "PREAPPROVED", "PENDING_BILLING_INFO", "WITH_ISSUES"
+    }
+
+    active_count = sum(1 for s in ad_statuses if s in ACTIVE_STATUSES)
+    adset_paused_count = sum(1 for s in ad_statuses if s == "ADSET_PAUSED")
+    disapproved_count = sum(1 for s in ad_statuses if s == "DISAPPROVED")
+
+    if campaign_status == "ACTIVE":
+        # If there are any active ads, campaign is active
+        if active_count > 0:
+            return "ACTIVE"
+        # If all ads are disapproved, campaign is recently rejected
+        if disapproved_count == len(ad_statuses):
+            return "RECENTLY_REJECTED"
+        # If all ads are paused, campaign is not delivering
+        if adset_paused_count == len(ad_statuses):
+            return "NOT_DELIVERING"
+        # If there are no active ads and some are in not delivering state
+        if active_count == 0 and any(s in NOT_DELIVERING_STATUSES for s in ad_statuses):
+            return "NOT_DELIVERING"
+
+    return "INACTIVE"
     
 def process_single_account_batch(account_data):
     ad_account_id, ad_account_name, access_token, user_id = account_data
     try:
         batch = [
             {"method": "GET", "relative_url": f"act_{ad_account_id}/campaigns?fields=id,name,status,daily_budget,budget_remaining&limit=1000"},
-            {"method": "GET", "relative_url": f"act_{ad_account_id}/adsets?fields=id,campaign_id,status,name&limit=1000"},
+            {"method": "GET", "relative_url": f"act_{ad_account_id}/adsets?fields=id,campaign_id,status,name,ads{{effective_status}}&limit=1000"},
             {"method": "GET", "relative_url": f"act_{ad_account_id}/ads?fields=id,name,status,effective_status,adset_id,campaign_id&limit=1000"},
             {"method": "GET", "relative_url": f"act_{ad_account_id}/insights?fields=campaign_id,campaign_name,spend&level=campaign&date_preset=today&limit=1000"}
         ]
@@ -169,6 +201,10 @@ def fetch_ad_spend_data(user_id, access_token, max_workers=10):
                 daily_budget = float(campaign.get("daily_budget", "0") or 0) / 100
                 budget_remaining = float(campaign.get("budget_remaining", "0") or 0) / 100
                 campaign_status = campaign.get("status", "").upper()
+                
+                # Debug: Log campaign status for troubleshooting
+                if campaign_status:
+                    print(f"Campaign {cid} ({campaign.get('name', '')}) status: {campaign_status}")
 
                 # Collect ad set statuses for this campaign
                 adset_statuses = []
@@ -176,9 +212,16 @@ def fetch_ad_spend_data(user_id, access_token, max_workers=10):
                 adset_details = []
                 ad_details = []
                 
+                # Collect ad effective statuses for delivery status calculation
+                ad_effective_statuses = []
+                
                 for adset in adsets_by_campaign.get(cid, []):
                     adset_status = adset.get("status", "").upper()
                     adset_statuses.append(adset_status)
+                    
+                    # Debug: Log adset status for troubleshooting
+                    if adset_status:
+                        print(f"  Adset {adset.get('id', '')} ({adset.get('name', '')}) status: {adset_status}")
                     
                     adset_detail = {
                         "name": adset.get("name", ""),
@@ -193,17 +236,26 @@ def fetch_ad_spend_data(user_id, access_token, max_workers=10):
                         ad_status = ad.get("effective_status", "").upper()
                         if ad_status:
                             ad_statuses.append(ad_status)
+                            ad_effective_statuses.append(ad_status)
+                            
+                        # Debug: Log ad status for troubleshooting
+                        if ad_status:
+                            print(f"    Ad {ad.get('id', '')} ({ad.get('name', '')}) status: {ad_status}")
                             
                         ad_detail = {
                             "name": ad.get("name", ""),
                             "status": ad_status
                         }
                         ad_details.append(ad_detail)
+                
+                # Calculate delivery status
+                delivery_status = determine_delivery_status(campaign_status, ad_effective_statuses)
 
                 campaigns.append({
                     "campaign_id": cid,
                     "campaign_name": campaign.get("name", ""),
                     "status": campaign_status,
+                    "delivery_status": delivery_status,
                     "account_id": r['ad_account_id'],
                     "account_name": r['ad_account_name'],
                     "adset_statuses": list(set(adset_statuses)),  # Remove duplicates
@@ -218,6 +270,16 @@ def fetch_ad_spend_data(user_id, access_token, max_workers=10):
         print(f"   • {total_campaigns} campaigns")
         print(f"   • {total_adsets} ad sets")
         print(f"   • {total_ads} ads")
+        
+        # Debug: Count statuses for summary
+        status_counts = {}
+        for campaign in campaigns:
+            status = campaign.get('status', 'UNKNOWN')
+            status_counts[status] = status_counts.get(status, 0) + 1
+        
+        print(f"📊 Campaign status summary:")
+        for status, count in status_counts.items():
+            print(f"   • {status}: {count} campaigns")
         
         return {
             "campaign_spending_data": {
