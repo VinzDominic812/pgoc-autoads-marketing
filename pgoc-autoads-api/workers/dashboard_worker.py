@@ -84,7 +84,57 @@ def determine_delivery_status(campaign_status, ad_effective_statuses):
             return "NOT_DELIVERING"
 
     return "INACTIVE"
-    
+
+def _update_facebook_object_status(object_id, access_token, status, object_type):
+    """
+    Helper function to update the status of a Facebook object (campaign, adset, ad).
+    """
+    assert status in ["ACTIVE", "PAUSED"], "Status must be 'ACTIVE' or 'PAUSED'"
+
+    url = f"{FACEBOOK_GRAPH_URL}/{object_id}"
+    params = {
+        "access_token": access_token,
+        "status": status
+    }
+
+    try:
+        response = session.post(url, data=params, timeout=10)
+        if response.status_code == 200:
+            return {"success": True, f"{object_type}_id": object_id, "new_status": status}
+        else:
+            logger.error(f"Failed to update {object_type} {object_id}. Status code: {response.status_code}, Response: {response.text}")
+            try:
+                error_details = response.json()
+            except json.JSONDecodeError:
+                error_details = {"message": response.text}
+
+            error_message = error_details.get("error", {}).get("message", "Unknown Facebook API error.")
+            if error_message == "Unknown Facebook API error." and "message" in error_details:
+                 error_message = error_details["message"]
+
+            return {"success": False, "error": error_message}
+    except Exception as e:
+        logger.error(f"Exception updating {object_type} status: {e}")
+        return {"success": False, "error": str(e)}
+
+def update_campaign_status(campaign_id, access_token, status):
+    """
+    Updates the status of a Facebook campaign.
+    """
+    return _update_facebook_object_status(campaign_id, access_token, status, "campaign")
+
+def update_adset_status(adset_id, access_token, status):
+    """
+    Updates the status of a Facebook ad set.
+    """
+    return _update_facebook_object_status(adset_id, access_token, status, "adset")
+
+def update_ad_status(ad_id, access_token, status):
+    """
+    Updates the status of a Facebook ad.
+    """
+    return _update_facebook_object_status(ad_id, access_token, status, "ad")
+
 def process_single_account_batch(account_data):
     ad_account_id, ad_account_name, access_token, user_id = account_data
     try:
