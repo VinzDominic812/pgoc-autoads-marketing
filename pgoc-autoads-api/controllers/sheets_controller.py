@@ -3,6 +3,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 import os
 import logging
+import re
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -65,15 +66,106 @@ def update_budget(data):
         return {"error": "Missing 'budget_remaining' value"}, 400
 
     try:
-        # Add peso symbol to the budget value
-        budget_with_peso = f"₱{budget_remaining}"
-        logger.info(f"Updating cell {TARGET_CELL} with value: {budget_with_peso}")
-        
-        # Update the specific cell with the budget value
-        worksheet.update_acell(TARGET_CELL, budget_with_peso)
-        
-        logger.info(f"Successfully updated cell {TARGET_CELL}")
-        return {"message": f"Budget updated successfully in Google Sheet at {TAB_NAME}!{TARGET_CELL}"}, 200
+        # Add peso symbol to the budget value, formatted with commas
+        try:
+            budget_float = float(budget_remaining)
+            budget_formatted = f"{budget_float:,.2f}"
+        except Exception:
+            budget_formatted = str(budget_remaining)
+        budget_with_peso = f"₱{budget_formatted}"
+        logger.info(f"Updating B4 with value: {budget_with_peso}")
+        # Update A4, B4, and C4
+        worksheet.update_acell("A4", "TO SPEND")
+        worksheet.update_acell("B4", budget_with_peso)
+        now = datetime.now()
+        now_str = f"{now.month}/{now.day}/{now.year}, {now.strftime('%I:%M:%S %p').lstrip('0')}"
+        worksheet.update_acell("C4", f"'{now_str}")
+
+        # --- Add cell formatting to A4, B4, and C4 ---
+        def get_col_row(cell):
+            import re
+            match = re.match(r"([A-Z]+)([0-9]+)", cell)
+            if match:
+                col_letters, row_str = match.groups()
+                row = int(row_str) - 1  # 0-indexed for API
+                col = sum([(ord(char) - ord('A') + 1) * (26 ** i) for i, char in enumerate(reversed(col_letters))]) - 1
+                return row, col
+            return None, None
+
+        sheet_id = worksheet._properties['sheetId']
+        row, col_a = get_col_row("A4")
+        _, col_b = get_col_row("B4")
+        _, col_c = get_col_row("C4")
+
+        requests = [
+            {  # A4: left-aligned
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": row,
+                        "endRowIndex": row + 1,
+                        "startColumnIndex": col_a,
+                        "endColumnIndex": col_a + 1,
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "horizontalAlignment": "LEFT",
+                            "textFormat": {
+                                "fontSize": 14,
+                                "bold": True
+                            }
+                        }
+                    },
+                    "fields": "userEnteredFormat(horizontalAlignment,textFormat)"
+                }
+            },
+            {  # B4: centered (no background)
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": row,
+                        "endRowIndex": row + 1,
+                        "startColumnIndex": col_b,
+                        "endColumnIndex": col_b + 1,
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "horizontalAlignment": "CENTER",
+                            "textFormat": {
+                                "fontSize": 14,
+                                "bold": True
+                            }
+                        }
+                    },
+                    "fields": "userEnteredFormat(textFormat,horizontalAlignment)"
+                }
+            },
+            {  # C4: left-aligned, NOT bold, font size 10
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": row,
+                        "endRowIndex": row + 1,
+                        "startColumnIndex": col_c,
+                        "endColumnIndex": col_c + 1,
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "horizontalAlignment": "LEFT",
+                            "textFormat": {
+                                "fontSize": 10
+                            }
+                        }
+                    },
+                    "fields": "userEnteredFormat(horizontalAlignment,textFormat)"
+                }
+            }
+        ]
+        worksheet.spreadsheet.batch_update({"requests": requests})
+        # --- End cell formatting ---
+
+        logger.info(f"Successfully updated A4, B4, C4")
+        return {"message": f"Budget updated successfully in Google Sheet at {TAB_NAME}!A4, B4, C4"}, 200
     except Exception as e:
         logger.error(f"Error updating Google Sheet: {e}")
         logger.error(f"Error type: {type(e).__name__}")
