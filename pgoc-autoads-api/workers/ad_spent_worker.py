@@ -202,7 +202,7 @@ def fetch_ad_spend_data(user_id, access_token, max_workers=10):
                     "ad_account_id": r['ad_account_id'],
                     "ad_account_name": r['ad_account_name'],
                     "delivery_status": delivery_status,
-                    "spend": spend,
+                    "spent": spend,
                     "daily_budget": daily_budget,
                     "budget_remaining": budget_remaining
                 })
