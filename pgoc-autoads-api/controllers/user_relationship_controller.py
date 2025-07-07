@@ -14,51 +14,6 @@ def get_relationships(superadmin_id):
             return jsonify({'error': 'Unauthorized access'}), 403
             
         # Get all relationships where this user is the superadmin
-        relationships = UserRelationship.query.filter_by(
-            superadmin_id=superadmin_id,
-            is_active=True
-        ).all()
-        
-        # Format the response data
-        relationships_data = []
-        for rel in relationships:
-            client = User.query.get(rel.client_id)
-            if client:
-                relationships_data.append({
-                    'id': rel.id,
-                    'client_id': rel.client_id,
-                    'client_name': client.full_name,
-                    'client_email': client.email,
-                    'client_role': client.user_role,
-                    'created_at': rel.created_at.isoformat(),
-                    'updated_at': rel.updated_at.isoformat()
-                })
-        
-        return jsonify({
-            'message': 'Relationships retrieved successfully',
-            'data': relationships_data
-        }), 200
-        
-    except Exception as e:
-        print("[EXCEPTION]", str(e))
-        return jsonify({'error': 'Internal Server Error'}), 500
-
-from flask import jsonify
-from models.models import User, UserRelationship, manila_tz, db
-from datetime import datetime
-
-def get_relationships(superadmin_id):
-    try:
-        # Get the user object
-        user = User.query.get(superadmin_id)
-        if not user:
-            return jsonify({'error': 'User not found'}), 404
-            
-        # Only superadmins can view relationships
-        if user.user_level != 1 or user.user_role != 'superadmin':
-            return jsonify({'error': 'Unauthorized access'}), 403
-            
-        # Get all relationships where this user is the superadmin
         # No longer filtering by is_active since we're doing hard deletes
         relationships = UserRelationship.query.filter_by(
             superadmin_id=superadmin_id

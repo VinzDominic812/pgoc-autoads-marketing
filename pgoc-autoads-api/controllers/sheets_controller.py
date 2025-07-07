@@ -3,6 +3,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 import os
 import logging
+import re
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -22,7 +23,6 @@ SPREADSHEET_ID = "1ami6l2YIkLXXYnoyRprhqYwdrjlkH3IBL9Dd1Go8yMc"
 
 # IMPORTANT: Specify the tab name and cell where you want to insert the budget data
 TAB_NAME = "testsheet"  # Replace with your actual tab name
-TARGET_CELL = "A4"   # Replace with your desired cell (e.g., "B5", "C10", etc.)
 
 def get_sheet():
     """Authorize and get the spreadsheet object."""
@@ -65,15 +65,116 @@ def update_budget(data):
         return {"error": "Missing 'budget_remaining' value"}, 400
 
     try:
-        # Add peso symbol to the budget value
-        budget_with_peso = f"₱{budget_remaining}"
-        logger.info(f"Updating cell {TARGET_CELL} with value: {budget_with_peso}")
+        # Add peso symbol to the budget value, formatted with commas
+        try:
+            budget_float = float(budget_remaining)
+            budget_formatted = f"{budget_float:,.2f}"
+        except Exception:
+            budget_formatted = str(budget_remaining)
+        budget_with_peso = f"₱{budget_formatted}"
+        logger.info(f"Updating C5 with value: {budget_with_peso}")
+        # Update B5, C5, and D5
+        worksheet.update_acell("B5", "TO SPEND")
+        worksheet.update_acell("C5", budget_with_peso)
         
-        # Update the specific cell with the budget value
-        worksheet.update_acell(TARGET_CELL, budget_with_peso)
-        
-        logger.info(f"Successfully updated cell {TARGET_CELL}")
-        return {"message": f"Budget updated successfully in Google Sheet at {TAB_NAME}!{TARGET_CELL}"}, 200
+        # Use the provided fetch completion timestamp if available, otherwise use current time
+        fetch_completion_timestamp = data.get("fetch_completion_timestamp")
+        if fetch_completion_timestamp:
+            # Convert the timestamp to datetime and format it
+            completion_time = datetime.fromtimestamp(fetch_completion_timestamp / 1000)  # Convert from milliseconds
+            now_str = f"{completion_time.month}/{completion_time.day}/{completion_time.year}, {completion_time.strftime('%I:%M:%S %p').lstrip('0')}"
+            worksheet.update_acell("D5", f"'{now_str}")
+        else:
+            # Fallback to current time if no timestamp provided
+            now = datetime.now()
+            now_str = f"{now.month}/{now.day}/{now.year}, {now.strftime('%I:%M:%S %p').lstrip('0')}"
+            worksheet.update_acell("D5", f"'{now_str}")
+
+        # --- Add cell formatting to B5, C5, and D5 ---
+        def get_col_row(cell):
+            import re
+            match = re.match(r"([A-Z]+)([0-9]+)", cell)
+            if match:
+                col_letters, row_str = match.groups()
+                row = int(row_str) - 1  # 0-indexed for API
+                col = sum([(ord(char) - ord('A') + 1) * (26 ** i) for i, char in enumerate(reversed(col_letters))]) - 1
+                return row, col
+            return None, None
+
+        sheet_id = worksheet._properties['sheetId']
+        row, col_b = get_col_row("B5")
+        _, col_c = get_col_row("C5")
+        _, col_d = get_col_row("D5")
+
+        requests = [
+            {  # B5: left-aligned
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": row,
+                        "endRowIndex": row + 1,
+                        "startColumnIndex": col_b,
+                        "endColumnIndex": col_b + 1,
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "horizontalAlignment": "LEFT",
+                            "textFormat": {
+                                "fontSize": 14,
+                                "bold": True
+                            }
+                        }
+                    },
+                    "fields": "userEnteredFormat(horizontalAlignment,textFormat)"
+                }
+            },
+            {  # C5: centered (no background)
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": row,
+                        "endRowIndex": row + 1,
+                        "startColumnIndex": col_c,
+                        "endColumnIndex": col_c + 1,
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "horizontalAlignment": "CENTER",
+                            "textFormat": {
+                                "fontSize": 14,
+                                "bold": True
+                            }
+                        }
+                    },
+                    "fields": "userEnteredFormat(textFormat,horizontalAlignment)"
+                }
+            },
+            {  # D5: left-aligned, NOT bold, font size 10
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": row,
+                        "endRowIndex": row + 1,
+                        "startColumnIndex": col_d,
+                        "endColumnIndex": col_d + 1,
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "horizontalAlignment": "LEFT",
+                            "textFormat": {
+                                "fontSize": 10
+                            }
+                        }
+                    },
+                    "fields": "userEnteredFormat(horizontalAlignment,textFormat)"
+                }
+            }
+        ]
+        worksheet.spreadsheet.batch_update({"requests": requests})
+        # --- End cell formatting ---
+
+        logger.info(f"Successfully updated B5, C5, D5")
+        return {"message": f"Budget updated successfully in Google Sheet at {TAB_NAME}!B5, C5, D5"}, 200
     except Exception as e:
         logger.error(f"Error updating Google Sheet: {e}")
         logger.error(f"Error type: {type(e).__name__}")

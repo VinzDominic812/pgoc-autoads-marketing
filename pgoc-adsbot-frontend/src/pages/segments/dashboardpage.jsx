@@ -51,6 +51,7 @@ const DashboardPage = () => {
   
   // Track selected campaigns for filtering
   const [selectedCampaigns, setSelectedCampaigns] = useState(new Set());
+  const [selectedCampaignIds, setSelectedCampaignIds] = useState([]);
 
   // Memoized data processing
   const processedData = useMemo(() => {
@@ -63,7 +64,24 @@ const DashboardPage = () => {
       };
     }
 
-    console.log("Processing data..."); // Debug log
+    // Debug: Log unique status values to understand what we're getting
+    const campaignStatuses = new Set();
+    const adsetStatuses = new Set();
+    const adStatuses = new Set();
+    
+    rawCampaignData.forEach(campaign => {
+      campaignStatuses.add(campaign.status);
+      if (campaign.adsets) {
+        campaign.adsets.forEach(adset => adsetStatuses.add(adset.status));
+      }
+      if (campaign.ads) {
+        campaign.ads.forEach(ad => adStatuses.add(ad.status));
+      }
+    });
+    
+    console.log("Campaign statuses found:", Array.from(campaignStatuses));
+    console.log("Adset statuses found:", Array.from(adsetStatuses));
+    console.log("Ad statuses found:", Array.from(adStatuses));
 
     // Extract unique ad accounts using a Map to prevent duplicates
     const accountMap = new Map();
@@ -84,21 +102,24 @@ const DashboardPage = () => {
       allCampaigns.push({
         id: campaign.campaign_id,
         name: campaign.campaign_name,
-        status: campaign.status === 'ACTIVE',
+        status: campaign.status === 'ACTIVE', // Convert to boolean for Switch component
+        delivery: campaign.delivery_status || 'INACTIVE', // Add delivery status
         account_id: campaign.account_id,
-        campaign_id: campaign.campaign_id // Ensure we have campaign_id for filtering
+        campaign_id: campaign.campaign_id, // Ensure we have campaign_id for filtering
+        rawStatus: campaign.status // Store original status for debugging
       });
 
       // Process ad sets
       if (campaign.adsets) {
         campaign.adsets.forEach((adset, index) => {
           allAdSets.push({
-            id: `${campaign.campaign_id}_${index}`, // Use index instead of name for uniqueness
+            id: adset.id, // Use actual adset ID for toggling
             name: adset.name,
-            status: adset.status === 'ACTIVE',
-            delivery: adset.status === 'ACTIVE' ? 'Active' : 'Off',
+            status: adset.status === 'ACTIVE', // Convert to boolean for Switch component
+            delivery: adset.status === 'ACTIVE' ? 'Active' : 'Off', // Simplified delivery for adsets
             campaign_id: campaign.campaign_id,
-            account_id: campaign.account_id // Store account_id for faster filtering
+            account_id: campaign.account_id, // Store account_id for faster filtering
+            rawStatus: adset.status // Store original status for debugging
           });
         });
       }
@@ -107,12 +128,13 @@ const DashboardPage = () => {
       if (campaign.ads) {
         campaign.ads.forEach((ad, index) => {
           allAds.push({
-            id: `${campaign.campaign_id}_ad_${index}`, // Use index for uniqueness
+            id: ad.id, // Use actual ad ID for toggling
             name: ad.name,
-            status: ad.status === 'ACTIVE',
-            delivery: ad.status === 'ACTIVE' ? 'Active' : 'Off',
+            status: ad.status === 'ACTIVE', // Convert to boolean for Switch component
+            delivery: ad.status === 'ACTIVE' ? 'Active' : 'Off', // Simplified delivery for ads
             campaign_id: campaign.campaign_id,
-            account_id: campaign.account_id // Store account_id for faster filtering
+            account_id: campaign.account_id, // Store account_id for faster filtering
+            rawStatus: ad.status // Store original status for debugging
           });
         });
       }
@@ -179,8 +201,17 @@ const DashboardPage = () => {
 
     // Filter ad sets and ads based on selected campaigns
     if (selectedCampaigns.size > 0) {
+      const beforeFilterAdSets = adSets.length;
+      const beforeFilterAds = ads.length;
+      
+      console.log("Selected campaign IDs:", Array.from(selectedCampaigns));
+      console.log("Available campaign IDs in adSets:", [...new Set(adSets.map(adset => adset.campaign_id))]);
+      console.log("Available campaign IDs in ads:", [...new Set(ads.map(ad => ad.campaign_id))]);
+      
       adSets = adSets.filter(adset => selectedCampaigns.has(adset.campaign_id));
       ads = ads.filter(ad => selectedCampaigns.has(ad.campaign_id));
+      
+      console.log(`Filtering: ${beforeFilterAdSets} → ${adSets.length} ad sets, ${beforeFilterAds} → ${ads.length} ads`);
     }
 
     return {
@@ -247,31 +278,152 @@ const DashboardPage = () => {
     setSelectedFacebookName("");
   }, []);
 
-  // Memoized toggle handlers
-  const handleToggleCampaignStatus = useCallback((id) => {
-    setRawCampaignData(prevData => 
-      prevData.map(campaign => 
-        campaign.campaign_id === id 
-          ? { ...campaign, status: campaign.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE' }
-          : campaign
-      )
+  // Generic status toggle handler for Campaign, Ad Set, Ad
+  const handleToggleStatus = useCallback(async (id, currentStatus, type) => {
+    if (!accessToken) {
+      notify("Access token is not available. Please select a Facebook account.", "error");
+      return;
+    }
+
+    const newStatus = currentStatus ? "PAUSED" : "ACTIVE";
+    let endpoint = '';
+    let idKey = '';
+    let successMessage = '';
+    let errorMessage = '';
+
+    switch (type) {
+      case 'campaign':
+        endpoint = `${apiUrl}/api/v1/dashboard/update_campaign_status`;
+        idKey = 'campaign_id';
+        successMessage = `Campaign ${id} successfully set to ${newStatus}.`;
+        errorMessage = `Failed to update campaign ${id} status: `;
+        break;
+      case 'adset':
+        endpoint = `${apiUrl}/api/v1/dashboard/update_adset_status`;
+        idKey = 'adset_id';
+        successMessage = `Ad Set ${id} successfully set to ${newStatus}.`;
+        errorMessage = `Failed to update ad set ${id} status: `;
+        break;
+      case 'ad':
+        endpoint = `${apiUrl}/api/v1/dashboard/update_ad_status`;
+        idKey = 'ad_id';
+        successMessage = `Ad ${id} successfully set to ${newStatus}.`;
+        errorMessage = `Failed to update ad ${id} status: `;
+        break;
+      default:
+        console.error("Unknown type for status toggle:", type);
+        return;
+    }
+
+    // Optimistically update UI
+    setRawCampaignData(prevData =>
+      prevData.map(campaign => ({
+        ...campaign,
+        adsets: campaign.adsets ? campaign.adsets.map(adset =>
+          type === 'adset' && adset.id === id
+            ? { ...adset, status: newStatus }
+            : adset
+        ) : [],
+        ads: campaign.ads ? campaign.ads.map(ad =>
+          type === 'ad' && ad.id === id
+            ? { ...ad, status: newStatus }
+            : ad
+        ) : [],
+        status: type === 'campaign' && campaign.campaign_id === id
+          ? newStatus
+          : campaign.status
+      }))
     );
-  }, []);
+
+    try {
+      const payload = {
+        [idKey]: id,
+        access_token: accessToken,
+        status: newStatus
+      };
+      const response = await axios.post(endpoint, payload);
+
+      if (response.data.success) {
+        notify(successMessage, "success");
+      } else {
+        notify(errorMessage + response.data.error, "error");
+        // Revert UI if API call fails
+        setRawCampaignData(prevData =>
+          prevData.map(campaign => ({
+            ...campaign,
+            adsets: campaign.adsets ? campaign.adsets.map(adset =>
+              type === 'adset' && adset.id === id
+                ? { ...adset, status: currentStatus ? "ACTIVE" : "PAUSED" }
+                : adset
+            ) : [],
+            ads: campaign.ads ? campaign.ads.map(ad =>
+              type === 'ad' && ad.id === id
+                ? { ...ad, status: currentStatus ? "ACTIVE" : "PAUSED" }
+                : ad
+            ) : [],
+            status: type === 'campaign' && campaign.campaign_id === id
+              ? (currentStatus ? "ACTIVE" : "PAUSED")
+              : campaign.status
+          }))
+        );
+      }
+    } catch (err) {
+      console.error(`Error updating ${type} status:`, err);
+      notify(`Failed to update ${type} status due to a network error or server issue.`, "error");
+      // Revert UI if API call fails
+      setRawCampaignData(prevData =>
+        prevData.map(campaign => ({
+          ...campaign,
+          adsets: campaign.adsets ? campaign.adsets.map(adset =>
+            type === 'adset' && adset.id === id
+              ? { ...adset, status: currentStatus ? "ACTIVE" : "PAUSED" }
+              : adset
+          ) : [],
+          ads: campaign.ads ? campaign.ads.map(ad =>
+            type === 'ad' && ad.id === id
+              ? { ...ad, status: currentStatus ? "ACTIVE" : "PAUSED" }
+              : ad
+          ) : [],
+          status: type === 'campaign' && campaign.campaign_id === id
+            ? (currentStatus ? "ACTIVE" : "PAUSED")
+            : campaign.status
+        }))
+      );
+    }
+  }, [accessToken, apiUrl]);
+
 
   // Handle campaign selection changes
   const handleCampaignSelectionChange = useCallback((selectedRowIds) => {
     // selectedRowIds contains the IDs of selected campaigns
     const selectedCampaignIds = new Set(selectedRowIds);
+    
+    // Only log when there are actual selections or when clearing
+    if (selectedRowIds.length > 0) {
+      console.log("Raw selected row IDs:", selectedRowIds);
+      console.log("Selected campaigns:", Array.from(selectedCampaignIds));
+      console.log("Available campaign IDs:", processedData.campaigns.map(c => c.id));
+    }
+    
     setSelectedCampaigns(selectedCampaignIds);
-  }, []);
+    setSelectedCampaignIds(selectedRowIds);
+  }, [processedData.campaigns]);
 
   // Custom renderers for the tables - memoized to prevent re-creation
   const customRenderers = useMemo(() => ({
     "Off / On": (value, row) => (
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Switch
-          checked={row.status}
-          onChange={() => handleToggleCampaignStatus(row.id)}
+          checked={row.status} // This is the boolean status (true for ACTIVE, false for PAUSED)
+          onChange={() => {
+            if (activeTab === 0) { // Campaigns tab
+              handleToggleStatus(row.id, row.status, 'campaign');
+            } else if (activeTab === 1) { // Ad Sets tab
+              handleToggleStatus(row.id, row.status, 'adset');
+            } else if (activeTab === 2) { // Ads tab
+              handleToggleStatus(row.id, row.status, 'ad');
+            }
+          }}
           color="primary"
         />
       </Box>
@@ -279,8 +431,39 @@ const DashboardPage = () => {
     "Campaign": (value, row) => row.name,
     "Ad Set": (value, row) => row.name,
     "Ad": (value, row) => row.name,
-    "Delivery": (value, row) => row.delivery
-  }), [handleToggleCampaignStatus]);
+    "Delivery": (value, row) => {
+      const status = row.delivery || value;
+      const getStatusColor = (status) => {
+        switch (status) {
+          case 'ACTIVE':
+            return '#4caf50';
+          case 'NOT_DELIVERING':
+            return '#ff9800';
+          case 'RECENTLY_REJECTED':
+            return '#f44336';
+          case 'INACTIVE':
+          default:
+            return '#9e9e9e';
+        }
+      };
+      
+      return (
+        <Box sx={{ 
+          display: 'inline-block',
+          px: 1.5,
+          py: 0.5,
+          borderRadius: 1,
+          backgroundColor: getStatusColor(status),
+          color: 'white',
+          fontSize: '0.75rem',
+          fontWeight: 'medium',
+          textTransform: 'uppercase'
+        }}>
+          {status}
+        </Box>
+      );
+    }
+  }), [handleToggleStatus, activeTab]); // Added activeTab to dependencies
 
   const handleFacebookNameChange = (facebookName) => {
     setSelectedFacebookName(facebookName);
@@ -376,10 +559,21 @@ const DashboardPage = () => {
 
       {/* Campaign Selection Info */}
       {selectedCampaigns.size > 0 && (
-        <Box sx={{ mb: 2, p: 2, backgroundColor: '#e3f2fd', borderRadius: 1 }}>
+        <Box sx={{ mb: 2, p: 2, backgroundColor: '#e3f2fd', borderRadius: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="body2" color="primary">
             📊 Filtering data for {selectedCampaigns.size} selected campaign(s)
           </Typography>
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => {
+              setSelectedCampaigns(new Set());
+              setSelectedCampaignIds([]);
+            }}
+            sx={{ ml: 2 }}
+          >
+            Clear Selection
+          </Button>
         </Box>
       )}
 
@@ -416,14 +610,16 @@ const DashboardPage = () => {
               Campaigns Overview ({filteredData.campaigns.length})
             </Typography>
             <DynamicTable
-              headers={["Off / On", "Campaign"]}
+              key="campaigns-table"
+              headers={["Off / On", "Campaign", "Delivery"]}
               data={filteredData.campaigns}
               onDataChange={() => {}} // Remove if not needed
               onSelectionChange={handleCampaignSelectionChange}
+              selectedRowIds={selectedCampaignIds}
               rowsPerPage={10}
               compact={true}
               customRenderers={customRenderers}
-              nonEditableHeaders={"Off / On,Campaign"}
+              nonEditableHeaders={"Off / On,Delivery"}
               showCheckbox={true}
             />
           </Box>
@@ -441,6 +637,7 @@ const DashboardPage = () => {
               )}
             </Typography>
             <DynamicTable
+              key="adsets-table"
               headers={["Off / On", "Ad Set", "Delivery"]}
               data={filteredData.adSets}
               onDataChange={() => {}} // Remove if not needed
@@ -465,6 +662,7 @@ const DashboardPage = () => {
               )}
             </Typography>
             <DynamicTable
+              key="ads-table"
               headers={["Off / On", "Ad", "Delivery"]}
               data={filteredData.ads}
               onDataChange={() => {}} // Remove if not needed

@@ -17,9 +17,22 @@ import {
   decryptData,
 } from "../../services/user_data.js";
 import axios from "axios";
+import { useAdSpendAutoRefresh } from "../../contexts/AdSpendAutoRefreshContext";
 
 const ReportsPage = () => {
   const apiUrl = import.meta.env.VITE_API_URL;
+  const {
+    adspentData,
+    fetching,
+    selectedFacebookName,
+    setSelectedFacebookName,
+    selectedAccessToken,
+    setSelectedAccessToken,
+    fetchAdSpendData,
+    stopAutoRefresh,
+    autoRefreshEnabled,
+    clearAdSpendData,
+  } = useAdSpendAutoRefresh();
 
   // Updated headers to show only essential data
   const headers = [
@@ -31,55 +44,12 @@ const ReportsPage = () => {
     "spent",
   ];
 
-  // Helper function to get persisted state from localStorage
-  const getPersistedState = (key, defaultValue) => {
-    try {
-      const encryptedData = localStorage.getItem(key);
-      if (!encryptedData) return defaultValue;
-      const decryptedData = decryptData(encryptedData);
-      if (!decryptedData) return defaultValue;
-
-      if (Array.isArray(decryptedData)) {
-        return decryptedData;
-      }
-
-      if (typeof decryptedData === "string") {
-        try {
-          const parsed = JSON.parse(decryptedData);
-          return Array.isArray(parsed) ? parsed : defaultValue;
-        } catch {
-          return defaultValue;
-        }
-      }
-      return defaultValue;
-    } catch (error) {
-      console.error(`Error loading ${key}:`, error);
-      return defaultValue;
-    }
-  };
-
-  // Initialize state with persisted data
-  const [adspentData, setAdspentData] = useState(() => {
-    const data = getPersistedState("reportsAdspentData", []);
-    return Array.isArray(data) ? data : [];
-  });
-
-  const [selectedFacebookName, setSelectedFacebookName] = useState(() => {
-    return localStorage.getItem("reportsSelectedFacebookName") || "";
-  });
-
   const [userName, setUserName] = useState(() => {
     return localStorage.getItem("reportsUserName") || "";
   });
 
-  const [adAccounts, setAdAccounts] = useState(() => {
-    const data = getPersistedState("reportsAdAccounts", []);
-    return Array.isArray(data) ? data : [];
-  });
-
+  const [adAccounts, setAdAccounts] = useState([]);
   const [messages, setMessages] = useState([]);
-
-  const [fetching, setFetching] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
   const eventSourceRef = useRef(null);
   const [selectedAdAccount, setSelectedAdAccount] = useState("all");
@@ -96,53 +66,16 @@ const ReportsPage = () => {
     checkUserRelationship();
   }, []);
 
-  // Persist data to localStorage whenever it changes
-  useEffect(() => {
-    try {
-      const encryptedData = encryptData(adspentData);
-      localStorage.setItem("reportsAdspentData", encryptedData);
-    } catch (error) {
-      console.error("Error saving adspent data:", error);
-    }
-  }, [adspentData]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("reportsSelectedFacebookName", selectedFacebookName);
-    } catch (error) {
-      console.error("Error saving selected Facebook name:", error);
-    }
-  }, [selectedFacebookName]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("reportsUserName", userName);
-    } catch (error) {
-      console.error("Error saving user name:", error);
-    }
-  }, [userName]);
-
-  useEffect(() => {
-    try {
-      const encryptedData = encryptData(adAccounts);
-      localStorage.setItem("reportsAdAccounts", encryptedData);
-    } catch (error) {
-      console.error("Error saving ad accounts:", error);
-    }
-  }, [adAccounts]);
-
   // Function to fetch access tokens from API
   const fetchAccessTokens = async () => {
     try {
       setLoadingTokens(true);
       const { id: userId } = getUserData();
       const response = await axios.get(`${apiUrl}/api/v1/user/${userId}/access-tokens`);
-      
       if (response.data && response.data.data) {
         // Create a mapping of facebook_name -> access_token
         const tokenMap = {};
         const names = [];
-        
         response.data.data.forEach(token => {
           if (token.facebook_name) {
             tokenMap[token.facebook_name] = token.access_token;
@@ -153,19 +86,18 @@ const ReportsPage = () => {
             });
           }
         });
-        
         setAccessTokenMap(tokenMap);
         setFacebookNames(names);
-        
-        // Don't auto-select - let user choose
         // If current selection is no longer valid, clear it
         if (selectedFacebookName && !tokenMap[selectedFacebookName]) {
           setSelectedFacebookName("");
+          setSelectedAccessToken("");
         }
       } else {
         setFacebookNames([]);
         setAccessTokenMap({});
         setSelectedFacebookName("");
+        setSelectedAccessToken("");
       }
     } catch (error) {
       console.error("Error fetching access tokens:", error);
@@ -173,6 +105,7 @@ const ReportsPage = () => {
       setFacebookNames([]);
       setAccessTokenMap({});
       setSelectedFacebookName("");
+      setSelectedAccessToken("");
     } finally {
       setLoadingTokens(false);
     }
@@ -184,120 +117,28 @@ const ReportsPage = () => {
       setLoadingRelationship(true);
       const { id: userId } = getUserData();
       const response = await axios.get(`${apiUrl}/api/v1/check-relationship?user_id=${userId}`);
-      
       if (response.data) {
         setUserRelationship(response.data);
       }
     } catch (error) {
       console.error("Error checking user relationship:", error);
-      // Set default relationship status as false if check fails
       setUserRelationship({ relationship: false });
     } finally {
       setLoadingRelationship(false);
     }
   };
 
-  // Get the access token for the selected Facebook name
-  const getSelectedAccessToken = () => {
-    return accessTokenMap[selectedFacebookName] || "";
-  };
-
   // Handle Facebook name selection
   const handleFacebookNameChange = (facebookName) => {
     setSelectedFacebookName(facebookName);
-    
-    // Clear previous data when selection changes
-    setAdspentData([]);
+    setSelectedAccessToken(accessTokenMap[facebookName] || "");
     setMessages([]);
     setUserName("");
     setAdAccounts([]);
     setCurrentPage(0);
-    
-    // Only fetch data if a valid Facebook name is selected
-    if (facebookName && facebookName.length > 0) {
-      // Get the access token for the selected Facebook name
-      const accessToken = accessTokenMap[facebookName];
-      if (accessToken) {
-        // Use setTimeout to ensure state is updated before fetching
-        setTimeout(() => {
-          fetchAdSpendDataWithToken(accessToken);
-        }, 0);
-      } else {
-        console.error("Access token not found for Facebook name:", facebookName);
-        notify("Access token not found for selected Facebook account", "error");
-      }
-    }
-  };
-
-  // Fetch data function with explicit access token parameter
-  const fetchAdSpendDataWithToken = async (accessToken) => {
-    if (!accessToken) {
-      notify("Please select a Facebook account", "error");
-      return;
-    }
-
-    setFetching(true);
-    setMessages([]);
-
-    try {
+    if (facebookName && accessTokenMap[facebookName]) {
       const { id: user_id } = getUserData();
-      console.log("Starting data fetch for user:", user_id);
-
-      const response = await fetch(`${apiUrl}/api/v1/adspent`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          user_id,
-          access_token: accessToken,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log("Raw API response:", data);
-
-      if (data.campaign_spending_data?.campaign_spending_data) {
-        const campaignData = data.campaign_spending_data.campaign_spending_data;
-        console.log("Campaign data structure:", campaignData);
-
-        if (campaignData.campaigns) {
-          const formattedData = campaignData.campaigns.map(campaign => ({
-            ad_account_id: campaign.ad_account_id,
-            ad_account_name: campaign.ad_account_name,
-            campaign_id: campaign.campaign_id,
-            campaign_name: campaign.campaign_name,
-            delivery_status: campaign.delivery_status,
-            daily_budget: parseFloat(campaign.daily_budget || 0).toFixed(2),
-            budget_remaining: parseFloat(campaign.budget_remaining || 0).toFixed(2),
-            spent: parseFloat(campaign.spend || 0).toFixed(2),
-          }));
-
-          // Update ad accounts list for filter dropdown
-          const uniqueAccounts = [...new Set(campaignData.campaigns.map(c => c.ad_account_name))];
-          setAdAccounts(uniqueAccounts);
-
-          setAdspentData(formattedData);
-          setUserName(campaignData.user_name || "");
-          console.log(`Fetched ${formattedData.length} campaigns from ${uniqueAccounts.length} accounts`);
-        } else {
-          console.error("No campaigns found in data");
-          notify("No campaign data found", "error");
-        }
-      } else {
-        console.error("Unexpected data format:", data);
-        notify("Received unknown data format", "error");
-      }
-    } catch (error) {
-      console.error("Error fetching data:", error);
-      notify(error.message || "Failed to fetch data", "error");
-    } finally {
-      setFetching(false);
+      fetchAdSpendData(user_id, accessTokenMap[facebookName], facebookName);
     }
   };
 
@@ -306,7 +147,6 @@ const ReportsPage = () => {
     const activeRows = adspentData.filter(row => row.delivery_status === "ACTIVE");
     const inactiveRows = adspentData.filter(row => row.delivery_status === "INACTIVE");
     const notDeliveringRows = adspentData.filter(row => row.delivery_status === "NOT_DELIVERING");
-
     const totalBudget = adspentData.reduce(
       (sum, row) => sum + Number(row.daily_budget || 0),
       0
@@ -319,7 +159,6 @@ const ReportsPage = () => {
       (sum, row) => sum + Number(row.spent || 0),
       0
     );
-
     return [
       { label: "Total Budget", value: `₱${totalBudget.toFixed(2)}` },
       { label: "Budget Remaining (Active)", value: `₱${budgetRemaining.toFixed(2)}` },
@@ -333,83 +172,68 @@ const ReportsPage = () => {
   // Enhanced filtering logic to include status filter
   const filteredData = React.useMemo(() => {
     let filtered = adspentData;
-    
-    // Filter by ad account
     if (selectedAdAccount !== "all") {
       filtered = filtered.filter(row => row.ad_account_id === selectedAdAccount);
     }
-    
-    // Filter by delivery status
     if (statusFilter !== "all") {
       filtered = filtered.filter(row => row.delivery_status === statusFilter);
     }
-    
     return filtered;
   }, [adspentData, selectedAdAccount, statusFilter]);
 
   useEffect(() => {
+    // Update ad accounts list for filter dropdown
+    if (adspentData && adspentData.length > 0) {
+      const uniqueAccounts = [...new Set(adspentData.map(c => c.ad_account_name))];
+      setAdAccounts(uniqueAccounts);
+    } else {
+      setAdAccounts([]);
+    }
+  }, [adspentData]);
+
+  useEffect(() => {
     const { id: user_id } = getUserData();
-    console.log("User ID:", user_id);
-
     const eventSourceUrl = `${apiUrl}/api/v1/messageevents-adspentreport?keys=${user_id}-key`;
-
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
-
     const eventSource = new EventSource(eventSourceUrl);
-
     eventSource.onmessage = (event) => {
-      console.log("SSE Message:", event.data);
       try {
         const parsedData = JSON.parse(event.data);
-
         if (parsedData.data && parsedData.data.message) {
           const rawMessage = parsedData.data.message.join(" ");
-
           const timestampRegex = /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]/;
           const formattedMessage = timestampRegex.test(rawMessage)
             ? rawMessage
             : `[${new Date().toISOString().replace('T', ' ').split('.')[0]}] ${rawMessage}`;
-
           setMessages((prevMessages) => [...prevMessages, formattedMessage]);
-
-          // ✅ Detect completion messages and stop fetching
           const completionIndicators = [
             "✅ Completed fetching",
             "Completed fetching. Total campaigns",
             "Processing complete",
             "Data fetch completed"
           ];
-          
           const errorIndicators = [
             "❌ Error",
             "Failed to fetch",
             "No ad accounts found",
             "Failed to get user info"
           ];
-
           if (completionIndicators.some(indicator => rawMessage.includes(indicator))) {
-            console.log("Detected completion message, stopping fetching state");
-            setFetching(false);
+            // No-op: fetching state is managed by context
           } else if (errorIndicators.some(indicator => rawMessage.includes(indicator))) {
-            console.log("Detected error message, stopping fetching state");
-            setFetching(false);
+            // No-op: fetching state is managed by context
           }
         }
       } catch (e) {
-        console.error("Error parsing SSE data:", e);
         setMessages((prevMessages) => [...prevMessages, event.data]);
       }
     };
-
     eventSource.onerror = (error) => {
-      console.error("SSE connection error:", error);
       eventSource.close();
     };
-
     eventSourceRef.current = eventSource;
-
     return () => {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
@@ -417,112 +241,50 @@ const ReportsPage = () => {
     };
   }, [apiUrl]);
 
-  // ✅ Add timeout fallback to prevent infinite fetching state
-  useEffect(() => {
-    let timeoutId;
-    
-    if (fetching) {
-      // Set a maximum timeout (e.g., 10 minutes) to prevent infinite fetching
-      timeoutId = setTimeout(() => {
-        console.log("Fetching timeout reached, stopping fetching state");
-        setFetching(false);
-        setMessages(prevMessages => [
-          ...prevMessages,
-          `[${new Date().toISOString().replace('T', ' ').split('.')[0]}] ⚠️ Fetch timeout reached. Process may still be running in background.`
-        ]);
-        notify("Fetch timeout reached. Check terminal for status.", "warning");
-      }, 10 * 60 * 1000); // 10 minutes
-    }
-    
-    return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    };
-  }, [fetching]);
-
-  useEffect(() => {
-    // When fetching completes and we have new data, automatically send to sheets.
-    if (adspentData.length > 0) {
-      handleSendToSheets();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adspentData]); // Trigger only when adspentData itself changes.
-
   const handleFetchUser = () => {
     if (!selectedFacebookName) {
       notify("Please select a Facebook account", "error");
       return;
     }
-    const accessToken = getSelectedAccessToken();
+    const accessToken = accessTokenMap[selectedFacebookName];
     if (accessToken) {
-      fetchAdSpendDataWithToken(accessToken).then(() => {
-        setMessages((prev) => prev.length > 0 ? [prev[prev.length - 1]] : []);
-      });
+      const { id: user_id } = getUserData();
+      fetchAdSpendData(user_id, accessToken, selectedFacebookName);
+      setSelectedAccessToken(accessToken);
+      setMessages((prev) => prev.length > 0 ? [prev[prev.length - 1]] : []);
     } else {
       notify("Access token not found for selected Facebook account", "error");
     }
   };
 
   const handleStopFetching = () => {
-    setFetching(false);
-    setSelectedFacebookName(""); // Clear the selected name so it becomes editable again
-    setAdspentData([]); // Clear the data
-    setMessages([]); // Clear messages
-    setUserName(""); // Clear user name
-    setAdAccounts([]); // Clear ad accounts
-    
-    // Clear persisted data from localStorage
-    try {
-      localStorage.removeItem("reportsAdspentData");
-      localStorage.removeItem("reportsSelectedFacebookName");
-      localStorage.removeItem("reportsUserName");
-      localStorage.removeItem("reportsAdAccounts");
-    } catch (error) {
-      console.error("Error clearing persisted data:", error);
-    }
-  };
-
-  const handleClearAllData = () => {
-    setAdspentData([]);
+    stopAutoRefresh();
+    setSelectedFacebookName("");
+    setSelectedAccessToken("");
     setMessages([]);
     setUserName("");
     setAdAccounts([]);
-    setSelectedFacebookName("");
-    setCurrentPage(0);
-    
-    // Clear persisted data from localStorage
-    try {
-      localStorage.removeItem("reportsAdspentData");
-      localStorage.removeItem("reportsSelectedFacebookName");
-      localStorage.removeItem("reportsUserName");
-      localStorage.removeItem("reportsAdAccounts");
-      notify("All data cleared successfully!", "success");
-    } catch (error) {
-      console.error("Error clearing persisted data:", error);
-      notify("Failed to clear data", "error");
-    }
+  };
+
+  const handleClearAllData = () => {
+    clearAdSpendData();
+    setMessages([]);
+    setUserName("");
+    setAdAccounts([]);
+    notify("All data cleared successfully!", "success");
   };
 
   const handleSendToSheets = useCallback(async () => {
     const budgetItem = summaryData.find(
       (item) => item.label === "Budget Remaining (Active)"
     );
-
     if (!budgetItem || !budgetItem.value) {
-      console.log("Budget data not ready to be sent to sheets.");
       return;
     }
-
-    // Extract the numeric value from the string (e.g., "₱1234.56")
     const budgetValue = budgetItem.value.replace(/[^0-9.-]+/g, "");
-    
-    // Only send if there's a positive budget remaining
     if (parseFloat(budgetValue) <= 0) {
-        console.log("No active budget remaining to send to sheets.");
         return;
     }
-
     try {
       await axios.post(
         `${apiUrl}/api/v1/sheets/update-budget`,
@@ -530,11 +292,9 @@ const ReportsPage = () => {
           budget_remaining: budgetValue,
         }
       );
-      // Using console.log instead of notify to avoid user-facing popups for this background task.
       console.log(`Successfully sent budget data to Google Sheets: ${budgetItem.value}`);
     } catch (error) {
       console.error("Error auto-sending data to Google Sheets:", error);
-      // Silent error for the user, logged to console for developers.
     }
   }, [summaryData, apiUrl]);
 
@@ -543,11 +303,7 @@ const ReportsPage = () => {
       notify("No data to export.", "error");
       return;
     }
-
-    // Updated CSV headers to include ad_account_name
     const csvHeaders = [
-      // "ad_account_id",
-      // "campaign_id",
       "campaign_name",
       "ad_account_name",
       "delivery_status",
@@ -555,19 +311,17 @@ const ReportsPage = () => {
       "daily_budget",
       "budget_remaining",
     ];
-    // Export ALL campaigns, not just filtered
     const csvRows = [
       csvHeaders.join(","),
       ...adspentData.map(row =>
         csvHeaders.map(header => `"${row[header] !== undefined ? row[header] : ""}"`).join(",")
       ),
-      "", // Blank row as separator
+      "",
       "-- Summary (All Campaigns) --",
       ...summaryData.map(item =>
         `"${item.label}","${item.value}"`
       )
     ];
-
     const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + csvRows.join("\n");
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -576,27 +330,22 @@ const ReportsPage = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-
     notify("Data exported successfully!", "success");
   };
 
-  // Helper function for current timestamp
   const getCurrentTime = () => {
     const now = new Date();
     return now.toISOString().split('T')[0] + "_" + now.toISOString().split('T')[1].split('.')[0].replace(/:/g, '-');
   };
 
-  // Helper function to get status display text with icons
   const getStatusDisplayText = () => {
     const totalDisplayed = filteredData.length;
     const statusText = statusFilter === "all" ? "All Statuses" : 
                      statusFilter === "ACTIVE" ? "Active" :
                      statusFilter === "INACTIVE" ? "Inactive" : "Not Delivering";
-    
     const statusIcon = statusFilter === "ACTIVE" ? "✅" :
                       statusFilter === "INACTIVE" ? "⏸️" :
                       statusFilter === "NOT_DELIVERING" ? "❌" : "📊";
-    
     return `${statusIcon} ${statusText} (${totalDisplayed})`;
   };
 
@@ -688,7 +437,7 @@ const ReportsPage = () => {
                   onClick={handleStopFetching}
                   type="primary"
                   icon={null}
-                  disabled={!selectedFacebookName || !fetching}
+                  disabled={!selectedFacebookName || !autoRefreshEnabled}
                 />
               </Box>
 

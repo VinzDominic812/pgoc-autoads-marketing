@@ -22,7 +22,8 @@ const DynamicTable = ({
   containerStyles = {},
   onDataChange,
   columnWidth,
-  // onSelectedChange,
+  onSelectionChange,
+  selectedRowIds = [], // New prop for external selection state
   nonEditableHeaders = [],
   customRenderers = {}, //icons
   compact = false,
@@ -42,9 +43,16 @@ const DynamicTable = ({
   // Update table when `data` or `headers` change
   useEffect(() => {
     setEditedData(data);
-    setSelectedRows(new Map()); // Reset selected rows
+    // Don't reset selections on every data change - only when headers change
     setPage(1); // Reset page if data changes
-  }, [data, headers]);
+  }, [headers]);
+
+  // Separate effect for data changes that don't reset selections
+  useEffect(() => {
+    setEditedData(data);
+  }, [data]);
+
+
 
   //   // Trigger parent callback on selection change
   // useEffect(() => {
@@ -56,35 +64,49 @@ const DynamicTable = ({
   const paginatedData = editedData.slice(startIndex, endIndex);
 
   const handleSelect = (rowIndex) => {
-    setSelectedRows((prevSelected) => {
-      const newSelected = new Map(prevSelected);
-      const currentPageSelections = newSelected.get(page) || new Set();
-
-      if (currentPageSelections.has(rowIndex)) {
-        currentPageSelections.delete(rowIndex);
+    const actualIndex = startIndex + rowIndex;
+    const rowId = data[actualIndex]?.id;
+    
+    if (!rowId) return;
+    
+    console.log(`Checkbox clicked for row ${rowIndex} (ID: ${rowId}) on page ${page}`);
+    
+    if (onSelectionChange) {
+      const isCurrentlySelected = selectedRowIds.includes(rowId);
+      let newSelectedIds;
+      
+      if (isCurrentlySelected) {
+        newSelectedIds = selectedRowIds.filter(id => id !== rowId);
+        console.log(`Deselected row ${rowId}`);
       } else {
-        currentPageSelections.add(rowIndex);
+        newSelectedIds = [...selectedRowIds, rowId];
+        console.log(`Selected row ${rowId}`);
       }
-
-      newSelected.set(page, currentPageSelections);
-      return newSelected;
-    });
+      
+      onSelectionChange(newSelectedIds);
+    }
   };
 
   const handleSelectAll = () => {
-    setSelectedRows((prevSelected) => {
-      const newSelected = new Map(prevSelected);
-      const currentPageSelections = newSelected.get(page) || new Set();
-
-      if (paginatedData.every((_, index) => currentPageSelections.has(index))) {
-        newSelected.set(page, new Set());
-      } else {
-        const allOnPage = new Set(paginatedData.map((_, index) => index));
-        newSelected.set(page, allOnPage);
-      }
-
-      return newSelected;
-    });
+    if (!onSelectionChange) return;
+    
+    const currentPageIds = paginatedData.map(row => row.id).filter(Boolean);
+    const allCurrentPageSelected = currentPageIds.every(id => selectedRowIds.includes(id));
+    
+    let newSelectedIds;
+    
+    if (allCurrentPageSelected) {
+      // Deselect all on current page
+      newSelectedIds = selectedRowIds.filter(id => !currentPageIds.includes(id));
+      console.log(`Deselected all rows on page ${page}`);
+    } else {
+      // Select all on current page
+      const newIds = currentPageIds.filter(id => !selectedRowIds.includes(id));
+      newSelectedIds = [...selectedRowIds, ...newIds];
+      console.log(`Selected all rows on page ${page}`);
+    }
+    
+    onSelectionChange(newSelectedIds);
   };
 
   const startEditing = (rowIndex, columnKey, event) => {
@@ -167,17 +189,20 @@ const DynamicTable = ({
                         },
                       },
                     }}
-                    checked={paginatedData.length > 0 && paginatedData.every((_, index) =>
-                      selectedRows.get(page)?.has(index)
-                    )}
+                    checked={paginatedData.length > 0 && paginatedData.every((_, index) => {
+                      const actualIndex = startIndex + index;
+                      return data[actualIndex] && selectedRowIds.includes(data[actualIndex].id);
+                    })}
                     indeterminate={
                       paginatedData.length > 0 && 
-                      paginatedData.some((_, index) =>
-                        selectedRows.get(page)?.has(index)
-                      ) &&
-                      !paginatedData.every((_, index) =>
-                        selectedRows.get(page)?.has(index)
-                      )
+                      paginatedData.some((_, index) => {
+                        const actualIndex = startIndex + index;
+                        return data[actualIndex] && selectedRowIds.includes(data[actualIndex].id);
+                      }) &&
+                      !paginatedData.every((_, index) => {
+                        const actualIndex = startIndex + index;
+                        return data[actualIndex] && selectedRowIds.includes(data[actualIndex].id);
+                      })
                     }
                     onChange={handleSelectAll}
                   />
@@ -231,7 +256,7 @@ const DynamicTable = ({
                   >
                     <Checkbox
                       color="primary"
-                      checked={selectedRows.get(page)?.has(rowIndex) || false}
+                      checked={selectedRowIds.includes(row.id) || false}
                       onChange={() => handleSelect(rowIndex)}
                       sx={{
                         padding: "2px",
