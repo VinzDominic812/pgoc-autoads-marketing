@@ -23,7 +23,6 @@ SPREADSHEET_ID = "1ami6l2YIkLXXYnoyRprhqYwdrjlkH3IBL9Dd1Go8yMc"
 
 # IMPORTANT: Specify the tab name and cell where you want to insert the budget data
 TAB_NAME = "testsheet"  # Replace with your actual tab name
-TARGET_CELL = "A4"   # Replace with your desired cell (e.g., "B5", "C10", etc.)
 
 def get_sheet():
     """Authorize and get the spreadsheet object."""
@@ -73,15 +72,25 @@ def update_budget(data):
         except Exception:
             budget_formatted = str(budget_remaining)
         budget_with_peso = f"₱{budget_formatted}"
-        logger.info(f"Updating B4 with value: {budget_with_peso}")
-        # Update A4, B4, and C4
-        worksheet.update_acell("A4", "TO SPEND")
-        worksheet.update_acell("B4", budget_with_peso)
-        now = datetime.now()
-        now_str = f"{now.month}/{now.day}/{now.year}, {now.strftime('%I:%M:%S %p').lstrip('0')}"
-        worksheet.update_acell("C4", f"'{now_str}")
+        logger.info(f"Updating C5 with value: {budget_with_peso}")
+        # Update B5, C5, and D5
+        worksheet.update_acell("B5", "TO SPEND")
+        worksheet.update_acell("C5", budget_with_peso)
+        
+        # Use the provided fetch completion timestamp if available, otherwise use current time
+        fetch_completion_timestamp = data.get("fetch_completion_timestamp")
+        if fetch_completion_timestamp:
+            # Convert the timestamp to datetime and format it
+            completion_time = datetime.fromtimestamp(fetch_completion_timestamp / 1000)  # Convert from milliseconds
+            now_str = f"{completion_time.month}/{completion_time.day}/{completion_time.year}, {completion_time.strftime('%I:%M:%S %p').lstrip('0')}"
+            worksheet.update_acell("D5", f"'{now_str}")
+        else:
+            # Fallback to current time if no timestamp provided
+            now = datetime.now()
+            now_str = f"{now.month}/{now.day}/{now.year}, {now.strftime('%I:%M:%S %p').lstrip('0')}"
+            worksheet.update_acell("D5", f"'{now_str}")
 
-        # --- Add cell formatting to A4, B4, and C4 ---
+        # --- Add cell formatting to B5, C5, and D5 ---
         def get_col_row(cell):
             import re
             match = re.match(r"([A-Z]+)([0-9]+)", cell)
@@ -93,19 +102,19 @@ def update_budget(data):
             return None, None
 
         sheet_id = worksheet._properties['sheetId']
-        row, col_a = get_col_row("A4")
-        _, col_b = get_col_row("B4")
-        _, col_c = get_col_row("C4")
+        row, col_b = get_col_row("B5")
+        _, col_c = get_col_row("C5")
+        _, col_d = get_col_row("D5")
 
         requests = [
-            {  # A4: left-aligned
+            {  # B5: left-aligned
                 "repeatCell": {
                     "range": {
                         "sheetId": sheet_id,
                         "startRowIndex": row,
                         "endRowIndex": row + 1,
-                        "startColumnIndex": col_a,
-                        "endColumnIndex": col_a + 1,
+                        "startColumnIndex": col_b,
+                        "endColumnIndex": col_b + 1,
                     },
                     "cell": {
                         "userEnteredFormat": {
@@ -119,14 +128,14 @@ def update_budget(data):
                     "fields": "userEnteredFormat(horizontalAlignment,textFormat)"
                 }
             },
-            {  # B4: centered (no background)
+            {  # C5: centered (no background)
                 "repeatCell": {
                     "range": {
                         "sheetId": sheet_id,
                         "startRowIndex": row,
                         "endRowIndex": row + 1,
-                        "startColumnIndex": col_b,
-                        "endColumnIndex": col_b + 1,
+                        "startColumnIndex": col_c,
+                        "endColumnIndex": col_c + 1,
                     },
                     "cell": {
                         "userEnteredFormat": {
@@ -140,14 +149,14 @@ def update_budget(data):
                     "fields": "userEnteredFormat(textFormat,horizontalAlignment)"
                 }
             },
-            {  # C4: left-aligned, NOT bold, font size 10
+            {  # D5: left-aligned, NOT bold, font size 10
                 "repeatCell": {
                     "range": {
                         "sheetId": sheet_id,
                         "startRowIndex": row,
                         "endRowIndex": row + 1,
-                        "startColumnIndex": col_c,
-                        "endColumnIndex": col_c + 1,
+                        "startColumnIndex": col_d,
+                        "endColumnIndex": col_d + 1,
                     },
                     "cell": {
                         "userEnteredFormat": {
@@ -164,8 +173,8 @@ def update_budget(data):
         worksheet.spreadsheet.batch_update({"requests": requests})
         # --- End cell formatting ---
 
-        logger.info(f"Successfully updated A4, B4, C4")
-        return {"message": f"Budget updated successfully in Google Sheet at {TAB_NAME}!A4, B4, C4"}, 200
+        logger.info(f"Successfully updated B5, C5, D5")
+        return {"message": f"Budget updated successfully in Google Sheet at {TAB_NAME}!B5, C5, D5"}, 200
     except Exception as e:
         logger.error(f"Error updating Google Sheet: {e}")
         logger.error(f"Error type: {type(e).__name__}")

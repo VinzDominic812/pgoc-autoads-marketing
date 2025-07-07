@@ -10,10 +10,10 @@ const LOCAL_STORAGE_KEY = "adspend_last_fetch_time";
 const DATA_STORAGE_KEY = "adspend_data";
 const FACEBOOK_NAME_KEY = "adspend_selected_facebook_name";
 const ACCESS_TOKEN_KEY = "adspend_selected_access_token";
-const REFRESH_INTERVAL = 5 * 60 * 1000; // 30 minutes
+const REFRESH_INTERVAL = 2 * 60 * 1000; // 30 minutes
 
 // Helper to send budget remaining to Google Sheets
-const sendBudgetToSheets = async (campaigns, apiUrl) => {
+const sendBudgetToSheets = async (campaigns, apiUrl, fetchCompletionTimestamp = null) => {
   if (!Array.isArray(campaigns) || campaigns.length === 0) return;
   // Calculate budget remaining for active campaigns
   const activeRows = campaigns.filter(row => row.delivery_status === "ACTIVE");
@@ -27,14 +27,15 @@ const sendBudgetToSheets = async (campaigns, apiUrl) => {
       `${apiUrl}/api/v1/sheets/update-budget`,
       {
         budget_remaining: Number(budgetRemaining).toFixed(2),
+        fetch_completion_timestamp: fetchCompletionTimestamp, // Send the exact fetch completion timestamp
       }
     );
     // Optionally notify or log
-    // notify(`Sent budget remaining (₱${budgetRemaining.toFixed(2)}) to Google Sheets`, "success");
+    notify(`Sent budget remaining (₱${budgetRemaining.toFixed(2)}) to Google Sheets`, "success");
   } catch (error) {
     // Optionally notify or log
-    // notify("Error auto-sending data to Google Sheets", "error");
-    // console.error(error);
+    notify("Error auto-sending data to Google Sheets", "error");
+    console.error(error);
   }
 };
 
@@ -77,8 +78,13 @@ export const AdSpendAutoRefreshProvider = ({ children, apiUrl }) => {
       notify("Missing user or access token", "error");
       return;
     }
+    
+    // Start timer immediately when fetching begins
+    const fetchStartTime = Date.now();
+    setLastFetchTime(fetchStartTime);
     setFetching(true);
     setAutoRefreshEnabled(true); // Re-enable auto-refresh on manual fetch
+    
     try {
       notify("Fetching fresh ad spend data...", "info");
       const response = await axios.post(`${apiUrl}/api/v1/adspent`, {
@@ -88,11 +94,15 @@ export const AdSpendAutoRefreshProvider = ({ children, apiUrl }) => {
       if (response.data && response.data.campaign_spending_data?.campaign_spending_data?.campaigns) {
         const campaigns = response.data.campaign_spending_data.campaign_spending_data.campaigns;
         setAdspentData(campaigns);
-        const now = Date.now();
-        setLastFetchTime(now);
-        persistState(campaigns, now, facebookName, access_token);
-        // Immediately update Google Sheet with budget remaining
-        sendBudgetToSheets(campaigns, apiUrl);
+        
+        // Capture the exact time when Facebook API fetch finished
+        const fetchCompletionTime = Date.now();
+        
+        // Persist state with the start time (for timer calculation)
+        persistState(campaigns, fetchStartTime, facebookName, access_token);
+        
+        // Update Google Sheet with budget remaining and the exact fetch completion time
+        sendBudgetToSheets(campaigns, apiUrl, fetchCompletionTime);
       } else {
         setAdspentData([]);
         notify("No campaign data found", "error");
