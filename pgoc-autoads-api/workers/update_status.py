@@ -237,36 +237,48 @@ def process_adsets(user_id, ad_account_id, access_token, schedule_data, campaign
                 
                 total_processed += 1
 
-                # Skip if CPP data is invalid or missing
-                if adset_cpp == float('inf') or adset_cpp == 0 or adset_cpp is None:
+                # Handle adsets with no sales (CPP = infinity) - turn them OFF
+                if adset_cpp == float('inf') or adset_cpp is None:
+                    if current_status != "PAUSED":
+                        target_status = "PAUSED"
+                        reason = "No sales/checkouts - turning OFF"
+                        append_redis_message_adsets(
+                            user_id,
+                            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {adset_name}: No sales detected - will turn OFF"
+                        )
+                    else:
+                        append_redis_message_adsets(
+                            user_id,
+                            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ➤ {adset_name} already OFF (no sales)"
+                        )
+                        continue
+                # Skip adsets with CPP = 0 (no spend)
+                elif adset_cpp == 0:
                     append_redis_message_adsets(
                         user_id,
-                        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Skipping {adset_name} - No valid CPP data"
+                        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Skipping {adset_name} - No spend data (CPP = 0)"
                     )
                     continue
-
-                # Determine target status based on CPP and mode
-                target_status = None
-                reason = ""
-
-                if on_off == "OFF":
-                    # OFF mode: Turn OFF adsets with CPP >= threshold
-                    if adset_cpp >= cpp_metric:
-                        target_status = "PAUSED"
-                        reason = f"CPP ${adset_cpp:.2f} >= threshold ${cpp_metric} - turning OFF"
-                    else:
-                        # CPP is below threshold, should stay ACTIVE or turn ON if paused
-                        target_status = "ACTIVE"
-                        reason = f"CPP ${adset_cpp:.2f} < threshold ${cpp_metric} - should be ON"
-                        
-                elif on_off == "ON":
-                    # ON mode: Turn ON adsets with CPP < threshold, turn OFF those with CPP >= threshold
-                    if adset_cpp < cpp_metric:
-                        target_status = "ACTIVE"
-                        reason = f"CPP ${adset_cpp:.2f} < threshold ${cpp_metric} - turning ON"
-                    else:
-                        target_status = "PAUSED"
-                        reason = f"CPP ${adset_cpp:.2f} >= threshold ${cpp_metric} - turning OFF"
+                else:
+                    # Determine target status based on CPP and mode for adsets with valid CPP
+                    if on_off == "OFF":
+                        # OFF mode: Turn OFF adsets with CPP >= threshold
+                        if adset_cpp >= cpp_metric:
+                            target_status = "PAUSED"
+                            reason = f"CPP ${adset_cpp:.2f} >= threshold ${cpp_metric} - turning OFF"
+                        else:
+                            # CPP is below threshold, should stay ACTIVE or turn ON if paused
+                            target_status = "ACTIVE"
+                            reason = f"CPP ${adset_cpp:.2f} < threshold ${cpp_metric} - should be ON"
+                            
+                    elif on_off == "ON":
+                        # ON mode: Turn ON adsets with CPP < threshold, turn OFF those with CPP >= threshold
+                        if adset_cpp < cpp_metric:
+                            target_status = "ACTIVE"
+                            reason = f"CPP ${adset_cpp:.2f} < threshold ${cpp_metric} - turning ON"
+                        else:
+                            target_status = "PAUSED"
+                            reason = f"CPP ${adset_cpp:.2f} >= threshold ${cpp_metric} - turning OFF"
 
                 # Log the decision
                 append_redis_message_adsets(
@@ -340,7 +352,14 @@ def debug_cpp_values(campaigns_data, cpp_threshold):
             print(f"  AdSet: {adset_name}")
             print(f"    CPP: ${adset_cpp} ({type(adset_cpp)})")
             print(f"    Status: {adset_status}")
-            print(f"    CPP >= Threshold? {adset_cpp >= cpp_threshold}")
-            print(f"    Should pause? {adset_cpp >= cpp_threshold and adset_status != 'PAUSED'}")
+            
+            # Handle different CPP scenarios
+            if adset_cpp == float('inf') or adset_cpp is None:
+                print(f"    Action: Will turn OFF (no sales)")
+            elif adset_cpp == 0:
+                print(f"    Action: Skip (no spend data)")
+            else:
+                print(f"    CPP >= Threshold? {adset_cpp >= cpp_threshold}")
+                print(f"    Should pause? {adset_cpp >= cpp_threshold and adset_status != 'PAUSED'}")
     
     print("=" * 50)
