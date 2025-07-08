@@ -10,7 +10,7 @@ const LOCAL_STORAGE_KEY = "adspend_last_fetch_time";
 const DATA_STORAGE_KEY = "adspend_data";
 const FACEBOOK_NAME_KEY = "adspend_selected_facebook_name";
 const ACCESS_TOKEN_KEY = "adspend_selected_access_token";
-const REFRESH_INTERVAL = 2 * 60 * 1000; // 30 minutes
+const REFRESH_INTERVAL = 30 * 60 * 1000; // 30 minutes
 
 // Helper to send budget remaining to Google Sheets
 const sendBudgetToSheets = async (campaigns, apiUrl, fetchCompletionTimestamp = null) => {
