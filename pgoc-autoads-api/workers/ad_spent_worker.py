@@ -186,12 +186,18 @@ def fetch_ad_spend_data(user_id, access_token, max_workers=10):
                     continue
 
                 spend = campaign_spends.get(cid, 0.0)
-                if spend <= 0:
-                    continue
-
                 daily_budget = float(campaign.get("daily_budget", "0") or 0) / 100
                 budget_remaining = float(campaign.get("budget_remaining", "0") or 0) / 100
                 campaign_status = campaign.get("status", "").upper()
+
+                # Fallback calculation if spend is 0
+                if spend <= 0 and daily_budget > 0 and budget_remaining >= 0:
+                    spend = round(daily_budget - budget_remaining, 2)
+                    # If still 0 or negative, skip
+                    if spend <= 0:
+                        continue
+                elif spend <= 0:
+                    continue
 
                 ad_statuses = []
                 for adset in adsets_by_campaign.get(cid, []):
