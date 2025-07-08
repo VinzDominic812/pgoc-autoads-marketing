@@ -2,6 +2,7 @@ import json
 import logging
 import pytz
 import requests
+import time
 from datetime import datetime
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -28,6 +29,7 @@ def append_message(user_id, message):
     """Append message with current Manila time"""
     timestamp = get_current_time()
     append_redis_message_adspent(user_id, f"[{timestamp}] {message}")
+    time.sleep(0.1)  # Small delay to ensure SSE can display the message
 
 def get_facebook_user_info(access_token):
     url = f"{FACEBOOK_GRAPH_URL}/me"
@@ -154,6 +156,8 @@ def fetch_ad_spend_data(user_id, access_token, max_workers=10):
             append_message(user_id, "❌ No ad accounts found")
             return {"error": "No ad accounts found"}
 
+        append_message(user_id, f"📊 Found {len(ad_accounts)} ad account(s)")
+
         account_data_list = [(acc['id'], acc['name'], access_token, user_id) for acc in ad_accounts]
 
         campaigns = []
@@ -182,12 +186,18 @@ def fetch_ad_spend_data(user_id, access_token, max_workers=10):
                     continue
 
                 spend = campaign_spends.get(cid, 0.0)
-                if spend <= 0:
-                    continue
-
                 daily_budget = float(campaign.get("daily_budget", "0") or 0) / 100
                 budget_remaining = float(campaign.get("budget_remaining", "0") or 0) / 100
                 campaign_status = campaign.get("status", "").upper()
+
+                # Fallback calculation if spend is 0
+                if spend <= 0 and daily_budget > 0 and budget_remaining >= 0:
+                    spend = round(daily_budget - budget_remaining, 2)
+                    # If still 0 or negative, skip
+                    if spend <= 0:
+                        continue
+                elif spend <= 0:
+                    continue
 
                 ad_statuses = []
                 for adset in adsets_by_campaign.get(cid, []):
