@@ -2,6 +2,7 @@ import json
 import logging
 import pytz
 import requests
+import time
 from datetime import datetime
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -28,6 +29,7 @@ def append_message(user_id, message):
     """Append message with current Manila time"""
     timestamp = get_current_time()
     append_redis_message_adspent(user_id, f"[{timestamp}] {message}")
+    time.sleep(0.1)  # Small delay to ensure SSE can display the message
 
 def get_facebook_user_info(access_token):
     url = f"{FACEBOOK_GRAPH_URL}/me"
@@ -153,6 +155,8 @@ def fetch_ad_spend_data(user_id, access_token, max_workers=10):
         if not ad_accounts:
             append_message(user_id, "❌ No ad accounts found")
             return {"error": "No ad accounts found"}
+
+        append_message(user_id, f"📊 Found {len(ad_accounts)} ad account(s)")
 
         account_data_list = [(acc['id'], acc['name'], access_token, user_id) for acc in ad_accounts]
 

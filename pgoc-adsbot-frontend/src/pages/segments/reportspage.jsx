@@ -261,7 +261,6 @@ const ReportsPage = () => {
     stopAutoRefresh();
     setSelectedFacebookName("");
     setSelectedAccessToken("");
-    setMessages([]);
     setUserName("");
     setAdAccounts([]);
   };
