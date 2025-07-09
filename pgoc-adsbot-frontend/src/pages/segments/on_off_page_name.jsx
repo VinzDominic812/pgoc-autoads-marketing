@@ -280,7 +280,7 @@ const PageOnOFFPage = () => {
             eventSourceRef.current.close();
         }
     };
-}, []);
+  }, []);
 
   const handleClearAll = () => {
     try {
@@ -837,7 +837,7 @@ const PageOnOFFPage = () => {
               display: "flex",
               gap: "8px",
               marginBottom: "8px",
-              marginLeft: "18px",
+              justifyContent: "center",
             }}
           >
             {/* Hidden file input */}

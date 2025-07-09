@@ -868,7 +868,7 @@ const OnOffAdsets = () => {
               display: "flex",
               gap: "8px",
               marginBottom: "8px",
-              marginLeft: "18px",
+              justifyContent: "center",
             }}
           >
             {/* Hidden file input */}
