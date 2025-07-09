@@ -104,3 +104,37 @@ def verify_ad_accounts(data):
         "user_id": user_id,
         "verified_accounts": verified_accounts
     })
+
+def verify_ad_account_id(data):
+    """Verify ad accounts and access tokens (no Facebook page check). Accepts a list of dicts."""
+    verified_accounts = []
+    user_id = None
+    from models.models import User
+
+    for campaign in data:
+        user_id = campaign.get("user_id")
+        ad_account_id = campaign.get("ad_account_id")
+        access_token = campaign.get("access_token")
+
+        user = User.query.filter_by(id=user_id).first()
+        if not user:
+            return jsonify({"error": "Unauthorized: Not a user of Facebook-Marketing-Automation WebApp"}), 403
+
+        # Verify ad account access
+        ad_account_verified, ad_account_error = get_ad_accounts(ad_account_id, access_token)
+        ad_account_status = "Verified" if ad_account_verified else "Not Verified"
+        ad_account_error = None if ad_account_verified else "Ad account not associated with this access token"
+
+        verified_accounts.append({
+            "ad_account_id": ad_account_id,
+            "ad_account_status": ad_account_status,
+            "ad_account_error": ad_account_error,
+            "access_token": access_token,
+            "access_token_status": "Verified" if ad_account_verified else "Not Verified",
+            "access_token_error": None if ad_account_verified else ad_account_error
+        })
+
+    return jsonify({
+        "user_id": user_id,
+        "verified_accounts": verified_accounts
+    })

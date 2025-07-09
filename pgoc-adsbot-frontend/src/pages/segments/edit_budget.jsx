@@ -1,16 +1,12 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Box, Typography, Tooltip } from "@mui/material";
-import WidgetCard from "../components/widget_card.jsx";
-import DynamicTable from "../components/dynamic_table.jsx";
+import { Box, Typography, TextField, Tooltip } from "@mui/material";
+import WidgetCard from "../components/widget_card";
+import DynamicTable from "../components/dynamic_table";
 import notify from "../components/toast.jsx";
-import CustomButton from "../components/buttons.jsx";
-import SpaceBg from "../../assets/space-bg.png";
+import CustomButton from "../components/buttons";
+import budgetbg from "../../assets/budget-bg.png";
 import Papa from "papaparse";
-import {
-  getUserData,
-  encryptData,
-  decryptData,
-} from "../../services/user_data.js";
+import { getUserData, encryptData, decryptData } from "../../services/user_data.js";
 import axios from "axios";
 
 // ICONS
@@ -22,35 +18,37 @@ import DownloadIcon from "@mui/icons-material/FileDownload";
 import CheckIcon from "@mui/icons-material/Check";
 import CancelIcon from "@mui/icons-material/Cancel";
 
-import PageNameTerminal from "../widgets/on_off_pagename/on_off_pagename_terminal.jsx";
+import AdsetTerminal from "../widgets/edit_budget_widgets/edit_budget_terminal.jsx";
 import { EventSource } from "extended-eventsource";
 import Cookies from "js-cookie";
+import EditBudgetTerminal from "../widgets/edit_budget_widgets/edit_budget_terminal.jsx";
 
 const REQUIRED_HEADERS = [
   "ad_account_id",
   "facebook_name",
-  "page_name",
-  "on_off",
+  "campaign_name",
+  "new_budget"
 ];
 
 // Function to get the current timestamp in [YYYY-MM-DD HH-MM-SS] format
 const getCurrentTime = () => {
   const now = new Date();
   now.setUTCHours(now.getUTCHours() + 8); // Convert UTC to Manila Time (UTC+8)
-  return now.toISOString().replace("T", " ").split(".")[0]; // YYYY-MM-DD HH-MM-SS format
+  return now.toISOString().replace("T", " ").split(".")[0]; // [YYYY-MM-DD HH-MM-SS] format
 };
 
 const apiUrl = import.meta.env.VITE_API_URL;
 
-const PageOnOFFPage = () => {
+const EditBudgetPage = () => {
+
   const headers = [
     "ad_account_id",
     "ad_account_status",
     "facebook_name",
     "access_token_status",
-    "page_name",
-    "on_off",
-    "status",
+    "campaign_name",
+    "new_budget",
+    "status"
   ];
 
   const [selectedRows, setSelectedRows] = useState(new Map());
@@ -87,22 +85,22 @@ const PageOnOFFPage = () => {
     }
   };
 
-  const [tablePageNameData, setTablePageNameData] = useState(() => {
-    const data = getPersistedState("tablePageNameData", []);
+  const [tableEditBudgetData, setTableEditBudgetData] = useState(() => {
+    const data = getPersistedState("tableEditBudgetData", []);
     return Array.isArray(data) ? data : [];
   });
 
   useEffect(() => {
     try {
-      const dataToStore = Array.isArray(tablePageNameData)
-        ? tablePageNameData
+      const dataToStore = Array.isArray(tableEditBudgetData)
+        ? tableEditBudgetData
         : [];
       const encryptedData = encryptData(dataToStore);
-      localStorage.setItem("tablePageNameData", encryptedData);
+      localStorage.setItem("tableEditBudgetData", encryptedData);
     } catch (error) {
       console.error("Error Saving table data:", error);
     }
-  }, [tablePageNameData]);
+  }, [tableEditBudgetData]);
 
   useEffect(() => {
     try {
@@ -136,7 +134,8 @@ const PageOnOFFPage = () => {
 
   useEffect(() => {
     const { id: user_id } = getUserData();
-    const eventSourceUrl = `${apiUrl}/api/v1/messageevents-pagename?keys=${user_id}-key`;
+    // Adjusted EventSource URL for budget updates
+    const eventSourceUrl = `${apiUrl}/api/v1/messageevents-editbudget?keys=${user_id}-key`;
 
     if (eventSourceRef.current) {
         eventSourceRef.current.close();
@@ -157,25 +156,18 @@ const PageOnOFFPage = () => {
                 const messageText = data.data.message[0];
                 addMessage(data.data.message);
 
-                // ✅ Match "Fetching Campaign Data for page: PAGE_NAME in account PAGE_NAME (ON|OFF)"
+                // Match "Fetching Campaign Data for campaign: CAMPAIGN_NAME in account ACCOUNT_ID"
                 const fetchingMatch = messageText.match(
-                    /\[(.*?)\] Fetching Campaign Data for page: (.*?) in account (.*?) \((ON|OFF)\)/
+                    /\[(.*?)\] Fetching Campaign Data for campaign: (.*?) in account (.*)/
                 );
 
                 if (fetchingMatch) {
-                    const pageName = fetchingMatch[2];
+                    const campaignName = fetchingMatch[2];
                     const adAccountId = fetchingMatch[3];
-                    const onOffStatus = fetchingMatch[4];
 
-                    setTablePageNameData((prevData) =>
+                    setTableEditBudgetData((prevData) =>
                         prevData.map((entry) => {
-                            // Check if this entry has the page_name in its array
-                            if (
-                                entry.ad_account_id === adAccountId &&
-                                ((Array.isArray(entry.page_name) && entry.page_name.includes(pageName)) ||
-                                entry.page_name === pageName) &&
-                                entry.on_off === onOffStatus
-                            ) {
+                            if (entry.ad_account_id === adAccountId && entry.campaign_name === campaignName) {
                                 return { ...entry, status: "Fetching ⏳" };
                             }
                             return entry;
@@ -183,78 +175,62 @@ const PageOnOFFPage = () => {
                     );
                 }
 
-                // ✅ Match success message for campaign updates completed for a specific page
+                // Match success message for campaign budget update completed for a specific campaign
                 const successMatch = messageText.match(
-                    /\[(.*?)\] Campaign updates completed for page: (.*?) in account (.*?) \((ON|OFF)\)/
+                    /\[(.*?)\] Campaign budget update completed for campaign: (.*?) in account (.*)/
                 );
 
                 if (successMatch) {
-                    const pageName = successMatch[2];
+                    const campaignName = successMatch[2];
                     const adAccountId = successMatch[3];
-                    const onOffStatus = successMatch[4];
 
-                    setTablePageNameData((prevData) =>
+                    setTableEditBudgetData((prevData) =>
                         prevData.map((entry) => {
-                            // Check if this entry has the page_name in its array
-                            if (
-                                entry.ad_account_id === adAccountId &&
-                                ((Array.isArray(entry.page_name) && entry.page_name.includes(pageName)) ||
-                                entry.page_name === pageName) &&
-                                entry.on_off === onOffStatus
-                            ) {
-                                return { ...entry, status: `Success ✅ (${onOffStatus})` };
+                            if (entry.ad_account_id === adAccountId && entry.campaign_name === campaignName) {
+                                return { ...entry, status: `Success ✅` };
                             }
                             return entry;
                         })
                     );
                 }
 
-                // ✅ Match error message for campaign fetch failure for a specific page
+                // Match error message for campaign budget update failure for a specific campaign
                 const errorMatch = messageText.match(
-                    /\[(.*?)\] ❌ Error fetching campaigns for page: (.*?) in account (.*?) \((ON|OFF)\): (.*)/
+                    /\[(.*?)\] ❌ Error updating budget for campaign: (.*?) in account (.*?): (.*)/
                 );
 
                 if (errorMatch) {
-                    const pageName = errorMatch[2];
+                    const campaignName = errorMatch[2];
                     const adAccountId = errorMatch[3];
-                    const onOffStatus = errorMatch[4];
-                    const errorMsg = errorMatch[5];
+                    const errorMsg = errorMatch[4];
 
-                    console.log(`❌ Error detected for ${pageName} (${onOffStatus}): ${errorMsg}`);
+                    console.log(`❌ Error detected for ${campaignName} in ${adAccountId}: ${errorMsg}`);
 
-                    setTablePageNameData((prevData) =>
+                    setTableEditBudgetData((prevData) =>
                         prevData.map((entry) => {
-                            // Check if this entry has the page_name in its array
-                            if (
-                                entry.ad_account_id === adAccountId &&
-                                ((Array.isArray(entry.page_name) && entry.page_name.includes(pageName)) ||
-                                entry.page_name === pageName) &&
-                                entry.on_off === onOffStatus
-                            ) {
-                                return { ...entry, status: `Failed ❌ (${onOffStatus})` };
+                            if (entry.ad_account_id === adAccountId && entry.campaign_name === campaignName) {
+                                return { ...entry, status: `Failed ❌` };
                             }
                             return entry;
                         })
                     );
                 }
 
-                // ✅ Update lastMessage based on page name
+                // Update lastMessage based on campaign name and ad account ID
                 const lastMessageMatch = messageText.match(/\[(.*?)\] (.*)/);
                 if (lastMessageMatch) {
                     const timestamp = lastMessageMatch[1];
                     const messageContent = lastMessageMatch[2];
 
-                    // Try to extract the page_name from the messageContent
-                    const possiblePageMatch = messageContent.match(/for page: (.*?)( in account|\s|$)/);
-                    if (possiblePageMatch && possiblePageMatch[1]) {
-                        const pageName = possiblePageMatch[1];
+                    // Try to extract campaign_name and ad_account_id from the messageContent
+                    const possibleCampaignAdAccountMatch = messageContent.match(/for campaign: (.*?) in account (.*?)(:|\s|$)/);
+                    if (possibleCampaignAdAccountMatch && possibleCampaignAdAccountMatch[1] && possibleCampaignAdAccountMatch[2]) {
+                        const campaignName = possibleCampaignAdAccountMatch[1];
+                        const adAccountId = possibleCampaignAdAccountMatch[2];
                         
-                        setTablePageNameData((prevData) =>
+                        setTableEditBudgetData((prevData) =>
                             prevData.map((entry) => {
-                                if (
-                                    (Array.isArray(entry.page_name) && entry.page_name.includes(pageName)) ||
-                                    entry.page_name === pageName
-                                ) {
+                                if (entry.ad_account_id === adAccountId && entry.campaign_name === campaignName) {
                                     return { ...entry, lastMessage: `${timestamp} - ${messageContent}` };
                                 }
                                 return entry;
@@ -284,10 +260,10 @@ const PageOnOFFPage = () => {
 
   const handleClearAll = () => {
     try {
-      setTablePageNameData([]);
-      localStorage.removeItem("tablePageNameData");
-      if (Cookies.get("tablePageNameData")) {
-        Cookies.remove("tablePageNameData");
+      setTableEditBudgetData([]);
+      localStorage.removeItem("tableEditBudgetData");
+      if (Cookies.get("tableEditBudgetData")) {
+        Cookies.remove("tableEditBudgetData");
       }
 
       notify("All data cleared successfully!", "success");
@@ -325,9 +301,9 @@ const PageOnOFFPage = () => {
 
   const handleDownloadTemplate = () => {
     const sampleData = [
-      ["ad_account_id", "facebook_name", "page_name", "on_off"],
-      ["SAMPLE_AD_ACCOUNT_ID", "Facebook Name", "page_name", "ON"],
-      ["ANOTHER_AD_ACCOUNT", "Another Facebook Name", "page_name", "ON"],
+      ["ad_account_id", "facebook_name", "campaign_name", "new_budget"],
+      ["SAMPLE_AD_ACCOUNT_ID", "Facebook Name", "Campaign Name 1", "100"],
+      ["ANOTHER_AD_ACCOUNT", "Another Facebook Name", "Campaign Name 2", "250"],
     ];
 
     const csvContent =
@@ -337,15 +313,14 @@ const PageOnOFFPage = () => {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "Campaign_Template.csv");
+    link.setAttribute("download", "Campaign_Budget_Template.csv");
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
-  // Function to export table data to CSV
   const handleExportData = () => {
-    if (tablePageNameData.length === 0) {
+    if (tableEditBudgetData.length === 0) {
       notify("No data to export.", "error");
       return;
     }
@@ -354,8 +329,8 @@ const PageOnOFFPage = () => {
     const csvHeaders = [
       "ad_account_id",
       "facebook_name",
-      "page_name",
-      "on_off",
+      "campaign_name",
+      "new_budget",
       "status",
     ];
 
@@ -364,7 +339,7 @@ const PageOnOFFPage = () => {
       "data:text/csv;charset=utf-8,\uFEFF" + // UTF-8 BOM for proper encoding
       [csvHeaders.join(",")] // Add headers
         .concat(
-          tablePageNameData.map((row) =>
+          tableEditBudgetData.map((row) =>
             csvHeaders.map((header) => `"${row[header] || ""}"`).join(",")
           )
         )
@@ -374,7 +349,7 @@ const PageOnOFFPage = () => {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `Exported_Campaigns_${getCurrentTime()}.csv`);
+    link.setAttribute("download", `Exported_Campaign_Budgets_${getCurrentTime()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -411,7 +386,7 @@ const PageOnOFFPage = () => {
   
         if (!validateCSVHeaders(fileHeaders)) {
           notify(
-            "Invalid CSV headers. Required: ad_account_id, facebook_name, page_name, on_off.",
+            "Invalid CSV headers. Required: ad_account_id, facebook_name, campaign_name, new_budget.",
             "error"
           );
           return;
@@ -454,98 +429,32 @@ const PageOnOFFPage = () => {
             return entry;
           });
   
-        // Step 1: Group by ad_account_id, facebook_name, and on_off
-        const groupedData = rawData.reduce((acc, current) => {
-          const key = `${current.ad_account_id}_${current.facebook_name}_${current.on_off}`;
-          
-          if (!acc[key]) {
-            acc[key] = {
-              ad_account_id: current.ad_account_id,
-              facebook_name: current.facebook_name,
-              _actual_access_token: current._actual_access_token, // Preserve the actual token
-              on_off: current.on_off,
-              page_names: new Set(), // Using Set to avoid duplicates
-              originalEntries: []
-            };
-          }
-          
-          // Add page_name to the Set (automatically handles duplicates)
-          acc[key].page_names.add(current.page_name);
-          acc[key].originalEntries.push(current);
-          
-          return acc;
-        }, {});
-  
-        // Step 2: Convert grouped data to final format and handle conflicts
-        const finalData = [];
-        const conflicts = [];
-        const seenPageAccounts = new Set();
-  
-        Object.values(groupedData).forEach(group => {
-          // Check for page_name conflicts (same ad_account_id + facebook_name + page_name but different on_off)
-          let hasConflict = false;
-          
-          group.originalEntries.forEach(entry => {
-            const pageAccountKey = `${entry.ad_account_id}_${entry.facebook_name}_${entry.page_name}`;
-            
-            if (seenPageAccounts.has(pageAccountKey)) {
-              // This page_name already exists with a different on_off status
-              hasConflict = true;
-              conflicts.push(
-                `Conflict for ${entry.ad_account_id}: page "${entry.page_name}" has conflicting on/off status`
-              );
-            } else {
-              seenPageAccounts.add(pageAccountKey);
-            }
-          });
-  
-          // Only add to final data if no conflicts
-          if (!hasConflict) {
-            finalData.push({
-              ad_account_id: group.ad_account_id,
-              facebook_name: group.facebook_name,
-              _actual_access_token: group._actual_access_token, // Include actual token
-              page_name: Array.from(group.page_names), // Convert Set to array
-              on_off: group.on_off,
-              status: "Ready"
-            });
-          }
-        });
-  
-        // Show conflict notifications if any
-        if (conflicts.length > 0) {
-          notify(
-            `Found ${conflicts.length} conflicts: ${conflicts.join(", ")}`,
-            "error"
-          );
-        }
-  
-        // Prepare data for verification
-        const requestData = finalData.map((entry) => ({
+        const finalData = rawData.map(entry => ({
           ad_account_id: entry.ad_account_id,
-          user_id,
-          // Use the actual access token for API calls if it exists
-          access_token: entry._actual_access_token || entry.facebook_name,
-          schedule_data: [
-            {
-              page_name: entry.page_name, // This is now an array
-              on_off: entry.on_off
-            }
-          ]
+          facebook_name: entry.facebook_name,
+          _actual_access_token: entry._actual_access_token, // Include actual token
+          campaign_name: entry.campaign_name || "",
+          new_budget: entry.new_budget || "",
+          status: "Ready"
         }));
   
         // Update table with the processed data
-        setTablePageNameData(finalData);
+        setTableEditBudgetData(finalData);
         
         if (finalData.length > 0) {
           console.log(
-              "Processed Request Data:",
-              JSON.stringify(requestData, null, 2)
+              "Processed Request Data for verification:",
+              JSON.stringify(finalData.map(d => ({
+                ad_account_id: d.ad_account_id,
+                user_id,
+                access_token: d._actual_access_token || d.facebook_name,
+              })), null, 2)
             );
           notify("CSV file successfully processed!", "success");
-          verifyAdAccounts(requestData, finalData, addMessage);
+          // Only verify ad accounts, not campaigns specifically at this stage
+          verifyAdAccounts(finalData, addMessage);
         } else {
-          notify("No valid data to process after conflict resolution", "warning");
+          notify("No valid data to process", "warning");
         }
       },
       header: false,
@@ -556,40 +465,52 @@ const PageOnOFFPage = () => {
   };
 
   const handleRunCampaigns = async () => {
-    if (tablePageNameData.length === 0) {
+    if (tableEditBudgetData.length === 0) {
       addMessage([`[${getCurrentTime()}] ❌ No campaigns to process.`]);
       return;
     }
 
-    const uniqueAdsetsData = [];
+    const { id: user_id } = getUserData();
 
-    // Filter and create the uniqueAdsetsData
-    for (let i = 0; i < tablePageNameData.length; i++) {
-      const row = tablePageNameData[i];
-      const { ad_account_id, page_name, on_off } = row;
-      // Use the actual access token for API calls if it exists
-      const access_token = row._actual_access_token || row.facebook_name;
+    // Iterate through each row in the table to send individual requests
+    for (let i = 0; i < tableEditBudgetData.length; i++) {
+      const row = tableEditBudgetData[i];
+      const { ad_account_id, campaign_name, new_budget } = row;
+      const access_token = row._actual_access_token || row.facebook_name; // Use the resolved token
 
-      const requestData = [
-        {
-          ad_account_id,
-          user_id: getUserData().id,
-          access_token, // Use the resolved token
-          schedule_data: [
-            {
-              page_name: Array.isArray(page_name) ? page_name : [page_name],
-              on_off,
-            },
-          ],
-        },
-      ];
+      // Basic validation for new_budget
+      const parsedBudget = parseFloat(new_budget);
+      if (isNaN(parsedBudget) || parsedBudget <= 0) {
+        setTableEditBudgetData(prevData =>
+          prevData.map((item, index) =>
+            index === i
+              ? {
+                  ...item,
+                  status: `Error ❌ (Invalid Budget)`,
+                }
+              : item
+          )
+        );
+        addMessage([
+          `[${getCurrentTime()}] ❌ Error for campaign "${campaign_name}" in ad account: ${ad_account_id}: Invalid new_budget "${new_budget}". Please provide a positive number.`,
+        ]);
+        continue; // Skip to the next row
+      }
+
+      const requestData = {
+        ad_account_id,
+        user_id,
+        access_token,
+        campaign_name,
+        new_budget: parsedBudget,
+      };
 
       try {
         addMessage([
-          `[${getCurrentTime()}] ⏳ Processing campaign for page(s): ${Array.isArray(page_name) ? page_name.join(", ") : page_name}`,
+          `[${getCurrentTime()}] ⏳ Attempting to update budget for campaign "${campaign_name}" to ${new_budget} in ad account: ${ad_account_id}`,
         ]);
   
-        const response = await fetch(`${apiUrl}/api/v1/onoff/pagename`, {
+        const response = await fetch(`${apiUrl}/api/v1/campaign/editbudget`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -599,32 +520,32 @@ const PageOnOFFPage = () => {
         });
   
         if (!response.ok) {
-          throw new Error(`Request failed with status ${response.status}`);
+          const errorResponse = await response.json();
+          throw new Error(errorResponse.message || `Request failed with status ${response.status}`);
         }
   
-        // Optional: parse if backend returns something
         const responseData = await response.json();
-  
-        setTablePageNameData(prevData =>
+        
+        setTableEditBudgetData(prevData =>
           prevData.map((item, index) =>
             index === i
               ? {
                   ...item,
-                  status: `Success ✅ (${on_off.toUpperCase()})`,
+                  status: `Success ✅ (Budget Updated)`,
                 }
               : item
           )
         );
   
         addMessage([
-          `[${getCurrentTime()}] ✅ Campaign processed for page(s): ${Array.isArray(page_name) ? page_name.join(", ") : page_name}`,
+          `[${getCurrentTime()}] ✅ Budget updated for campaign "${campaign_name}" in ad account: ${ad_account_id}. Response: ${responseData.message || "No specific message."}`,
         ]);
   
-        // Optional delay
-        // await new Promise(resolve => setTimeout(resolve, 5000));
+        // Optional delay between requests to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 1000));
   
       } catch (error) {
-        setTablePageNameData(prevData =>
+        setTableEditBudgetData(prevData =>
           prevData.map((item, index) =>
             index === i
               ? {
@@ -636,10 +557,11 @@ const PageOnOFFPage = () => {
         );
   
         addMessage([
-          `[${getCurrentTime()}] ❌ Error for page(s): ${Array.isArray(page_name) ? page_name.join(", ") : page_name}: ${error.message}`,
+          `[${getCurrentTime()}] ❌ Error for campaign "${campaign_name}" in ad account: ${ad_account_id}: ${error.message}`,
         ]);
       }
     }
+    addMessage([`[${getCurrentTime()}] All budget update operations completed.`]);
   };
 
   // Validate CSV Headers
@@ -661,30 +583,6 @@ const PageOnOFFPage = () => {
           .join("\n")}
       />
     ),
-    page_name: (value) => {
-      const displayValue = Array.isArray(value) ? value.join(", ") : value;
-      const tooltipValue = Array.isArray(value) ? value.join(", \n") : value;
-      
-      return (
-        <Tooltip 
-          title={
-            <span style={{ whiteSpace: 'pre-line' }}> {/* Ensures new lines render */}
-              {tooltipValue}
-            </span>
-          }
-          placement="top"
-          arrow
-          enterDelay={300}
-        >
-          <span style={{ 
-            cursor: 'pointer',
-            textUnderlineOffset: '3px'
-          }}>
-            {displayValue}
-          </span>
-        </Tooltip>
-      );
-    },
   };
 
   const StatusWithIcon = ({ status, error }) => {
@@ -707,9 +605,9 @@ const PageOnOFFPage = () => {
     return <span>{status}</span>;
   };
 
-  const compareCsvWithJson = (csvData, jsonData, setTablePageNameData) => {
+  const compareCsvWithJson = (csvData, jsonData, setTableEditBudgetData) => {
     // Log the number of records being compared
-    addMessage([`[${getCurrentTime()}] Comparing ${csvData.length} CSV rows with ${jsonData.length} API results`]);
+    addMessage([`[${getCurrentTime()}] Comparing ${csvData.length} CSV rows with ${jsonData.length} API verification results`]);
     
     const updatedData = csvData.map((csvRow) => {
       // Find the matching row from API results by using the actual token if available
@@ -725,7 +623,7 @@ const PageOnOFFPage = () => {
       // Log details about each comparison to help debug
       if (!jsonRow) {
         addMessage([
-          `[${getCurrentTime()}] ❌ No match found for ad_account_id: ${csvRow.ad_account_id}`
+          `[${getCurrentTime()}] ❌ No verification match found for ad_account_id: ${csvRow.ad_account_id}`
         ]);
       }
 
@@ -736,8 +634,8 @@ const PageOnOFFPage = () => {
           access_token_status: "Not Verified",
           status: "Not Verified",
           ad_account_error: csvRow._actual_access_token ? 
-            "Access token converted from Facebook name not recognized" : 
-            "Account or facebook name not found",
+            "Access token converted from Facebook name not recognized or invalid for this account" : 
+            "Account or facebook name not found for verification",
           access_token_error: csvRow._actual_access_token ? 
             "Converted token may be incorrect or expired" : 
             "Facebook name not recognized"
@@ -758,48 +656,77 @@ const PageOnOFFPage = () => {
       };
     });
 
-    setTablePageNameData(updatedData);
+    setTableEditBudgetData(updatedData);
   };
 
   const verifyAdAccounts = async (
-    campaignsData,
-    originalCsvData,
+    originalCsvData, // This now contains ad_account_id, facebook_name, _actual_access_token, campaign_name, new_budget
     addMessage
   ) => {
     try {
-      // campaignsData should already contain the correct access tokens
+      const { id: user_id } = getUserData();
+      // Prepare data for ad account verification. Only send ad_account_id, user_id, and access_token.
+      // Filter out unique ad accounts to avoid redundant verification calls
+      const uniqueAdAccountsForVerification = Array.from(
+        new Map(originalCsvData.map(item => [item.ad_account_id, {
+          ad_account_id: item.ad_account_id,
+          user_id,
+          access_token: item._actual_access_token || item.facebook_name,
+        }])).values()
+      );
       
-      const response = await fetch(`${apiUrl}/api/v1/verify/pagename`, {
+      addMessage([`[${getCurrentTime()}] Initiating verification for ${uniqueAdAccountsForVerification.length} unique ad accounts...`]);
+
+      const response = await fetch(`${apiUrl}/api/v1/verify-ads-account/verify/adaccount`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           skip_zrok_interstitial: "true",
         },
-        body: JSON.stringify(campaignsData),
+        body: JSON.stringify(uniqueAdAccountsForVerification),
       });
 
       const result = await response.json();
       console.log("Verification Result:", JSON.stringify(result, null, 2));
 
       if (response.ok && result.verified_accounts) {
+        // Compare the original CSV data with the verification results
         compareCsvWithJson(
           originalCsvData,
           result.verified_accounts,
-          setTablePageNameData
+          setTableEditBudgetData
         );
         addMessage([
           `[${getCurrentTime()}] Verification completed for ${
             result.verified_accounts.length
-          } accounts`,
+          } accounts.`,
         ]);
       } else {
         const errorMsg =
-          result.message || "No verified accounts returned from API";
+          result.message || "No verified accounts returned from API for verification.";
         addMessage([`⚠️ ${errorMsg}`]);
+        // If verification fails or returns no data, mark all original entries as "Not Verified"
+        setTableEditBudgetData(prevData => prevData.map(entry => ({
+          ...entry,
+          ad_account_status: "Not Verified",
+          access_token_status: "Not Verified",
+          status: "Not Verified",
+          ad_account_error: "Verification failed or no data returned",
+          access_token_error: "Verification failed or no data returned",
+        })));
       }
     } catch (error) {
       console.error("Error verifying ad accounts:", error);
       addMessage([`❌ Failed to verify ad accounts: ${error.message}`]);
+      // Mark all entries as failed in case of a network or unhandled error
+      setTableEditBudgetData(prevData => prevData.map(entry => ({
+        ...entry,
+        ad_account_status: "Not Verified",
+        access_token_status: "Not Verified",
+        status: "Not Verified",
+        ad_account_error: `Verification error: ${error.message}`,
+        access_token_error: `Verification error: ${error.message}`,
+      })));
     }
   };
 
@@ -820,7 +747,7 @@ const PageOnOFFPage = () => {
             flex: 1,
             display: "flex",
             flexDirection: "column",
-            backgroundImage: `url(${SpaceBg})`,
+            backgroundImage: `url(${budgetbg})`,
             backgroundSize: "contain",
             backgroundPosition: "center",
             backgroundRepeat: "no-repeat",
@@ -829,7 +756,7 @@ const PageOnOFFPage = () => {
           }}
         >
           <Typography variant="h5" gutterBottom>
-            ON/OFF PAGENAME
+            EDIT BUDGET
           </Typography>
           <Box sx={{ flex: 1 }} /> {/* Spacer */}
           <Box
@@ -882,7 +809,7 @@ const PageOnOFFPage = () => {
         </Box>
         {/* Second Column */}
         <Box sx={{ width: "50%" }}>
-          <PageNameTerminal messages={messages} setMessages={setMessages} />
+          <EditBudgetTerminal messages={messages} setMessages={setMessages} />
         </Box>
       </Box>
 
@@ -891,7 +818,7 @@ const PageOnOFFPage = () => {
         <WidgetCard title="Main Section" height="96%">
           <DynamicTable
             headers={headers}
-            data={tablePageNameData}
+            data={tableEditBudgetData}
             rowsPerPage={8}
             containerStyles={{
               width: "100%",
@@ -900,12 +827,11 @@ const PageOnOFFPage = () => {
               textAlign: "center",
             }}
             customRenderers={statusRenderers}
-            onDataChange={setTablePageNameData}
+            onDataChange={setTableEditBudgetData}
             onSelectedChange={handleSelectedDataChange} // Pass selection handler
             nonEditableHeaders={[
               "ad_account_status",
               "access_token_status",
-              "page_name",
               "status",
             ]}
           />
@@ -913,6 +839,7 @@ const PageOnOFFPage = () => {
       </Box>
     </Box>
   );
-};
 
-export default PageOnOFFPage;
+}
+
+export default EditBudgetPage

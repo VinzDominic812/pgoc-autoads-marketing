@@ -26,6 +26,7 @@ from routes.user_settings_route import user_routes
 from routes.verify_campaign_code_route import verify_campaign_code
 from routes.dashboard_route import dashboard_bp
 from routes.sheets_route import sheets_bp
+from routes.edit_budget_route import edit_budget_bp
 import logging
 from flask_mail import Mail
 from models.models import db, PHRegionTable  # Import PHRegionTable
@@ -161,6 +162,7 @@ def create_app():
     app.register_blueprint(user_routes, url_prefix='/api/v1')
     app.register_blueprint(dashboard_bp, url_prefix='/api/v1')
     app.register_blueprint(sheets_bp, url_prefix='/api/v1/sheets')
+    app.register_blueprint(edit_budget_bp, url_prefix='/api/v1/campaign')
     
     return app
 
