@@ -55,6 +55,16 @@ export const AdSpendAutoRefreshProvider = ({ children, apiUrl }) => {
   });
   const [selectedFacebookName, setSelectedFacebookName] = useState(() => localStorage.getItem(FACEBOOK_NAME_KEY) || "");
   const [selectedAccessToken, setSelectedAccessToken] = useState(() => localStorage.getItem(ACCESS_TOKEN_KEY) || "");
+
+  // Auto-restore state from localStorage if it becomes empty
+  useEffect(() => {
+    if (!selectedFacebookName && localStorage.getItem(FACEBOOK_NAME_KEY)) {
+      setSelectedFacebookName(localStorage.getItem(FACEBOOK_NAME_KEY));
+    }
+    if (!selectedAccessToken && localStorage.getItem(ACCESS_TOKEN_KEY)) {
+      setSelectedAccessToken(localStorage.getItem(ACCESS_TOKEN_KEY));
+    }
+  }, [selectedFacebookName, selectedAccessToken]);
   const timerRef = useRef(null);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
 

@@ -20,14 +20,14 @@ import CancelIcon from "@mui/icons-material/Cancel";
 
 import { EventSource } from "extended-eventsource";
 import Cookies from "js-cookie";
-import EditBudgetTerminal from "../widgets/edit_budget_widgets/edit_budget_terminal.jsx";
+import EditLocationTerminal from "../widgets/edit_location_widgets/edit_location_terminal.jsx";
 
 // Update required headers to use page_name instead of campaign_name
 const REQUIRED_HEADERS = [
   "ad_account_id",
   "facebook_name",
   "page_name",
-  "new_budget"
+  "new_regions_cities"
 ];
 
 // Function to get the current timestamp in [YYYY-MM-DD HH-MM-SS] format
@@ -44,7 +44,7 @@ const extractPageName = (campaignName) => {
   return campaignName && typeof campaignName === 'string' ? campaignName.split('-')[0] : '';
 };
 
-const EditBudgetPage = () => {
+const EditLocationPage = () => {
 
   // Update table headers to use page_name as the main identifier
   const headers = [
@@ -53,7 +53,7 @@ const EditBudgetPage = () => {
     "facebook_name",
     "access_token_status",
     "page_name",
-    "new_budget",
+    "new_regions_cities",
     "status"
   ];
 
@@ -91,22 +91,22 @@ const EditBudgetPage = () => {
     }
   };
 
-  const [tableEditBudgetData, setTableEditBudgetData] = useState(() => {
-    const data = getPersistedState("tableEditBudgetData", []);
+  const [tableEditLocationData, setTableEditLocationData] = useState(() => {
+    const data = getPersistedState("tableEditLocationData", []);
     return Array.isArray(data) ? data : [];
   });
 
   useEffect(() => {
     try {
-      const dataToStore = Array.isArray(tableEditBudgetData)
-        ? tableEditBudgetData
+      const dataToStore = Array.isArray(tableEditLocationData)
+        ? tableEditLocationData
         : [];
       const encryptedData = encryptData(dataToStore);
-      localStorage.setItem("tableEditBudgetData", encryptedData);
+      localStorage.setItem("tableEditLocationData", encryptedData);
     } catch (error) {
       console.error("Error Saving table data:", error);
     }
-  }, [tableEditBudgetData]);
+  }, [tableEditLocationData]);
 
   useEffect(() => {
     try {
@@ -140,8 +140,8 @@ const EditBudgetPage = () => {
 
   useEffect(() => {
     const { id: user_id } = getUserData();
-    // Adjusted EventSource URL for budget updates
-    const eventSourceUrl = `${apiUrl}/api/v1/messageevents-editbudget?keys=${user_id}-key`;
+    // Adjusted EventSource URL for location updates
+    const eventSourceUrl = `${apiUrl}/api/v1/messageevents-editlocation?keys=${user_id}-key`;
 
     if (eventSourceRef.current) {
         eventSourceRef.current.close();
@@ -162,87 +162,69 @@ const EditBudgetPage = () => {
                 const messageText = data.data.message[0];
                 addMessage(data.data.message);
 
-                // Match "Fetching Campaign Data for campaign: CAMPAIGN_NAME in account ACCOUNT_ID"
-                const fetchingMatch = messageText.match(
-                    /\[(.*?)\] Fetching Campaign Data for campaign: (.*?) in account (.*)/
-                );
-
-                if (fetchingMatch) {
-                    const campaignName = fetchingMatch[2];
-                    const adAccountId = fetchingMatch[3];
-
-                    setTableEditBudgetData((prevData) =>
-                        prevData.map((entry) => {
-                            if (entry.ad_account_id === adAccountId && entry.campaign_name === campaignName) {
-                                return { ...entry, status: "Fetching ⏳" };
-                            }
-                            return entry;
-                        })
+                // Match processing message
+                const processingMatch = messageText.match(/Processing location update for page: '(.+)'/);
+                if (processingMatch) {
+                    const pageName = processingMatch[1];
+                    setTableEditLocationData((prevData) =>
+                        prevData.map((entry) =>
+                            entry.page_name === pageName
+                                ? { ...entry, status: "Processing ⏳" }
+                                : entry
+                        )
                     );
                 }
 
-                // Match success message for campaign budget update completed for a specific campaign
-                const successMatch = messageText.match(
-                    /\[(.*?)\] Campaign budget update completed for campaign: (.*?) in account (.*)/
-                );
-
-                if (successMatch) {
-                    const campaignName = successMatch[2];
-                    const adAccountId = successMatch[3];
-
-                    setTableEditBudgetData((prevData) =>
-                        prevData.map((entry) => {
-                            if (entry.ad_account_id === adAccountId && entry.campaign_name === campaignName) {
-                                return { ...entry, status: `Success ✅` };
-                            }
-                            return entry;
-                        })
-                    );
+                // Match found ad sets message
+                const foundAdSetsMatch = messageText.match(/Found (\d+) ad sets to update\./);
+                if (foundAdSetsMatch) {
+                    // Optionally update status to indicate ad sets found
                 }
 
-                // Match error message for campaign budget update failure for a specific campaign
-                const errorMatch = messageText.match(
-                    /\[(.*?)\] ❌ Error updating budget for campaign: (.*?) in account (.*?): (.*)/
-                );
-
-                if (errorMatch) {
-                    const campaignName = errorMatch[2];
-                    const adAccountId = errorMatch[3];
-                    const errorMsg = errorMatch[4];
-
-                    console.log(`❌ Error detected for ${campaignName} in ${adAccountId}: ${errorMsg}`);
-
-                    setTableEditBudgetData((prevData) =>
-                        prevData.map((entry) => {
-                            if (entry.ad_account_id === adAccountId && entry.campaign_name === campaignName) {
-                                return { ...entry, status: `Failed ❌` };
-                            }
-                            return entry;
-                        })
-                    );
+                // Match success update for ad set
+                const successAdSetMatch = messageText.match(/Successfully updated ad set (\d+)/);
+                if (successAdSetMatch) {
+                    // Optionally update status for ad set
                 }
 
-                // Update lastMessage based on campaign name and ad account ID
-                const lastMessageMatch = messageText.match(/\[(.*?)\] (.*)/);
-                if (lastMessageMatch) {
-                    const timestamp = lastMessageMatch[1];
-                    const messageContent = lastMessageMatch[2];
+                // Match failed update for ad set
+                const failedAdSetMatch = messageText.match(/Failed to update ad set (\d+)/);
+                if (failedAdSetMatch) {
+                    // Optionally update status for ad set
+                }
 
-                    // Try to extract campaign_name and ad_account_id from the messageContent
-                    const possibleCampaignAdAccountMatch = messageContent.match(/for campaign: (.*?) in account (.*?)(:|\s|$)/);
-                    if (possibleCampaignAdAccountMatch && possibleCampaignAdAccountMatch[1] && possibleCampaignAdAccountMatch[2]) {
-                        const campaignName = possibleCampaignAdAccountMatch[1];
-                        const adAccountId = possibleCampaignAdAccountMatch[2];
-                        
-                        setTableEditBudgetData((prevData) =>
-                            prevData.map((entry) => {
-                                if (entry.ad_account_id === adAccountId && entry.campaign_name === campaignName) {
-                                    return { ...entry, lastMessage: `${timestamp} - ${messageContent}` };
-                                }
-                                return entry;
-                            })
-                        );
+                // Match final report
+                const finalReportMatch = messageText.match(/Finished\. Successfully updated (\d+) ad sets\. Failed to update (\d+)\./);
+                if (finalReportMatch) {
+                    // Find the last processed page_name from previous messages
+                    const lastPageNameMatch = messages.slice().reverse().find(m => m.includes("Processing location update for page:"));
+                    let pageName = null;
+                    if (lastPageNameMatch) {
+                        const match = lastPageNameMatch.match(/Processing location update for page: '(.+)'/);
+                        if (match) pageName = match[1];
                     }
+                    setTableEditLocationData((prevData) =>
+                        prevData.map((entry) =>
+                            entry.page_name === pageName
+                                ? { ...entry, status: `Success ✅ (${finalReportMatch[1]} updated, ${finalReportMatch[2]} failed)` }
+                                : entry
+                        )
+                    );
+                }
+
+                // Match error message
+                const errorMatch = messageText.match(/❌ (.+)/);
+                if (errorMatch) {
+                    // Try to extract page name from the message
+                    const pageNameMatch = messageText.match(/for page name '(.+)'/);
+                    const pageName = pageNameMatch ? pageNameMatch[1] : null;
+                    setTableEditLocationData((prevData) =>
+                        prevData.map((entry) =>
+                            pageName && entry.page_name === pageName
+                                ? { ...entry, status: `Failed ❌ (${errorMatch[1]})` }
+                                : entry
+                        )
+                    );
                 }
             }
         } catch (error) {
@@ -266,10 +248,10 @@ const EditBudgetPage = () => {
 
   const handleClearAll = () => {
     try {
-      setTableEditBudgetData([]);
-      localStorage.removeItem("tableEditBudgetData");
-      if (Cookies.get("tableEditBudgetData")) {
-        Cookies.remove("tableEditBudgetData");
+      setTableEditLocationData([]);
+      localStorage.removeItem("tableEditLocationData");
+      if (Cookies.get("tableEditLocationData")) {
+        Cookies.remove("tableEditLocationData");
       }
 
       notify("All data cleared successfully!", "success");
@@ -308,9 +290,9 @@ const EditBudgetPage = () => {
   // Update template download to use page_name
   const handleDownloadTemplate = () => {
     const sampleData = [
-      ["ad_account_id", "facebook_name", "page_name", "new_budget"],
-      ["SAMPLE_AD_ACCOUNT_ID", "Facebook Name", "PageName1", "100"],
-      ["ANOTHER_AD_ACCOUNT", "Another Facebook Name", "PageName2", "250"],
+      ["ad_account_id", "facebook_name", "page_name", "new_regions_cities"],
+      ["SAMPLE_AD_ACCOUNT_ID", "Facebook Name", "PageName1", "test,test,test"],
+      ["ANOTHER_AD_ACCOUNT", "Another Facebook Name", "PageName2", "test,test"],
     ];
 
     const csvContent =
@@ -320,14 +302,14 @@ const EditBudgetPage = () => {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "Campaign_Budget_Template.csv");
+    link.setAttribute("download", "Campaign_Location_Template.csv");
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
   const handleExportData = () => {
-    if (tableEditBudgetData.length === 0) {
+    if (tableEditLocationData.length === 0) {
       notify("No data to export.", "error");
       return;
     }
@@ -337,7 +319,7 @@ const EditBudgetPage = () => {
       "ad_account_id",
       "facebook_name",
       "page_name",
-      "new_budget",
+      "new_regions_cities",
       "status",
     ];
 
@@ -346,7 +328,7 @@ const EditBudgetPage = () => {
       "data:text/csv;charset=utf-8,\uFEFF" + // UTF-8 BOM for proper encoding
       [csvHeaders.join(",")] // Add headers
         .concat(
-          tableEditBudgetData.map((row) =>
+          tableEditLocationData.map((row) =>
             csvHeaders.map((header) => `"${row[header] || ""}"`).join(",")
           )
         )
@@ -356,7 +338,7 @@ const EditBudgetPage = () => {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `Exported_Campaign_Budgets_${getCurrentTime()}.csv`);
+    link.setAttribute("download", `Exported_Campaign_Locations_${getCurrentTime()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -394,7 +376,7 @@ const EditBudgetPage = () => {
   
         if (!validateCSVHeaders(fileHeaders)) {
           notify(
-            "Invalid CSV headers. Required: ad_account_id, facebook_name, page_name, new_budget.",
+            "Invalid CSV headers. Required: ad_account_id, facebook_name, page_name, new_regions_cities.",
             "error"
           );
           return;
@@ -442,12 +424,12 @@ const EditBudgetPage = () => {
           facebook_name: entry.facebook_name,
           _actual_access_token: entry._actual_access_token, // Include actual token
           page_name: entry.page_name || "",
-          new_budget: entry.new_budget || "",
+          new_regions_cities: entry.new_regions_cities || "",
           status: "Ready"
         }));
   
         // Update table with the processed data
-        setTableEditBudgetData(finalData);
+        setTableEditLocationData(finalData);
         
         if (finalData.length > 0) {
           console.log(
@@ -474,7 +456,7 @@ const EditBudgetPage = () => {
 
   // Update handleRunCampaigns to use page_name for backend call
   const handleRunCampaigns = async () => {
-    if (tableEditBudgetData.length === 0) {
+    if (tableEditLocationData.length === 0) {
       addMessage([`[${getCurrentTime()}] ❌ No campaigns to process.`]);
       return;
     }
@@ -482,26 +464,25 @@ const EditBudgetPage = () => {
     const { id: user_id } = getUserData();
 
     // Iterate through each row in the table to send individual requests
-    for (let i = 0; i < tableEditBudgetData.length; i++) {
-      const row = tableEditBudgetData[i];
-      const { ad_account_id, page_name, new_budget } = row;
+    for (let i = 0; i < tableEditLocationData.length; i++) {
+      const row = tableEditLocationData[i];
+      const { ad_account_id, page_name, new_regions_cities } = row;
       const access_token = row._actual_access_token || row.facebook_name; // Use the resolved token
 
-      // Basic validation for new_budget
-      const parsedBudget = parseFloat(new_budget);
-      if (isNaN(parsedBudget) || parsedBudget <= 0) {
-        setTableEditBudgetData(prevData =>
+      // Basic validation for new_regions_cities
+      if (!new_regions_cities || typeof new_regions_cities !== "string" || new_regions_cities.trim() === "") {
+        setTableEditLocationData(prevData =>
           prevData.map((item, index) =>
             index === i
               ? {
                   ...item,
-                  status: `Error ❌ (Invalid Budget)`,
+                  status: `Error ❌ (Invalid Regions and City)`,
                 }
               : item
           )
         );
         addMessage([
-          `[${getCurrentTime()}] ❌ Error for page "${page_name}" in ad account: ${ad_account_id}: Invalid new_budget "${new_budget}". Please provide a positive number.`,
+          `[${getCurrentTime()}] ❌ Error for page "${page_name}" in ad account: ${ad_account_id}: Invalid new_regions_cities "${new_regions_cities}". Please provide at least one region or city.`,
         ]);
         continue; // Skip to the next row
       }
@@ -510,16 +491,16 @@ const EditBudgetPage = () => {
         ad_account_id,
         user_id,
         access_token,
-        campaign_name: page_name, // Send page_name as campaign_name for backend compatibility
-        new_budget: parsedBudget,
+        page_name: page_name, // Send page_name as campaign_name for backend compatibility
+        new_regions_city: new_regions_cities.split(',').map(s => s.trim()), // Send as array
       };
 
       try {
         addMessage([
-          `[${getCurrentTime()}] ⏳ Attempting to update budget for page "${page_name}" to ${new_budget} in ad account: ${ad_account_id}`,
+          `[${getCurrentTime()}] ⏳ Attempting to update locations for page "${page_name}" to ${new_regions_cities} in ad account: ${ad_account_id}`,
         ]);
   
-        const response = await fetch(`${apiUrl}/api/v1/campaign/editbudget`, {
+        const response = await fetch(`${apiUrl}/api/v1/campaign/editlocation`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -535,12 +516,12 @@ const EditBudgetPage = () => {
   
         const responseData = await response.json();
         
-        setTableEditBudgetData(prevData =>
+        setTableEditLocationData(prevData =>
           prevData.map((item, index) =>
             index === i
               ? {
                   ...item,
-                  status: `Success ✅ (Budget Updated)`,
+                  status: `Success ✅ (Locations Updated)`,
                 }
               : item
           )
@@ -550,14 +531,14 @@ const EditBudgetPage = () => {
         if (responseData.message) {
           addMessage([responseData.message]);
         } else {
-          addMessage([`[${getCurrentTime()}] ✅ Budget updated for page "${page_name}" in ad account: ${ad_account_id}.`]);
+          addMessage([`[${getCurrentTime()}] ✅ Locations updated for page "${page_name}" in ad account: ${ad_account_id}.`]);
         }
   
         // Optional delay between requests to avoid rate limiting
         await new Promise(resolve => setTimeout(resolve, 1000));
   
       } catch (error) {
-        setTableEditBudgetData(prevData =>
+        setTableEditLocationData(prevData =>
           prevData.map((item, index) =>
             index === i
               ? {
@@ -573,7 +554,7 @@ const EditBudgetPage = () => {
         ]);
       }
     }
-    addMessage([`[${getCurrentTime()}] All budget update operations completed.`]);
+    addMessage([`[${getCurrentTime()}] All Locations update operations completed.`]);
   };
 
   // Update validateCSVHeaders to use page_name
@@ -617,7 +598,7 @@ const EditBudgetPage = () => {
     return <span>{status}</span>;
   };
 
-  const compareCsvWithJson = (csvData, jsonData, setTableEditBudgetData) => {
+  const compareCsvWithJson = (csvData, jsonData, setTableEditLocationData) => {
     // Log the number of records being compared
     addMessage([`[${getCurrentTime()}] Comparing ${csvData.length} CSV rows with ${jsonData.length} API verification results`]);
     
@@ -668,11 +649,11 @@ const EditBudgetPage = () => {
       };
     });
 
-    setTableEditBudgetData(updatedData);
+    setTableEditLocationData(updatedData);
   };
 
   const verifyAdAccounts = async (
-    originalCsvData, // This now contains ad_account_id, facebook_name, _actual_access_token, campaign_name, new_budget
+    originalCsvData, // This now contains ad_account_id, facebook_name, _actual_access_token, campaign_name, new_regions_cities
     addMessage
   ) => {
     try {
@@ -706,7 +687,7 @@ const EditBudgetPage = () => {
         compareCsvWithJson(
           originalCsvData,
           result.verified_accounts,
-          setTableEditBudgetData
+          setTableEditLocationData
         );
         addMessage([
           `[${getCurrentTime()}] Verification completed for ${
@@ -718,7 +699,7 @@ const EditBudgetPage = () => {
           result.message || "No verified accounts returned from API for verification.";
         addMessage([`⚠️ ${errorMsg}`]);
         // If verification fails or returns no data, mark all original entries as "Not Verified"
-        setTableEditBudgetData(prevData => prevData.map(entry => ({
+        setTableEditLocationData(prevData => prevData.map(entry => ({
           ...entry,
           ad_account_status: "Not Verified",
           access_token_status: "Not Verified",
@@ -731,7 +712,7 @@ const EditBudgetPage = () => {
       console.error("Error verifying ad accounts:", error);
       addMessage([`❌ Failed to verify ad accounts: ${error.message}`]);
       // Mark all entries as failed in case of a network or unhandled error
-      setTableEditBudgetData(prevData => prevData.map(entry => ({
+      setTableEditLocationData(prevData => prevData.map(entry => ({
         ...entry,
         ad_account_status: "Not Verified",
         access_token_status: "Not Verified",
@@ -768,7 +749,7 @@ const EditBudgetPage = () => {
           }}
         >
           <Typography variant="h5" gutterBottom>
-            EDIT BUDGET
+            EDIT LOCATIONS
           </Typography>
           <Box sx={{ flex: 1 }} /> {/* Spacer */}
           <Box
@@ -821,7 +802,7 @@ const EditBudgetPage = () => {
         </Box>
         {/* Second Column */}
         <Box sx={{ width: "50%" }}>
-          <EditBudgetTerminal messages={messages} setMessages={setMessages} />
+          <EditLocationTerminal messages={messages} setMessages={setMessages} />
         </Box>
       </Box>
 
@@ -830,7 +811,7 @@ const EditBudgetPage = () => {
         <WidgetCard title="Main Section" height="96%">
           <DynamicTable
             headers={headers}
-            data={tableEditBudgetData}
+            data={tableEditLocationData}
             rowsPerPage={8}
             containerStyles={{
               width: "100%",
@@ -839,7 +820,7 @@ const EditBudgetPage = () => {
               textAlign: "center",
             }}
             customRenderers={statusRenderers}
-            onDataChange={setTableEditBudgetData}
+            onDataChange={setTableEditLocationData}
             onSelectedChange={handleSelectedDataChange} // Pass selection handler
             nonEditableHeaders={[
               "ad_account_status",
@@ -854,4 +835,4 @@ const EditBudgetPage = () => {
 
 }
 
-export default EditBudgetPage
+export default EditLocationPage

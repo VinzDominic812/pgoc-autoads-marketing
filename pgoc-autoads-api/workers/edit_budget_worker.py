@@ -24,12 +24,17 @@ def get_current_time():
 
 def normalize_name(name: str) -> str:
     """
-    Normalize campaign names by lowercasing and removing extra spaces/special characters.
+    Normalize campaign names by lowercasing and removing extra spaces (but NOT dashes or special characters except spaces).
     """
     name = name.lower().strip()
     name = re.sub(r'\s+', ' ', name)
-    name = re.sub(r'[^\w\s]', '', name)
     return name
+
+def extract_page_name(campaign_name: str) -> str:
+    """
+    Extract the page name (first part before '-') from the campaign name.
+    """
+    return campaign_name.split('-')[0].lower().strip() if campaign_name else ""
 
 def convert_to_minor_units(user_input) -> int:
     """
@@ -42,7 +47,7 @@ def convert_to_minor_units(user_input) -> int:
 
 def find_campaign_id_by_name(ad_account_id: str, access_token: str, input_campaign_name: str) -> str:
     """
-    Get the campaign ID by matching a normalized campaign name.
+    Get the campaign ID by matching the page name (first part before '-') in the campaign name.
     """
     url = f"{FACEBOOK_GRAPH_URL}/act_{ad_account_id}/campaigns"
     params = {
@@ -56,15 +61,18 @@ def find_campaign_id_by_name(ad_account_id: str, access_token: str, input_campai
         response.raise_for_status()
         data = response.json()
 
-        normalized_input = normalize_name(input_campaign_name)
+        # Extract and normalize the page name from the input
+        page_name = extract_page_name(input_campaign_name)
 
         for campaign in data.get("data", []):
             campaign_name = campaign.get("name", "")
-            if normalize_name(campaign_name) == normalized_input:
-                logger.info(f"[{get_current_time()}] Match found: {campaign_name} ({campaign['id']})")
+            campaign_name_lc = campaign_name.lower().strip()
+            # Match if campaign name starts with the page name
+            if campaign_name_lc.startswith(page_name):
+                logger.info(f"[{get_current_time()}] Match found: {campaign_name} ({campaign['id']}) by page name '{page_name}'")
                 return campaign["id"]
 
-        logger.warning(f"[{get_current_time()}] No matching campaign found for name: {input_campaign_name}")
+        logger.warning(f"[{get_current_time()}] No matching campaign found for page name: {page_name}")
         return ""
 
     except requests.RequestException as e:
