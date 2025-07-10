@@ -18,6 +18,7 @@ import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
 import FlagRoundedIcon from '@mui/icons-material/FlagRounded';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import CurrencyExchangeIcon from '@mui/icons-material/CurrencyExchange';
+import LocationOnOutlinedIcon from '@mui/icons-material/LocationOnOutlined';
 
 // Pages
 import DashboardPage from "../../segments/dashboardpage";
@@ -29,6 +30,7 @@ import CampaignCreationPage from "../../segments/campaign_creation_page";
 import AdsetsONOFFpage from "../../segments/on_off_adsets"
 import PageNameONOFFpage from "../../segments/on_off_page_name"
 import EditBudgetPage from "../../segments/edit_budget"
+import EditLocationPage from "../../segments/edit_location"
 
 // Auth & Data Fetching
 import { getUserData } from "../../../services/user_data"; // Adjust path if needed
@@ -68,6 +70,11 @@ const NAVIGATION = [
     segment: "budget", 
     title: "Budget", 
     icon: <CurrencyExchangeIcon /> 
+  },
+  { 
+    segment: "location", 
+    title: "Location", 
+    icon: <LocationOnOutlinedIcon /> 
   },
   {
     segment: "scheduled-on-and-off",
@@ -174,6 +181,8 @@ const Dashboard = () => {
         return <CampaignNameOnlyPage userData={userData} />;
       case "budget":
         return <EditBudgetPage userData={userData}/>;
+      case "location":
+        return <EditLocationPage userData={userData}/>;
       case "scheduled-on-and-off":
         return <CampaignONOFFPage userData={userData} />;
       case "reports":
