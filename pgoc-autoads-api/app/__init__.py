@@ -27,9 +27,10 @@ from routes.verify_campaign_code_route import verify_campaign_code
 from routes.dashboard_route import dashboard_bp
 from routes.sheets_route import sheets_bp
 from routes.edit_budget_route import edit_budget_bp
+from routes.edit_location_route import edit_location_bp
 import logging
 from flask_mail import Mail
-from models.models import db, PHRegionTable  # Import PHRegionTable
+from models.models import db, PHRegionTable, PHCityTable  # Import PHRegionTable
 from app.on_off_sse import message_events_blueprint
 from workers.on_off_functions.account_message import append_redis_message
 # from workers.scheduler_celery import check_scheduled_adaccounts
@@ -70,6 +71,25 @@ def seed_regions():
         print("PH_REGION_TABLES seeded successfully!")
     # else:
     #     print("PH_REGION_TABLES already contains all regions.")
+
+def seed_cities():
+    """Seed the database with city data if not already present."""
+    cities_data = [
+        {"city_name": "Cebu City","city_key": 1735759,"country_code": "PH"},
+        
+    ]
+
+    # Check existing city keys to avoid duplicates
+    existing_keys = {city.city_key for city in PHCityTable.query.all()}
+    
+    new_cities = [
+        PHCityTable(**city) for city in cities_data if city["city_key"] not in existing_keys
+    ]
+
+    if new_cities:
+        db.session.bulk_save_objects(new_cities)
+        db.session.commit()
+        print("PH_CITY_TABLES seeded successfully!")
 
 def create_app():
     app = Flask(__name__)
@@ -115,7 +135,7 @@ def create_app():
         db.create_all()
         configure_mail(app)
         seed_regions()  # Call the seed function after creating tables
-
+        seed_cities()
 
     @app.route("/")
     def home():
@@ -163,6 +183,7 @@ def create_app():
     app.register_blueprint(dashboard_bp, url_prefix='/api/v1')
     app.register_blueprint(sheets_bp, url_prefix='/api/v1/sheets')
     app.register_blueprint(edit_budget_bp, url_prefix='/api/v1/campaign')
+    app.register_blueprint(edit_location_bp, url_prefix='/api/v1/campaign')
     
     return app
 

@@ -24,6 +24,8 @@ redis_websocket_pn = redis.Redis(host="redisAds", port=6379, db=12, decode_respo
 redis_websocket_asr = redis.Redis(host="redisAds", port=6379, db=9, decode_responses=True)
 # Redis connection for budget
 redis_websocket_budget = redis.Redis(host="redisAds", port=6379, db=8, decode_responses=True)
+# Redis connection for location
+redis_websocket_location = redis.Redis(host="redisAds", port=6379, db=7, decode_responses=True)
 
 # Ensure Redis keyspace notifications are enabled
 redis_websocket.config_set("notify-keyspace-events", "KEA")
@@ -196,3 +198,15 @@ def messageevents_editbudget():
     logging.info(f"Client connected to SSE for key: {room} on DB 8")
     
     return Response(send_sse_signal(redis_websocket_budget, room, 8), content_type="text/event-stream")
+
+@message_events_blueprint.route("/messageevents-editlocation")
+def messageevents_editlocation():
+    """SSE endpoint that streams Redis key updates from DB 7."""
+    room = request.args.get("keys")
+
+    if not room:
+        return "Missing 'keys' query parameter", 400
+    
+    logging.info(f"Client connected to SSE for key: {room} on DB 7")
+    
+    return Response(send_sse_signal(redis_websocket_location, room, 7), content_type="text/event-stream")

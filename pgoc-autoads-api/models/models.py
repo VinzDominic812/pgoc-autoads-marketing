@@ -110,6 +110,14 @@ class PHRegionTable(db.Model):
     region_key = db.Column(db.Integer, unique=True, nullable=False)
     country_code = db.Column(db.String(10), nullable=False, default="PH")
 
+class PHCityTable(db.Model):
+    __tablename__ = "ph_city_tables"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    city_name = db.Column(db.String(100), nullable=False)
+    city_key = db.Column(db.BigInteger, unique=True, nullable=False)
+    country_code = db.Column(db.String(10), nullable=False, default="PH")
+
 class CampaignCode(db.Model):
     __tablename__ = 'tbl_campaign_code'
 
