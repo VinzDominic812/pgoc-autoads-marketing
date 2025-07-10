@@ -23,10 +23,11 @@ import { EventSource } from "extended-eventsource";
 import Cookies from "js-cookie";
 import EditBudgetTerminal from "../widgets/edit_budget_widgets/edit_budget_terminal.jsx";
 
+// Update required headers to use page_name instead of campaign_name
 const REQUIRED_HEADERS = [
   "ad_account_id",
   "facebook_name",
-  "campaign_name",
+  "page_name",
   "new_budget"
 ];
 
@@ -39,14 +40,20 @@ const getCurrentTime = () => {
 
 const apiUrl = import.meta.env.VITE_API_URL;
 
+// Helper to extract page name from campaign name
+const extractPageName = (campaignName) => {
+  return campaignName && typeof campaignName === 'string' ? campaignName.split('-')[0] : '';
+};
+
 const EditBudgetPage = () => {
 
+  // Update table headers to use page_name as the main identifier
   const headers = [
     "ad_account_id",
     "ad_account_status",
     "facebook_name",
     "access_token_status",
-    "campaign_name",
+    "page_name",
     "new_budget",
     "status"
   ];
@@ -299,11 +306,12 @@ const EditBudgetPage = () => {
     }
   };
 
+  // Update template download to use page_name
   const handleDownloadTemplate = () => {
     const sampleData = [
-      ["ad_account_id", "facebook_name", "campaign_name", "new_budget"],
-      ["SAMPLE_AD_ACCOUNT_ID", "Facebook Name", "Campaign Name 1", "100"],
-      ["ANOTHER_AD_ACCOUNT", "Another Facebook Name", "Campaign Name 2", "250"],
+      ["ad_account_id", "facebook_name", "page_name", "new_budget"],
+      ["SAMPLE_AD_ACCOUNT_ID", "Facebook Name", "PageName1", "100"],
+      ["ANOTHER_AD_ACCOUNT", "Another Facebook Name", "PageName2", "250"],
     ];
 
     const csvContent =
@@ -329,7 +337,7 @@ const EditBudgetPage = () => {
     const csvHeaders = [
       "ad_account_id",
       "facebook_name",
-      "campaign_name",
+      "page_name",
       "new_budget",
       "status",
     ];
@@ -357,6 +365,7 @@ const EditBudgetPage = () => {
     notify("Data exported successfully!", "success");
   };
 
+  // Update CSV import logic to use page_name
   const handleFileChange = (event) => {
     const file = event.target.files[0];
   
@@ -386,7 +395,7 @@ const EditBudgetPage = () => {
   
         if (!validateCSVHeaders(fileHeaders)) {
           notify(
-            "Invalid CSV headers. Required: ad_account_id, facebook_name, campaign_name, new_budget.",
+            "Invalid CSV headers. Required: ad_account_id, facebook_name, page_name, new_budget.",
             "error"
           );
           return;
@@ -433,7 +442,7 @@ const EditBudgetPage = () => {
           ad_account_id: entry.ad_account_id,
           facebook_name: entry.facebook_name,
           _actual_access_token: entry._actual_access_token, // Include actual token
-          campaign_name: entry.campaign_name || "",
+          page_name: entry.page_name || "",
           new_budget: entry.new_budget || "",
           status: "Ready"
         }));
@@ -464,6 +473,7 @@ const EditBudgetPage = () => {
     event.target.value = "";
   };
 
+  // Update handleRunCampaigns to use page_name for backend call
   const handleRunCampaigns = async () => {
     if (tableEditBudgetData.length === 0) {
       addMessage([`[${getCurrentTime()}] ❌ No campaigns to process.`]);
@@ -475,7 +485,7 @@ const EditBudgetPage = () => {
     // Iterate through each row in the table to send individual requests
     for (let i = 0; i < tableEditBudgetData.length; i++) {
       const row = tableEditBudgetData[i];
-      const { ad_account_id, campaign_name, new_budget } = row;
+      const { ad_account_id, page_name, new_budget } = row;
       const access_token = row._actual_access_token || row.facebook_name; // Use the resolved token
 
       // Basic validation for new_budget
@@ -492,7 +502,7 @@ const EditBudgetPage = () => {
           )
         );
         addMessage([
-          `[${getCurrentTime()}] ❌ Error for campaign "${campaign_name}" in ad account: ${ad_account_id}: Invalid new_budget "${new_budget}". Please provide a positive number.`,
+          `[${getCurrentTime()}] ❌ Error for page "${page_name}" in ad account: ${ad_account_id}: Invalid new_budget "${new_budget}". Please provide a positive number.`,
         ]);
         continue; // Skip to the next row
       }
@@ -501,13 +511,13 @@ const EditBudgetPage = () => {
         ad_account_id,
         user_id,
         access_token,
-        campaign_name,
+        campaign_name: page_name, // Send page_name as campaign_name for backend compatibility
         new_budget: parsedBudget,
       };
 
       try {
         addMessage([
-          `[${getCurrentTime()}] ⏳ Attempting to update budget for campaign "${campaign_name}" to ${new_budget} in ad account: ${ad_account_id}`,
+          `[${getCurrentTime()}] ⏳ Attempting to update budget for page "${page_name}" to ${new_budget} in ad account: ${ad_account_id}`,
         ]);
   
         const response = await fetch(`${apiUrl}/api/v1/campaign/editbudget`, {
@@ -536,10 +546,13 @@ const EditBudgetPage = () => {
               : item
           )
         );
-  
-        addMessage([
-          `[${getCurrentTime()}] ✅ Budget updated for campaign "${campaign_name}" in ad account: ${ad_account_id}. Response: ${responseData.message || "No specific message."}`,
-        ]);
+
+        // Only print the backend's response message (if present)
+        if (responseData.message) {
+          addMessage([responseData.message]);
+        } else {
+          addMessage([`[${getCurrentTime()}] ✅ Budget updated for page "${page_name}" in ad account: ${ad_account_id}.`]);
+        }
   
         // Optional delay between requests to avoid rate limiting
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -557,14 +570,14 @@ const EditBudgetPage = () => {
         );
   
         addMessage([
-          `[${getCurrentTime()}] ❌ Error for campaign "${campaign_name}" in ad account: ${ad_account_id}: ${error.message}`,
+          `[${getCurrentTime()}] ❌ Error for page "${page_name}" in ad account: ${ad_account_id}: ${error.message}`,
         ]);
       }
     }
     addMessage([`[${getCurrentTime()}] All budget update operations completed.`]);
   };
 
-  // Validate CSV Headers
+  // Update validateCSVHeaders to use page_name
   const validateCSVHeaders = (fileHeaders) =>
     REQUIRED_HEADERS.every((header) => fileHeaders.includes(header));
 
