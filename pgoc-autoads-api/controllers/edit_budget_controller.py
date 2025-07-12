@@ -21,6 +21,8 @@ def edit_budget(data):
     new_budget = data.get("new_budget")  # can be 300 or 300.00
     access_token = data.get("access_token")
     user_id = data.get("user_id")
+    item_name = data.get("item_name")  # New parameter
+    campaign_code = data.get("campaign_code")  # New parameter
 
     if not all([ad_account_id, campaign_name, new_budget, access_token, user_id]):
         return jsonify({"error": "Missing one or more required fields"}), 400
@@ -31,7 +33,7 @@ def edit_budget(data):
 
     try:
         task = update_budget_by_campaign_name.apply_async(
-            args=[ad_account_id, campaign_name, new_budget, access_token, user_id],
+            args=[ad_account_id, campaign_name, new_budget, access_token, user_id, item_name, campaign_code],
             countdown=0
         )
 
