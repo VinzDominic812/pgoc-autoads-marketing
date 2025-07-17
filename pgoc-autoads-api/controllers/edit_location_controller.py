@@ -5,7 +5,7 @@ import pytz
 from flask import request, jsonify
 
 # Import the new worker task
-from workers.edit_location_worker import update_locations_by_page_name
+from workers.edit_location_worker import update_locations_by_campaign_components
 
 # Redis client for location update websocket/logging
 # Using a different DB (e.g., db=9) to keep logs separate
@@ -28,6 +28,8 @@ def edit_locations(data):
     access_token = data.get("access_token")
     page_name = data.get("page_name")
     new_regions_city = data.get("new_regions_city") # This is an array of names
+    item_name = data.get("item_name")  # New parameter
+    campaign_code = data.get("campaign_code")  # New parameter
 
     # Validate the input
     if not all([user_id, ad_account_id, access_token, page_name, new_regions_city]):
@@ -43,8 +45,8 @@ def edit_locations(data):
 
     try:
         # Asynchronously call the new Celery worker task
-        task = update_locations_by_page_name.apply_async(
-            args=[user_id, ad_account_id, access_token, page_name, new_regions_city],
+        task = update_locations_by_campaign_components.apply_async(
+            args=[user_id, ad_account_id, access_token, page_name, new_regions_city, item_name, campaign_code],
             countdown=0
         )
 

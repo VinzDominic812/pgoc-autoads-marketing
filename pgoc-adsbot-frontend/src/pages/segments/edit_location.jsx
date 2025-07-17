@@ -27,6 +27,8 @@ const REQUIRED_HEADERS = [
   "ad_account_id",
   "facebook_name",
   "page_name",
+  "item_name",
+  "campaign_code",
   "new_regions_cities"
 ];
 
@@ -53,6 +55,8 @@ const EditLocationPage = () => {
     "facebook_name",
     "access_token_status",
     "page_name",
+    "item_name",
+    "campaign_code",
     "new_regions_cities",
     "status"
   ];
@@ -226,6 +230,95 @@ const EditLocationPage = () => {
                         )
                     );
                 }
+
+                // Match STRICT MODE error message for no exact match found
+                const strictErrorMatch = messageText.match(
+                    /❌ STRICT MODE: No exact match found under ad account (.*?) for page_name: '(.*?)', item_name: '(.*?)', campaign_code: '(.*?)'/
+                );
+
+                if (strictErrorMatch) {
+                    const adAccountId = strictErrorMatch[1];
+                    const pageName = strictErrorMatch[2];
+                    const itemName = strictErrorMatch[3];
+                    const campaignCode = strictErrorMatch[4];
+
+                    console.log(`❌ STRICT MODE Error: No exact match for ${pageName}-${itemName}-${campaignCode} in ${adAccountId}`);
+
+                    setTableEditLocationData((prevData) =>
+                        prevData.map((entry) => {
+                            if (entry.ad_account_id === adAccountId && 
+                                entry.page_name === pageName && 
+                                entry.item_name === itemName && 
+                                entry.campaign_code === campaignCode) {
+                                return { ...entry, status: `No Exact Match ❌` };
+                            }
+                            return entry;
+                        })
+                    );
+                }
+
+                // Match detailed mismatch error from logs
+                const mismatchErrorMatch = messageText.match(
+                    /STRICT MODE: No exact match\. Closest match '(.*?)' has mismatches: (.*)/
+                );
+
+                if (mismatchErrorMatch) {
+                    const closestMatch = mismatchErrorMatch[1];
+                    const mismatches = mismatchErrorMatch[2];
+                    
+                    console.log(`❌ STRICT MODE Mismatch: Closest match '${closestMatch}' has issues: ${mismatches}`);
+                    
+                    // Extract specific mismatch details
+                    const pageMismatch = mismatches.match(/page_name: expected '(.*?)', found '(.*?)'/);
+                    const itemMismatch = mismatches.match(/item_name: expected '(.*?)', found '(.*?)'/);
+                    const codeMismatch = mismatches.match(/campaign_code: expected '(.*?)', found '(.*?)'/);
+                    
+                    let errorDetails = [];
+                    if (pageMismatch) errorDetails.push(`Page: ${pageMismatch[1]} ≠ ${pageMismatch[2]}`);
+                    if (itemMismatch) errorDetails.push(`Item: ${itemMismatch[1]} ≠ ${itemMismatch[2]}`);
+                    if (codeMismatch) errorDetails.push(`Code: ${codeMismatch[1]} ≠ ${codeMismatch[2]}`);
+                    
+                    const errorSummary = errorDetails.join(', ');
+                    
+                    setTableEditLocationData((prevData) =>
+                        prevData.map((entry) => {
+                            // Try to match based on the expected values from the error
+                            const expectedPage = pageMismatch ? pageMismatch[1] : entry.page_name;
+                            const expectedItem = itemMismatch ? itemMismatch[1] : entry.item_name;
+                            const expectedCode = codeMismatch ? codeMismatch[1] : entry.campaign_code;
+                            
+                            if (entry.page_name === expectedPage && 
+                                entry.item_name === expectedItem && 
+                                entry.campaign_code === expectedCode) {
+                                return { ...entry, status: `Mismatch: ${errorSummary} ❌` };
+                            }
+                            return entry;
+                        })
+                    );
+                }
+
+                // Match general STRICT MODE error message
+                const generalStrictErrorMatch = messageText.match(
+                    /❌ STRICT MODE: (.*)/
+                );
+
+                if (generalStrictErrorMatch) {
+                    const errorMsg = generalStrictErrorMatch[1];
+                    console.log(`❌ STRICT MODE Error: ${errorMsg}`);
+                    
+                    // Try to match this error to a specific row based on the error message content
+                    setTableEditLocationData((prevData) =>
+                        prevData.map((entry) => {
+                            // Check if this error message contains information that matches this entry
+                            if (errorMsg.includes(entry.page_name) && 
+                                errorMsg.includes(entry.item_name) && 
+                                errorMsg.includes(entry.campaign_code)) {
+                                return { ...entry, status: `Strict Match Failed ❌` };
+                            }
+                            return entry;
+                        })
+                    );
+                }
             }
         } catch (error) {
             console.error("Error parsing SSE message:", error);
@@ -290,9 +383,9 @@ const EditLocationPage = () => {
   // Update template download to use page_name
   const handleDownloadTemplate = () => {
     const sampleData = [
-      ["ad_account_id", "facebook_name", "page_name", "new_regions_cities"],
-      ["SAMPLE_AD_ACCOUNT_ID", "Facebook Name", "PageName1", "test,test,test"],
-      ["ANOTHER_AD_ACCOUNT", "Another Facebook Name", "PageName2", "test,test"],
+      ["facebook_name", "page_name", "item_name", "ad_account_id", "new_regions_cities", "campaign_code"],
+      ["Facebook Name", "PageName1", "ITEM_1", "SAMPLE_AD_ACCOUNT_ID", "test", "CAMPAIGN_CODE_1"],
+      ["Another Facebook Name", "PageName2", "ITEM_2", "ANOTHER_AD_ACCOUNT", "test", "CAMPAIGN_CODE_2"],
     ];
 
     const csvContent =
@@ -319,6 +412,8 @@ const EditLocationPage = () => {
       "ad_account_id",
       "facebook_name",
       "page_name",
+      "item_name",
+      "campaign_code",
       "new_regions_cities",
       "status",
     ];
@@ -424,6 +519,8 @@ const EditLocationPage = () => {
           facebook_name: entry.facebook_name,
           _actual_access_token: entry._actual_access_token, // Include actual token
           page_name: entry.page_name || "",
+          item_name: entry.item_name || "",
+          campaign_code: entry.campaign_code || "",
           new_regions_cities: entry.new_regions_cities || "",
           status: "Ready"
         }));
@@ -493,6 +590,8 @@ const EditLocationPage = () => {
         access_token,
         page_name: page_name, // Send page_name as campaign_name for backend compatibility
         new_regions_city: new_regions_cities.split(',').map(s => s.trim()), // Send as array
+        item_name: row.item_name || "",
+        campaign_code: row.campaign_code || "",
       };
 
       try {

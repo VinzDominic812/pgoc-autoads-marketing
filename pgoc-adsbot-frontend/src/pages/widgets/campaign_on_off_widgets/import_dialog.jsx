@@ -22,6 +22,7 @@ const REQUIRED_HEADERS = [
   "ad_account_id",
   "facebook_name",
   "time",
+  "campaign_code",
   "cpp_metric",
   "on_off",
   "watch",
@@ -76,17 +77,36 @@ const ONOFFImportWidget = ({
     const { id: user_id } = getUserData();
 
     Papa.parse(file, {
-      complete: (result) => {
+      complete: async (result) => {
         if (result.data.length > 1) {
           const headers = result.data[0].map((h) => h.trim());
 
           if (!validateCSVHeaders(headers)) {
             setErrorMessage(
-              "Invalid CSV headers. The file must contain 'ad_account_id', 'facebook_name', 'time', 'cpp_metric', 'watch', and 'on_off'."
+              "Invalid CSV headers. The file must contain 'ad_account_id', 'facebook_name', 'time', 'campaign_code', 'cpp_metric', 'watch', and 'on_off'."
             );
             setShowTable(false);
             return;
           }
+          
+          const displayHeaders = [...headers];
+          const adAccountIdIndex = displayHeaders.indexOf("ad_account_id");
+          if (adAccountIdIndex > -1) {
+            displayHeaders.splice(adAccountIdIndex + 1, 0, "ad_account_status");
+          }
+    
+          const facebookNameIndex = displayHeaders.indexOf("facebook_name");
+          if (facebookNameIndex > -1) {
+            displayHeaders.splice(facebookNameIndex + 1, 0, "access_token_status");
+          }
+          
+          const campaignCodeIndex = displayHeaders.indexOf("campaign_code");
+          if (campaignCodeIndex > -1) {
+              displayHeaders.splice(campaignCodeIndex + 1, 0, "campaign_code_status");
+          }
+
+          displayHeaders.push("status");
+
 
           const processedData = result.data.slice(1).map((row) => {
             let rowData = headers.reduce((acc, header, index) => {
@@ -102,7 +122,6 @@ const ONOFFImportWidget = ({
               )}`;
             }
 
-            // Add the actual access token if the Facebook name exists in our mapping
             if (rowData["facebook_name"] && accessTokenMap[rowData["facebook_name"]]) {
               rowData["_actual_access_token"] = accessTokenMap[rowData["facebook_name"]];
             }
@@ -110,14 +129,13 @@ const ONOFFImportWidget = ({
             return rowData;
           });
 
-          // Convert processed data to API request format
           const requestData = processedData.map((entry) => ({
             ad_account_id: entry.ad_account_id,
             user_id,
             access_token: entry._actual_access_token || entry.facebook_name,
             schedule_data: [
               {
-                campaign_type: entry.campaign_type,
+                campaign_code: entry.campaign_code,
                 what_to_watch: entry.what_to_watch,
                 cpp_metric: entry.cpp_metric,
                 cpp_date_start: entry.cpp_date_start,
@@ -127,11 +145,20 @@ const ONOFFImportWidget = ({
             ],
           }));
 
-          setTableHeaders(headers);
+          setTableHeaders(displayHeaders);
           setTableData(processedData);
           setShowTable(true);
           setErrorMessage("");
-          verifyAdAccounts(requestData, processedData);
+
+          const campaignCodes = processedData.map(row => row.campaign_code);
+          
+          const [adAccountResults, campaignCodeResults] = await Promise.all([
+            verifyAdAccountsApi(requestData),
+            verifyCampaignCodesApi(campaignCodes)
+          ]);
+
+          mergeVerificationResults(processedData, adAccountResults, campaignCodeResults);
+
         } else {
           setErrorMessage("The CSV file is empty or invalid.");
         }
@@ -170,7 +197,7 @@ const ONOFFImportWidget = ({
         "ad_account_id",
         "facebook_name",
         "time",
-        "campaign_type",
+        "campaign_code",
         "cpp_metric",
         "on_off",
         "watch",
@@ -222,7 +249,7 @@ const ONOFFImportWidget = ({
       const facebook_name = row["facebook_name"];
       const actual_token = row["_actual_access_token"];
       const time = row["time"];
-      const campaign_type = row["campaign_type"] || "";
+      const campaign_code = row["campaign_code"] || "";
       const cpp_metric = row["cpp_metric"] || "";
       const on_off = row["on_off"] || "";
       const watch = row["watch"] || "";
@@ -244,7 +271,7 @@ const ONOFFImportWidget = ({
   
       processedDataMap.get(key).schedule_data.push({
         time,
-        campaign_type,
+        campaign_code,
         cpp_metric,
         on_off,
         watch,
@@ -262,9 +289,15 @@ const ONOFFImportWidget = ({
   
     onImportComplete(processedData);
     handleClose();
+
+    // Clear the table and reset state after import
+    setShowTable(false);
+    setTableData([]);
+    setTableHeaders([]);
+    setSelectedFile(null);
+    setErrorMessage("");
   };
 
-  // NEW: Function to receive edited table data
   const handleTableDataChange = (updatedData) => {
     setTableData(updatedData);
   };
@@ -279,10 +312,7 @@ const ONOFFImportWidget = ({
 
     console.log("Ad Account IDs to Remove:", JSON.stringify(adAccountIds));
 
-    // Call the parent function with selected IDs
     onRemoveSchedules(adAccountIds);
-
-    // Close the dialog
     handleClose();
   };
 
@@ -293,10 +323,17 @@ const ONOFFImportWidget = ({
     access_token_status: (value, row) => (
       <StatusWithIcon status={value} error={row?.access_token_error} />
     ),
+    campaign_code_status: (value, row) => (
+      <StatusWithIcon status={value} error={row?.campaign_code_error} />
+    ),
     status: (value, row) => (
       <StatusWithIcon 
         status={value} 
-        error={[row?.ad_account_error, row?.access_token_error]
+        error={[
+            row?.ad_account_error,
+            row?.access_token_error,
+            row?.campaign_code_error
+        ]
           .filter(Boolean)
           .join('\n')} 
       />
@@ -323,66 +360,106 @@ const ONOFFImportWidget = ({
       return <span>{status}</span>;
     };
   
-    const compareCsvWithJson = (csvData, jsonData, setTableData) => {
-      const updatedData = csvData.map((csvRow) => {
-        const jsonRow = jsonData.find(
-          (json) =>
-            json.ad_account_id === csvRow.ad_account_id &&
-            json.access_token === (csvRow._actual_access_token || csvRow.facebook_name)
-        );
-    
-        if (!jsonRow) {
-          return {
-            ...csvRow,
-            ad_account_status: "Not Verified",
-            access_token_status: "Not Verified",
-            status: "Not Verified",
-            ad_account_error: "Account not found",
-            access_token_error: "Facebook name not found or invalid"
-          };
-        }
-    
-        return {
-          ...csvRow,
-          ad_account_status: jsonRow.ad_account_status,
-          access_token_status: jsonRow.access_token_status,
-          status: jsonRow.ad_account_status === "Verified" && 
-                 jsonRow.access_token_status === "Verified" 
-                 ? "Verified" : "Not Verified",
-          ad_account_error: jsonRow.ad_account_error || null,
-          access_token_error: jsonRow.access_token_error || null
-        };
-      });
-    
-      setTableData(updatedData);
-    };
+  const mergeVerificationResults = (originalData, adAccountResults, campaignCodeResults) => {
+      const { existing_codes = [] } = campaignCodeResults;
   
-    const verifyAdAccounts = async (campaignsData, originalCsvData) => {
-      try {
-        const response = await fetch(`${apiUrl}/api/v1/verify/schedule`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            skip_zrok_interstitial: "true",
-          },
-          body: JSON.stringify(campaignsData),
-        });
-    
-        const result = await response.json();
-        console.log("Verification Result:", JSON.stringify(result, null, 2));
-    
-        if (response.ok && result.verified_accounts) {
-          compareCsvWithJson(originalCsvData, result.verified_accounts, setTableData);
-          //addAdsetsMessage([`[${getCurrentTime()}] Verification completed for ${result.verified_accounts.length} accounts`]);
-        } else {
-          const errorMsg = result.message || "No verified accounts returned from API";
-          //addAdsetsMessage([`⚠️ ${errorMsg}`]);
-        }
-      } catch (error) {
-        console.error("Error verifying ad accounts:", error);
-        //addAdsetsMessage([`❌ Failed to verify ad accounts: ${error.message}`]);
+      const updatedData = originalData.map((csvRow) => {
+          const jsonRow = adAccountResults.find(
+              (json) =>
+                  json.ad_account_id === csvRow.ad_account_id &&
+                  json.access_token === (csvRow._actual_access_token || csvRow.facebook_name)
+          );
+  
+          let ad_account_status = "Not Verified";
+          let access_token_status = "Not Verified";
+          let ad_account_error = "Account not found";
+          let access_token_error = "Facebook name not found or invalid";
+  
+          if (jsonRow) {
+              ad_account_status = jsonRow.ad_account_status;
+              access_token_status = jsonRow.access_token_status;
+              ad_account_error = jsonRow.ad_account_error || null;
+              access_token_error = jsonRow.access_token_error || null;
+          }
+  
+          let campaign_code_status = "Not Verified";
+          let campaign_code_error = "Campaign code not found or invalid";
+  
+          if (existing_codes.includes(csvRow.campaign_code)) {
+              campaign_code_status = "Verified";
+              campaign_code_error = null;
+          }
+  
+          const final_status =
+              ad_account_status === "Verified" &&
+              access_token_status === "Verified" &&
+              campaign_code_status === "Verified"
+                  ? "Verified"
+                  : "Not Verified";
+  
+          return {
+              ...csvRow,
+              ad_account_status,
+              access_token_status,
+              campaign_code_status,
+              status: final_status,
+              ad_account_error,
+              access_token_error,
+              campaign_code_error,
+          };
+      });
+  
+      setTableData(updatedData);
+  };
+  
+  const verifyAdAccountsApi = async (campaignsData) => {
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/verify/schedule`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          skip_zrok_interstitial: "true",
+        },
+        body: JSON.stringify(campaignsData),
+      });
+  
+      const result = await response.json();
+      if (response.ok && result.verified_accounts) {
+        return result.verified_accounts;
       }
-    };
+      return [];
+    } catch (error) {
+      console.error("Error verifying ad accounts:", error);
+      return [];
+    }
+  };
+
+  const verifyCampaignCodesApi = async (campaignCodes) => {
+    try {
+        const { id: user_id } = getUserData();
+        if (!user_id) throw new Error("User ID not found.");
+
+        const codesToVerify = campaignCodes.filter(code => code && code.trim() !== "");
+        if (codesToVerify.length === 0) {
+            return { existing_codes: [], missing_codes: [] };
+        }
+
+        const response = await fetch(`${apiUrl}/api/v1/verify/campaign-code`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_id, campaign_codes: codesToVerify }),
+        });
+
+        if (!response.ok) {
+            const errorResult = await response.json();
+            throw new Error(errorResult.message || "Failed to verify campaign codes");
+        }
+        return await response.json();
+    } catch (error) {
+        console.error("Error verifying campaign codes:", error);
+        return { existing_codes: [], missing_codes: [] };
+    }
+  };
 
   return (
     <Dialog
@@ -452,7 +529,8 @@ const ONOFFImportWidget = ({
             nonEditableHeaders={[
               "ad_account_status",
               "access_token_status",
-              "campaign_type",
+              "campaign_code_status",
+              "campaign_code",
               "watch",
               "status",
             ]}

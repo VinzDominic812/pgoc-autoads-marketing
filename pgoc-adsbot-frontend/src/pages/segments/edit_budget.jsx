@@ -27,6 +27,8 @@ const REQUIRED_HEADERS = [
   "ad_account_id",
   "facebook_name",
   "page_name",
+  "item_name",
+  "campaign_code",
   "new_budget"
 ];
 
@@ -53,6 +55,8 @@ const EditBudgetPage = () => {
     "facebook_name",
     "access_token_status",
     "page_name",
+    "item_name",
+    "campaign_code",
     "new_budget",
     "status"
   ];
@@ -183,17 +187,47 @@ const EditBudgetPage = () => {
 
                 // Match success message for campaign budget update completed for a specific campaign
                 const successMatch = messageText.match(
-                    /\[(.*?)\] Campaign budget update completed for campaign: (.*?) in account (.*)/
+                    /\[(.*?)\] ✅ Budget for campaign '(.*?)' \(ID: (.*?)\) updated to ₱(.*?)/
                 );
 
                 if (successMatch) {
+                    const timestamp = successMatch[1];
                     const campaignName = successMatch[2];
-                    const adAccountId = successMatch[3];
+                    const campaignId = successMatch[3];
+                    const budgetAmount = successMatch[4];
+
+                    console.log(`✅ Success: Budget updated for ${campaignName} (ID: ${campaignId}) to ₱${budgetAmount}`);
 
                     setTableEditBudgetData((prevData) =>
                         prevData.map((entry) => {
-                            if (entry.ad_account_id === adAccountId && entry.campaign_name === campaignName) {
+                            // Try to match by page_name since that's what we send as campaign_name
+                            if (entry.page_name === campaignName) {
                                 return { ...entry, status: `Success ✅` };
+                            }
+                            return entry;
+                        })
+                    );
+                }
+
+                // Match the starting message to show processing status
+                const startingMatch = messageText.match(
+                    /⏳ Starting budget update for campaign: '(.*?)' \(Item: (.*?), Code: (.*?)\) to ₱(.*?)/
+                );
+
+                if (startingMatch) {
+                    const campaignName = startingMatch[1];
+                    const itemName = startingMatch[2];
+                    const campaignCode = startingMatch[3];
+                    const budgetAmount = startingMatch[4];
+
+                    console.log(`⏳ Starting: ${campaignName} (${itemName}, ${campaignCode}) to ₱${budgetAmount}`);
+
+                    setTableEditBudgetData((prevData) =>
+                        prevData.map((entry) => {
+                            if (entry.page_name === campaignName && 
+                                entry.item_name === itemName && 
+                                entry.campaign_code === campaignCode) {
+                                return { ...entry, status: `Processing ⏳` };
                             }
                             return entry;
                         })
@@ -216,6 +250,95 @@ const EditBudgetPage = () => {
                         prevData.map((entry) => {
                             if (entry.ad_account_id === adAccountId && entry.campaign_name === campaignName) {
                                 return { ...entry, status: `Failed ❌` };
+                            }
+                            return entry;
+                        })
+                    );
+                }
+
+                // Match STRICT MODE error message for no exact match found
+                const strictErrorMatch = messageText.match(
+                    /❌ STRICT MODE: No exact match found under ad account (.*?) for page_name: '(.*?)', item_name: '(.*?)', campaign_code: '(.*?)'/
+                );
+
+                if (strictErrorMatch) {
+                    const adAccountId = strictErrorMatch[1];
+                    const pageName = strictErrorMatch[2];
+                    const itemName = strictErrorMatch[3];
+                    const campaignCode = strictErrorMatch[4];
+
+                    console.log(`❌ STRICT MODE Error: No exact match for ${pageName}-${itemName}-${campaignCode} in ${adAccountId}`);
+
+                    setTableEditBudgetData((prevData) =>
+                        prevData.map((entry) => {
+                            if (entry.ad_account_id === adAccountId && 
+                                entry.page_name === pageName && 
+                                entry.item_name === itemName && 
+                                entry.campaign_code === campaignCode) {
+                                return { ...entry, status: `No Exact Match ❌` };
+                            }
+                            return entry;
+                        })
+                    );
+                }
+
+                // Match detailed mismatch error from logs
+                const mismatchErrorMatch = messageText.match(
+                    /STRICT MODE: No exact match\. Closest match '(.*?)' has mismatches: (.*)/
+                );
+
+                if (mismatchErrorMatch) {
+                    const closestMatch = mismatchErrorMatch[1];
+                    const mismatches = mismatchErrorMatch[2];
+                    
+                    console.log(`❌ STRICT MODE Mismatch: Closest match '${closestMatch}' has issues: ${mismatches}`);
+                    
+                    // Extract specific mismatch details
+                    const pageMismatch = mismatches.match(/page_name: expected '(.*?)', found '(.*?)'/);
+                    const itemMismatch = mismatches.match(/item_name: expected '(.*?)', found '(.*?)'/);
+                    const codeMismatch = mismatches.match(/campaign_code: expected '(.*?)', found '(.*?)'/);
+                    
+                    let errorDetails = [];
+                    if (pageMismatch) errorDetails.push(`Page: ${pageMismatch[1]} ≠ ${pageMismatch[2]}`);
+                    if (itemMismatch) errorDetails.push(`Item: ${itemMismatch[1]} ≠ ${itemMismatch[2]}`);
+                    if (codeMismatch) errorDetails.push(`Code: ${codeMismatch[1]} ≠ ${codeMismatch[2]}`);
+                    
+                    const errorSummary = errorDetails.join(', ');
+                    
+                    setTableEditBudgetData((prevData) =>
+                        prevData.map((entry) => {
+                            // Try to match based on the expected values from the error
+                            const expectedPage = pageMismatch ? pageMismatch[1] : entry.page_name;
+                            const expectedItem = itemMismatch ? itemMismatch[1] : entry.item_name;
+                            const expectedCode = codeMismatch ? codeMismatch[1] : entry.campaign_code;
+                            
+                            if (entry.page_name === expectedPage && 
+                                entry.item_name === expectedItem && 
+                                entry.campaign_code === expectedCode) {
+                                return { ...entry, status: `Mismatch: ${errorSummary} ❌` };
+                            }
+                            return entry;
+                        })
+                    );
+                }
+
+                // Match general STRICT MODE error message
+                const generalStrictErrorMatch = messageText.match(
+                    /❌ STRICT MODE: (.*)/
+                );
+
+                if (generalStrictErrorMatch) {
+                    const errorMsg = generalStrictErrorMatch[1];
+                    console.log(`❌ STRICT MODE Error: ${errorMsg}`);
+                    
+                    // Try to match this error to a specific row based on the error message content
+                    setTableEditBudgetData((prevData) =>
+                        prevData.map((entry) => {
+                            // Check if this error message contains information that matches this entry
+                            if (errorMsg.includes(entry.page_name) && 
+                                errorMsg.includes(entry.item_name) && 
+                                errorMsg.includes(entry.campaign_code)) {
+                                return { ...entry, status: `Strict Match Failed ❌` };
                             }
                             return entry;
                         })
@@ -308,9 +431,9 @@ const EditBudgetPage = () => {
   // Update template download to use page_name
   const handleDownloadTemplate = () => {
     const sampleData = [
-      ["ad_account_id", "facebook_name", "page_name", "new_budget"],
-      ["SAMPLE_AD_ACCOUNT_ID", "Facebook Name", "PageName1", "100"],
-      ["ANOTHER_AD_ACCOUNT", "Another Facebook Name", "PageName2", "250"],
+      ["facebook_name", "page_name", "item_name", "ad_account_id", "new_budget", "campaign_code"],
+      ["Facebook Name", "PageName1", "ITEM_1", "SAMPLE_AD_ACCOUNT_ID", "100", "CAMPAIGN_CODE_1"],
+      ["Another Facebook Name", "PageName2", "ITEM_2", "ANOTHER_AD_ACCOUNT", "250", "CAMPAIGN_CODE_2"],
     ];
 
     const csvContent =
@@ -337,6 +460,8 @@ const EditBudgetPage = () => {
       "ad_account_id",
       "facebook_name",
       "page_name",
+      "item_name",
+      "campaign_code",
       "new_budget",
       "status",
     ];
@@ -442,6 +567,8 @@ const EditBudgetPage = () => {
           facebook_name: entry.facebook_name,
           _actual_access_token: entry._actual_access_token, // Include actual token
           page_name: entry.page_name || "",
+          item_name: entry.item_name || "",
+          campaign_code: entry.campaign_code || "",
           new_budget: entry.new_budget || "",
           status: "Ready"
         }));
@@ -459,6 +586,13 @@ const EditBudgetPage = () => {
               })), null, 2)
             );
           notify("CSV file successfully processed!", "success");
+          
+          // Verify campaign codes
+          const campaignCodes = finalData
+            .map((item) => item["campaign_code"])
+            .filter((code) => code);
+          
+          verifyCampaignCodes(campaignCodes, addMessage);
           // Only verify ad accounts, not campaigns specifically at this stage
           verifyAdAccounts(finalData, addMessage);
         } else {
@@ -481,99 +615,212 @@ const EditBudgetPage = () => {
 
     const { id: user_id } = getUserData();
 
-    // Iterate through each row in the table to send individual requests
-    for (let i = 0; i < tableEditBudgetData.length; i++) {
-      const row = tableEditBudgetData[i];
-      const { ad_account_id, page_name, new_budget } = row;
-      const access_token = row._actual_access_token || row.facebook_name; // Use the resolved token
+    // Check if all campaign_codes are valid before processing
+    const campaignCodes = tableEditBudgetData.map((row) => row["campaign_code"]).filter(Boolean);
+    const invalidCampaignCodes = [];
 
-      // Basic validation for new_budget
-      const parsedBudget = parseFloat(new_budget);
-      if (isNaN(parsedBudget) || parsedBudget <= 0) {
-        setTableEditBudgetData(prevData =>
-          prevData.map((item, index) =>
-            index === i
-              ? {
-                  ...item,
-                  status: `Error ❌ (Invalid Budget)`,
-                }
-              : item
-          )
-        );
-        addMessage([
-          `[${getCurrentTime()}] ❌ Error for page "${page_name}" in ad account: ${ad_account_id}: Invalid new_budget "${new_budget}". Please provide a positive number.`,
-        ]);
-        continue; // Skip to the next row
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/verify/campaign-code`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          user_id,
+          campaign_codes: campaignCodes,
+        }),
+      });
+
+      if (!response.ok) {
+        addMessage([`[${getCurrentTime()}] ❌ Error while validating campaign codes.`]);
+        return;
       }
 
-      const requestData = {
-        ad_account_id,
-        user_id,
-        access_token,
-        campaign_name: page_name, // Send page_name as campaign_name for backend compatibility
-        new_budget: parsedBudget,
-      };
+      const result = await response.json();
+      const { missing_codes } = result;
 
-      try {
+      if (missing_codes.length > 0) {
+        // Identify which campaigns are invalid
+        invalidCampaignCodes.push(...missing_codes);
         addMessage([
-          `[${getCurrentTime()}] ⏳ Attempting to update budget for page "${page_name}" to ${new_budget} in ad account: ${ad_account_id}`,
+          `[${getCurrentTime()}] ❌ The following campaign codes are missing: ${missing_codes.join(", ")}`,
         ]);
-  
-        const response = await fetch(`${apiUrl}/api/v1/campaign/editbudget`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            skip_zrok_interstitial: "true",
-          },
-          body: JSON.stringify(requestData),
-        });
-  
-        if (!response.ok) {
-          const errorResponse = await response.json();
-          throw new Error(errorResponse.message || `Request failed with status ${response.status}`);
-        }
-  
-        const responseData = await response.json();
-        
-        setTableEditBudgetData(prevData =>
-          prevData.map((item, index) =>
-            index === i
-              ? {
-                  ...item,
-                  status: `Success ✅ (Budget Updated)`,
-                }
-              : item
-          )
-        );
+      }
 
-        // Only print the backend's response message (if present)
-        if (responseData.message) {
-          addMessage([responseData.message]);
-        } else {
-          addMessage([`[${getCurrentTime()}] ✅ Budget updated for page "${page_name}" in ad account: ${ad_account_id}.`]);
-        }
-  
-        // Optional delay between requests to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 1000));
-  
-      } catch (error) {
-        setTableEditBudgetData(prevData =>
-          prevData.map((item, index) =>
-            index === i
-              ? {
-                  ...item,
-                  status: `Error ❌ (${error.message})`,
-                }
-              : item
-          )
-        );
-  
+      // Filter out the campaigns that have invalid campaign codes
+      const validCampaigns = tableEditBudgetData.filter(
+        (row) => !invalidCampaignCodes.includes(row["campaign_code"])
+      );
+
+      // If no valid campaigns are left, notify the user and exit
+      if (validCampaigns.length === 0) {
         addMessage([
-          `[${getCurrentTime()}] ❌ Error for page "${page_name}" in ad account: ${ad_account_id}: ${error.message}`,
+          `[${getCurrentTime()}] ❌ No valid campaigns to process. All campaigns had invalid campaign codes.`,
         ]);
+        return;
+      }
+
+      // Iterate through each row in the table to send individual requests
+      for (let i = 0; i < validCampaigns.length; i++) {
+        const row = validCampaigns[i];
+        const { ad_account_id, page_name, new_budget } = row;
+        const access_token = row._actual_access_token || row.facebook_name; // Use the resolved token
+
+        // Basic validation for new_budget
+        const parsedBudget = parseFloat(new_budget);
+        if (isNaN(parsedBudget) || parsedBudget <= 0) {
+          setTableEditBudgetData(prevData =>
+            prevData.map((item, index) => {
+              const originalIndex = tableEditBudgetData.findIndex(originalRow => 
+                originalRow.ad_account_id === item.ad_account_id && 
+                originalRow.page_name === item.page_name
+              );
+              return originalIndex === i
+                ? {
+                    ...item,
+                    status: `Error ❌ (Invalid Budget)`,
+                  }
+                : item;
+            })
+          );
+          addMessage([
+            `[${getCurrentTime()}] ❌ Error for page "${page_name}" in ad account: ${ad_account_id}: Invalid new_budget "${new_budget}". Please provide a positive number.`,
+          ]);
+          continue; // Skip to the next row
+        }
+
+        const requestData = {
+          ad_account_id,
+          user_id,
+          access_token,
+          campaign_name: page_name, // Send page_name as campaign_name for backend compatibility
+          new_budget: parsedBudget,
+          item_name: row.item_name || "",
+          campaign_code: row.campaign_code || "",
+        };
+
+        try {
+          addMessage([
+            `[${getCurrentTime()}] ⏳ Attempting to update budget for page "${page_name}" to ${new_budget} in ad account: ${ad_account_id}`,
+          ]);
+    
+          const response = await fetch(`${apiUrl}/api/v1/campaign/editbudget`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              skip_zrok_interstitial: "true",
+            },
+            body: JSON.stringify(requestData),
+          });
+    
+          if (!response.ok) {
+            const errorResponse = await response.json();
+            throw new Error(errorResponse.message || `Request failed with status ${response.status}`);
+          }
+    
+          const responseData = await response.json();
+          
+          setTableEditBudgetData(prevData =>
+            prevData.map((item, index) => {
+              const originalIndex = tableEditBudgetData.findIndex(originalRow => 
+                originalRow.ad_account_id === item.ad_account_id && 
+                originalRow.page_name === item.page_name
+              );
+              return originalIndex === i
+                ? {
+                    ...item,
+                    status: `Success ✅ (Budget Updated)`,
+                  }
+                : item;
+            })
+          );
+
+          // Only print the backend's response message (if present)
+          if (responseData.message) {
+            addMessage([responseData.message]);
+          } else {
+            addMessage([`[${getCurrentTime()}] ✅ Budget updated for page "${page_name}" in ad account: ${ad_account_id}.`]);
+          }
+    
+          // Optional delay between requests to avoid rate limiting
+          await new Promise(resolve => setTimeout(resolve, 1000));
+    
+        } catch (error) {
+          setTableEditBudgetData(prevData =>
+            prevData.map((item, index) => {
+              const originalIndex = tableEditBudgetData.findIndex(originalRow => 
+                originalRow.ad_account_id === item.ad_account_id && 
+                originalRow.page_name === item.page_name
+              );
+              return originalIndex === i
+                ? {
+                    ...item,
+                    status: `Error ❌ (${error.message})`,
+                  }
+                : item;
+            })
+          );
+    
+          addMessage([
+            `[${getCurrentTime()}] ❌ Error for page "${page_name}" in ad account: ${ad_account_id}: ${error.message}`,
+          ]);
+        }
+      }
+      addMessage([`[${getCurrentTime()}] All budget update operations completed.`]);
+    } catch (error) {
+      addMessage([`[${getCurrentTime()}] ❌ Error occurred while validating campaign codes: ${error.message}`]);
+    }
+  };
+
+  // Add verifyCampaignCodes function
+  const verifyCampaignCodes = async (campaignCodes, addMessage) => {
+    try {
+      const user = getUserData();
+      if (!user || !user.id) {
+        throw new Error("User is not logged in or user ID is missing.");
+      }
+      const user_id = user.id;
+
+      const response = await fetch(`${apiUrl}/api/v1/verify/campaign-code`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ user_id, campaign_codes: campaignCodes }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        const { existing_codes, missing_codes } = result;
+
+        if (existing_codes.length > 0) {
+          // console.log(`✅ Existing campaign codes: ${existing_codes.join(", ")}`);
+        }
+
+        if (missing_codes.length > 0) {
+          // console.warn(`❌ Missing campaign codes: ${missing_codes.join(", ")}`);
+        }
+
+        if (addMessage) {
+          addMessage([
+            `[${getCurrentTime()}] Verified campaign codes: ${
+              existing_codes.length
+            } found, ${missing_codes.length} missing.`,
+          ]);
+        }
+      } else {
+        const errorMsg =
+          result.message || "An error occurred while verifying campaign codes.";
+        if (addMessage) {
+          addMessage([`⚠️ ${errorMsg}`]);
+        }
+      }
+    } catch (error) {
+      if (addMessage) {
+        addMessage([`❌ Failed to verify campaign codes: ${error.message}`]);
       }
     }
-    addMessage([`[${getCurrentTime()}] All budget update operations completed.`]);
   };
 
   // Update validateCSVHeaders to use page_name
