@@ -96,8 +96,10 @@ def fetch_campaign(user_id, ad_account_id, access_token, matched_schedule):
             return f"Error fetching campaign data for {ad_account_id}: {error_msg}"
 
         # Fetch CPP data before processing campaigns
-        cpp_campaign_data = get_cpp_from_insights(ad_account_id, access_token, "campaign")
-        cpp_adset_data = get_cpp_from_insights(ad_account_id, access_token, "adset")
+        cpp_date_start = matched_schedule.get("cpp_date_start", datetime.now().strftime("%Y-%m-%d"))
+        cpp_date_end = matched_schedule.get("cpp_date_end", datetime.now().strftime("%Y-%m-%d"))
+        cpp_campaign_data = get_cpp_from_insights(ad_account_id, access_token, "campaign", cpp_date_start, cpp_date_end)
+        cpp_adset_data = get_cpp_from_insights(ad_account_id, access_token, "adset", cpp_date_start, cpp_date_end)
 
         for campaign in campaigns_data.get("data", []):
             campaign_id = campaign["id"]
