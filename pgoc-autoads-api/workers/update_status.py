@@ -267,9 +267,12 @@ def process_adsets(user_id, ad_account_id, access_token, schedule_data, campaign
                             target_status = "PAUSED"
                             reason = f"CPP ${adset_cpp:.2f} >= threshold ${cpp_metric} - turning OFF"
                         else:
-                            # CPP is below threshold, should stay ACTIVE or turn ON if paused
-                            target_status = "ACTIVE"
-                            reason = f"CPP ${adset_cpp:.2f} < threshold ${cpp_metric} - should be ON"
+                            # CPP is below threshold, do not turn ON, just leave as is
+                            append_redis_message_adsets(
+                                user_id,
+                                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {adset_name}: CPP ${adset_cpp:.2f} < threshold ${cpp_metric} - will remain {current_status}"
+                            )
+                            continue
                             
                     elif on_off == "ON":
                         # ON mode: Turn ON adsets with CPP < threshold, turn OFF those with CPP >= threshold
