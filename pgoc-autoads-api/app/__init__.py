@@ -75,7 +75,7 @@ def seed_regions():
 def seed_cities():
     """Seed the database with city data if not already present."""
     cities_data = [
-        {"city_name": "Cebu City","city_key": 1735759,"country_code": "PH"},
+        {"city_name": "Cebu","city_key": 1735759,"country_code": "PH"},
         
     ]
 
